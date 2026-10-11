@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessName, ParsedTurn } from '../src/types.ts'
@@ -131,4 +131,16 @@ test('Harbor\'s validator accepts the ATIF document', { skip: !hasHarbor && 'Har
   writeFileSync(file, JSON.stringify(toAtif(loadRun(RUN_DIR, parseTurn))))
   const out = spawnSync(harborPython, ['-I', '-m', 'harbor.utils.trajectory_validator', file], { encoding: 'utf8' })
   assert.equal(out.status, 0, out.stdout + out.stderr)
+})
+
+test('a turn with no parsed items keeps its usage as step metrics', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
+  cpSync(RUN_DIR, dir, { recursive: true })
+  const file = join(dir, 'nodes', 'impl', 'turn-1.jsonl')
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), items: [] }))
+  const out = toAtif(loadRun(dir, parseTurn)) as Obj
+  assert.deepEqual(checkAtif(out), [])
+  const impl = out.subagent_trajectories.find((t: Obj) => t.trajectory_id === `${out.session_id}/impl`)
+  const prompt = impl.steps.filter((s: Obj) => s.metrics).reduce((n: number, s: Obj) => n + s.metrics.prompt_tokens, 0)
+  assert.equal(prompt, impl.final_metrics.total_prompt_tokens)
 })

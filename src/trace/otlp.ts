@@ -106,6 +106,10 @@ export function toOtlp(run: LoadedRun): object {
     }, t.ended?.error ?? interrupted, t.ended?.error ? 'ERROR' : 'WARNING')
     const items = t.parsed.items
     const lastGeneration = items.findLastIndex((i) => i.kind === 'message' && i.role === 'assistant')
+    const usage = t.usage && {
+      'langfuse.observation.usage_details': usageDetails(t.usage),
+      'langfuse.observation.cost_details': t.usage.costUsd === undefined ? undefined : { total: t.usage.costUsd },
+    }
     let prevAt = t.startedAt
     items.forEach((item, i) => {
       const at = item.at ?? prevAt
@@ -114,10 +118,7 @@ export function toOtlp(run: LoadedRun): object {
           'gen_ai.request.model': item.model ?? t.model,
           'langfuse.observation.output': item.text,
           'langfuse.observation.metadata.reasoning': item.reasoning,
-          ...(i === lastGeneration && t.usage ? {
-            'langfuse.observation.usage_details': usageDetails(t.usage),
-            'langfuse.observation.cost_details': t.usage.costUsd === undefined ? undefined : { total: t.usage.costUsd },
-          } : {}),
+          ...(i === lastGeneration ? usage : {}),
         })
       } else if (item.kind === 'tool_call') {
         const result = items.find((r) => r.kind === 'tool_result' && r.callId === item.id)
@@ -130,6 +131,10 @@ export function toOtlp(run: LoadedRun): object {
       }
       prevAt = at
     })
+    // A turn with no assistant text (only tool calls and the structured result) still used the model.
+    if (lastGeneration < 0 && usage) {
+      span(`usage/${key}`, turnSpan, 'generation', 'generation', t.startedAt, t.endedAt, { 'gen_ai.request.model': t.model, ...usage })
+    }
   }
 
   for (const node of view.nodes) {

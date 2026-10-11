@@ -3,9 +3,12 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { IncomingHttpHeaders } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessName, ParsedTurn } from '../src/types.ts'
-import { exportOtlp, postOtlp } from '../src/trace/otlp.ts'
+import { exportOtlp, postOtlp, toOtlp } from '../src/trace/otlp.ts'
+import { loadRun } from '../src/trace/run.ts'
 
 // See trace-atif.test.ts for what the fixture run contains.
 const RUN_DIR = join(import.meta.dirname, 'fixtures', 'trace-run')
@@ -125,4 +128,21 @@ test('postOtlp throws with the response body when Langfuse rejects the batch', a
 
 test('exportOtlp names the missing Langfuse variables', async () => {
   await assert.rejects(exportOtlp(RUN_DIR, parseTurn, {}), /LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY/)
+})
+
+test('a turn without assistant text keeps its usage and cost', () => {
+  // Turns whose output is only tool calls plus the structured result are common for Codex and Claude.
+  const dir = mkdtempSync(join(tmpdir(), 'murm-otlp-'))
+  cpSync(RUN_DIR, dir, { recursive: true })
+  const file = join(dir, 'nodes', 'impl', 'turn-1.jsonl')
+  const turn = JSON.parse(readFileSync(file, 'utf8'))
+  turn.items = turn.items.filter((i: Span) => i.kind !== 'message')
+  writeFileSync(file, JSON.stringify(turn))
+
+  const payload = toOtlp(loadRun(dir, parseTurn)) as Span
+  const spans: Span[] = payload.resourceSpans[0].scopeSpans[0].spans
+  const sum = (key: string, field: string) => spans
+    .map((s) => attr(s, key)).filter(Boolean).reduce((n, v) => n + JSON.parse(v)[field], 0)
+  assert.equal(sum('langfuse.observation.usage_details', 'total'), 4510 + 5220)
+  assert.equal(sum('langfuse.observation.cost_details', 'total'), 0.0123 + 0.0061)
 })

@@ -108,7 +108,9 @@ function addTurn(add: (s: StepInput) => Step, t: TurnView): void {
       }
     }
   }
-  if (last && t.usage) last.metrics = metrics(t.usage)
+  if (!t.usage) return
+  // A turn with no parsed agent output still used the model: keep its usage on an empty agent step.
+  ;(last ?? add({ source: 'agent', timestamp: t.endedAt, model_name: t.model, message: '' })).metrics = metrics(t.usage)
 }
 
 function nodeTrajectory(runId: string, node: NodeView): object {
