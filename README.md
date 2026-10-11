@@ -5,7 +5,8 @@ Lead agents plan and split the work; workers (Claude Code, Codex, Pi or your own
 keeps everything moving, delivers messages between levels, and recovers after a crash.
 
 - **Local only.** One supervisor process per run, state in `.murm/runs/<id>/` as plain files.
-- **No runtime dependencies.** Node 22.18 or later runs the TypeScript sources directly.
+- **Few dependencies.** Node 22.19 or later runs the TypeScript sources directly; only the lead runner
+  depends on Pi's durable runtime.
 - **Any worker.** Workers sit behind a small adapter interface and run in turns: a message waits in an
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.

@@ -2,7 +2,8 @@
 
 Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries and roadmap.
 
-- **No runtime dependencies.** Use Node built-ins. Ask before adding any package, including dev dependencies.
+- **Few dependencies.** Use Node built-ins. The lead runner alone may use the pinned Pi packages
+  (`@earendil-works/pi-durable`, `pi-ai`, `chord`). Ask before adding any other package.
 - **Keep it small.** Implement the current roadmap slice; no speculative options, plugins or abstractions.
 - **Contracts live in `src/types.ts`.** Changing one changes a boundary: update every side and the design in
   the same change.
