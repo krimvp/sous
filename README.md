@@ -15,7 +15,9 @@ moving, delivers messages between levels, and recovers after a crash.
 
 Status: v4 works: give `sous run` a goal and a lead agent splits it into workers and checks, answers their
 questions, and asks you when it cannot. Workers run in parallel in their own git worktrees and their work is
-merged into one result branch, with conflicts resolved by an integrator agent. Leads may define new agents on the
+merged into one result branch, with conflicts resolved by an integrator agent; outside a git repository the
+workers' files are collected into an output folder instead. Leads may look at files before they split, and may
+define new agents on the
 runtimes and models you allow. If the run stops or crashes, `sous resume` continues it without repeating
 finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and `gate`
 nodes also run. Read [docs/design.md](docs/design.md).
@@ -38,11 +40,15 @@ Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~
 Code, else Codex, else Pi, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
-The workspace must be a git repository with at least one commit. Each work node runs in its own git worktree,
-in parallel with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one
-merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
+In a git repository (it needs at least one commit), each work node runs in its own git worktree, in parallel
+with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
 (Codex, else Claude, else Pi; or a graph agent named `integrator`) that resolves it in the integration worktree.
 Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
+
+Anywhere else, or without git, sous uses folder mode on its own; good for research and summaries of many
+documents. Workers read the workspace and write their files in their own folders, which are collected into
+`.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
+first as `<name>.<node>.<ext>`. Your files are only read; `sous status` names the output folder.
 
 Or give it a fixed graph file:
 

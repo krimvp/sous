@@ -34,11 +34,11 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 | Field | Kinds | Meaning |
 |---|---|---|
 | `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person` and `integrator` are reserved |
-| `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `sous approve`) |
+| `kind` | all | `work` (agent in its own worktree or folder), `check` (shell command, exit 0 passes, runs on the merged result or in the output folder), `lead` (splits work), `gate` (waits for `sous approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
 | `command` | check, work | a check's command, or a work node's acceptance check |
-| `needs` | all | node IDs that must complete first (work nodes: once merged); any nodes in the file, without cycles. A lead's children may only need earlier siblings |
+| `needs` | all | node IDs that must complete first (work nodes: once merged or collected); any nodes in the file, without cycles. A lead's children may only need earlier siblings |
 | `agent`, `model` | work, lead | which agent; a model for this node only |
 
 Leads have no `command`; a deterministic gate under a lead is a `check` child.
@@ -46,7 +46,8 @@ Leads have no `command`; a deterministic gate under a lead is a `check` child.
 ## What leads can do
 
 Tools: `spawn`, `send` (queue or interrupt), `note` (shared with the subtree), `cancel`, `complete`, `fail`,
-`escalate` (to the parent lead, or to the person). In `spawn`, a child's `agent` is a name, or a new agent
+`escalate` (to the parent lead, or to the person), and read-only `list_files` and `read_file` (the workspace plus the
+results so far; in folder mode under `workspace/` and `results/`). In `spawn`, a child's `agent` is a name, or a new agent
 `{ "name", "runs", "model"?, "instructions"? }` on a runtime listed in `models` (model from that list, default
 its first). New agents exist for the rest of the run.
 
@@ -57,14 +58,16 @@ its first). New agents exist for the rest of the run.
   events.jsonl          the run's only state (one JSON event per line)
   nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn
   leads/<node>/         each lead's durable conversation
-  integration/          worktree of branch sous/<run-id> (the result)
-  worktrees/<node>/     each worker's worktree, branch sous/<run-id>.<node>
+  integration/          git mode: worktree of branch sous/<run-id> (the result)
+  worktrees/<node>/     git mode: each worker's worktree, branch sous/<run-id>.<node>
+  output/               folder mode: the result, the workers' files collected
+  work/<node>/          folder mode: each worker's own folder
   commands/             answer/approve/cancel requests waiting for the supervisor
   trace.atif.json       after `sous export atif`
 ```
 
 ## Events worth grepping
 
-`turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.turn` (leads), `check.ended`,
-`merge.queued`/`merge.done`/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
+`turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
+`merge.queued`/`merge.done` (with `files`; in folder mode a collection)/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
 `person`), `node.completed`/`node.failed`/`node.cancelled`, `run.resumed`, `run.completed`/`run.failed`.

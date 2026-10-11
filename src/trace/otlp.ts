@@ -195,6 +195,15 @@ export function toOtlp(run: LoadedRun): object {
           'sous.tool.call_id': e.callId,
           'sous.tool.ok': e.ok,
         }, e.ok ? undefined : 'call refused', 'WARNING'))
+      } else if (e.type === 'lead.read') {
+        const chain = running.at(-1)
+        if (chain) chain.lastAt = e.at
+        span(`read/${spec.id}/${e.seq}`, chain?.span.spanId ?? nodeSpan, e.tool, 'tool', e.at, e.at, {
+          'langfuse.observation.input': { path: e.path, offset: e.offset },
+          'langfuse.observation.output': e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`,
+          'sous.tool.call_id': e.callId,
+          'sous.read.bytes': e.bytes,
+        }, e.refused, 'WARNING')
       } else if (e.type === 'lead.turn') {
         const inRunning = running.some((c) => c.requestId === e.requestId)
         const ended = inRunning ? running : queued.filter((c) => c.requestId === e.requestId)

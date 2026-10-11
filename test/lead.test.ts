@@ -12,7 +12,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@ear
 import { createRegistry, Harness } from '@earendil-works/pi-durable'
 import { openNodeJsonlStorage } from '@earendil-works/pi-durable/storage/jsonl/node'
 import { openLeadRunner } from '../src/lead/runner.ts'
-import type { LeadCall, LeadHost } from '../src/types.ts'
+import type { LeadCall, LeadHost, LeadRead } from '../src/types.ts'
 
 const fixture = join(import.meta.dirname, 'fixtures', 'lead-proc.ts')
 
@@ -23,16 +23,20 @@ function fauxModels() {
   return { faux, models, model: `${faux.provider.id}/${faux.getModel().id}` }
 }
 
-const toolCall = (tool: LeadCall['tool'], args: Parameters<typeof fauxToolCall>[1], id: string) =>
+const toolCall = (tool: LeadCall['tool'] | LeadRead['tool'], args: Parameters<typeof fauxToolCall>[1], id: string) =>
   fauxAssistantMessage([fauxToolCall(tool, args, { id })], { stopReason: 'toolUse' })
 
 function fakeHost() {
-  const calls: { node: string; callId: string; call: LeadCall }[] = []
+  const calls: { node: string; callId: string; call: LeadCall | LeadRead }[] = []
   const settled: { node: string; turn: Parameters<LeadHost['settled']>[1] }[] = []
   const host: LeadHost = {
     act(node, callId, call) {
       calls.push({ node, callId, call })
       return `${call.tool} ok`
+    },
+    read(node, callId, call) {
+      calls.push({ node, callId, call })
+      return `${call.tool} of ${call.path ?? '.'}: hello`
     },
     settled(node, turn) { settled.push({ node, turn }) },
   }
@@ -88,6 +92,28 @@ test('a delivery makes the lead spawn then complete, and its answer is reported 
     cachedTokens: total.cacheRead,
     cacheWriteTokens: total.cacheWrite,
   })
+})
+
+test('a lead can list and read files through the host before it acts; the model sees what the host returned', async () => {
+  const { faux, models, model } = fauxModels()
+  let seen: string[] = []
+  faux.setResponses([
+    fauxAssistantMessage([fauxToolCall('list_files', {}, { id: 'call-1' }), fauxToolCall('read_file', { path: 'notes.md', offset: 10 }, { id: 'call-2' })], { stopReason: 'toolUse' }),
+    (context) => {
+      seen = context.messages.flatMap((m) => (m.role === 'toolResult' ? [contentText(m.content)] : []))
+      return fauxAssistantMessage([fauxText('Looked.')])
+    },
+  ])
+  const { host, calls, settled } = fakeHost()
+  const runner = openLeadRunner({ runDir: tempRunDir(), host, models })
+  await runner.deliver('lead', 'Goal: look first.', { requestId: 'lead:brief', mode: 'queue', model })
+  await until(() => settled.length === 1)
+  await runner.close()
+  assert.deepEqual(calls, [
+    { node: 'lead', callId: 'call-1', call: { tool: 'list_files' } },
+    { node: 'lead', callId: 'call-2', call: { tool: 'read_file', path: 'notes.md', offset: 10 } },
+  ])
+  assert.deepEqual(seen, ['list_files of .: hello', 'read_file of notes.md: hello'])
 })
 
 test('an interrupt delivery steers the running lead within the same run', async () => {

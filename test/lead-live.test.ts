@@ -33,6 +33,7 @@ test('live: a lead spawns two children, receives their outcomes and completes', 
       }
       return 'ok'
     },
+    read: () => 'refused: no files in this test',
     settled(node, turn) {
       turns.push(turn)
       if (turn.requestId !== 'lead:brief') return

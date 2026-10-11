@@ -9,13 +9,11 @@ import type { Event } from '../../src/types.ts'
 
 const SOUS = new URL('./sous-fake.ts', import.meta.url).pathname
 
-const GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
-
 /** A directory with stand-ins for the harness commands `names`, so the agents that run them count as available,
- * and the real git. The stand-ins are never run: the fake adapter runs every worker. */
-export function fakeBin(names = ['claude', 'codex', 'pi']): string {
+ * and the real `tools` (by default only git). The stand-ins are never run: the fake adapter runs every worker. */
+export function fakeBin(names = ['claude', 'codex', 'pi'], tools = ['git']): string {
   const dir = mkdtempSync(join(tmpdir(), 'sous-bin-'))
-  symlinkSync(GIT, join(dir, 'git'))
+  for (const tool of tools) symlinkSync(execFileSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim(), join(dir, tool))
   for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
   return dir
 }

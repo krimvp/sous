@@ -26,7 +26,7 @@ cooks do it (workers), and plates are checked at the pass (merges and checks).
 
 ## Out of scope for now
 
-No sandbox (workers run as the user's own CLIs, in a git worktree), no web UI, no multi-host execution,
+No sandbox (workers run as the user's own CLIs, in a git worktree or their own folder), no web UI, no multi-host execution,
 no remote pushes or PRs, no message service. These can come later behind the seams below.
 
 Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
@@ -48,8 +48,8 @@ engine can be tested without a lead.
 
 | Kind | Run by | Purpose |
 |---|---|---|
-| `lead` | an LLM with orchestration tools only | splits its node into children, reacts to events, completes itself |
-| `work` | a worker adapter (Claude, Codex, Pi, custom) | does the work in a git worktree |
+| `lead` | an LLM with orchestration tools and read-only file tools | splits its node into children, reacts to events, completes itself |
+| `work` | a worker adapter (Claude, Codex, Pi, custom) | does the work (code, research, writing, analysis) in a git worktree or its own folder |
 | `check` | a shell command | deterministic gate; exit code 0 passes |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
 | `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
@@ -127,9 +127,10 @@ reopened lead continues where it stopped.
 - **Events reach a lead as submissions:** a follow-up when it is idle, a steer when it must change course
   now (its own `queue` and `interrupt`). Each carries a `requestId` derived from the event's `seq`, so
   redelivery after a crash is ignored.
-- **Its only tools are the orchestration tools below**, offered through one extension. Each is
-  `replay: "safe"`, keyed by the model's tool call ID, and **returns the original result on replay**: in
-  the spike, a different replay result made the model stop early.
+- **Its only tools are the orchestration tools and two read-only file tools below**, offered through one
+  extension. Each is `replay: "safe"`, keyed by the model's tool call ID. An orchestration tool **returns the
+  original result on replay**: in the spike, a different replay result made the model stop early. A read
+  changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
   (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
   from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
@@ -146,6 +147,14 @@ Its tools:
 | `cancel(node)` | cancel a child subtree |
 | `complete(summary)` / `fail(reason)` | finish this node |
 | `escalate(question)` | ask the parent (the root's parent is the person) |
+| `list_files(path?)` / `read_file(path, offset?)` | look at the workspace and the results so far before splitting (read only) |
+
+**Reading files.** Leads do no work, but they may look before they split. The files are the results worktree in git
+mode (the workspace as committed plus the work merged so far; paths relative to it) and, in folder mode, `workspace/`
+(the inputs) and `results/` (the output folder). Real paths are checked: anything outside these roots, through `..` or
+a symbolic link, is refused. Listings are recursive, leave out `.git`, `.sous` and `node_modules`, and stop at 200
+entries; a read returns at most 32 KB of text (`offset` reads on) and refuses files with NUL bytes. Each read is
+recorded as `lead.read` with its path and byte count, not its text, and shows in the traces as a tool call.
 
 A lead ends its turn by answering, not with a tool; the next delivery wakes it. Each tool call is
 validated against policy and appended as an event before the supervisor acts on it. The
@@ -169,7 +178,7 @@ later, when an agent the supervisor did not launch needs to take part.
 
 ## Leads
 
-The contracts are `ChildSpec`, `LeadCall`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
+The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
 events in `src/types.ts`.
 
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
@@ -180,7 +189,8 @@ Agents). A lead's first delivery is its brief, with request ID `<node>:brief`.
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
 before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
 
-- a child's outcome: completed with its summary, failed with its reason;
+- a child's outcome: completed with its summary and the files it added to the results (at most 20 named, and any
+  renamed in folder mode), failed with its reason;
 - a question from a child (a worker's `needs_input` or `blocked` result, or a child lead's `escalate`);
 - a message sent to it by its parent or by the person (`sous answer`).
 
@@ -269,9 +279,13 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 
 ## Merging
 
-Every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The workspace
-must be a git repository with at least one commit; when it is not, the run fails with that reason before the first
-work or check node starts.
+A run's mode is decided once, when it is created, and recorded in `run.created.mode` so `sous resume` keeps it (a log
+without it is git mode). **Git mode** applies when `git` runs and the workspace is inside a git work tree; otherwise the
+run uses **folder mode** (below), with no setting either way.
+
+In git mode every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The
+workspace must be a git repository with at least one commit; when it is not, the run fails with that reason before the
+first work or check node starts.
 
 1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`
@@ -309,7 +323,8 @@ work or check node starts.
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
 6. **The result** is branch `sous/<run>`. Merging it into the person's own branch is their decision; `sous
-   status` and the end of `sous run` name the branch.
+   status` and the end of `sous run` name the branch. `merge.done.files` lists the files the node's commits changed,
+   so its lead hears them with its outcome.
 7. **Traces.** Worktree and merge events are system steps in the node's ATIF trajectory and spans under the
    node in Langfuse; the integrator is its own trajectory under the root.
 
@@ -318,6 +333,23 @@ are appended only when the branch was newly created; on resume the existing work
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
 usual; queued merges continue in order.
+
+### Folder mode
+
+For non-code work and machines without git. Nothing runs git.
+
+1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node gets an empty folder,
+   `.sous/runs/<run>/work/<node>/`, as its working directory; its brief names the workspace (inputs: read, do not
+   modify) and the output folder (results of earlier nodes: read only), and says to write its own files where it is.
+   Its acceptance check runs in its folder; `check` nodes run in the output folder.
+2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
+   (not `.git`, `.sous`, `node_modules` or symbolic links) are copied into the output folder by relative path. A file
+   that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
+   different file is there, both are kept: the new one is written as `<name>.<node>.<ext>`. Then `merge.done`
+   (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead hears both.
+3. **Nothing git-specific applies:** no integrator, no conflict markers, no withdrawal from the queue, no reset. A
+   collection that fails (for example, a full disk) is `merge.failed`.
+4. **The result** is the output folder; `sous status` and the end of `sous run` name it.
 
 ## Recovery
 
@@ -441,8 +473,10 @@ run or an older one.
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
-  integration/         git worktree of branch sous/<run-id>, where merges and check nodes run
-  worktrees/<node-id>/ git worktree of branch sous/<run-id>.<node-id> for a work node
+  integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
+  worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node
+  output/              folder mode: the results, where collected files land and check nodes run
+  work/<node-id>/      folder mode: a work node's own folder
   trace.atif.json      written by sous export atif
 ```
 
@@ -462,6 +496,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 | **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
+| **v5** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -501,6 +536,13 @@ v4 was verified on 2026-10-11 with a real run (lead on `ollama-cloud/deepseek-v4
 Pi with the lead's instructions in its prompt, the work merged, the check passed, and Harbor's validator
 accepted the ATIF file. A lead choosing a non-default listed model, and `--max-depth`, are covered by
 fake-runner tests only.
+
+v5 was verified on 2026-10-11 with a real run in a directory outside any git repository (lead on
+`ollama-cloud/deepseek-v4.1-flash`, workers on Pi): the lead listed and read the two input files before it spawned two
+parallel summary children, a third child that needed them, and a check; each child's file was collected into the output
+folder and named in its outcome, the check passed there, the lead read the results before completing, and the exported
+ATIF file passed the test checker. A run with no `git` on `PATH`, a renamed clash, and collecting again on resume are
+covered by fake-harness tests only.
 
 ## Open questions
 

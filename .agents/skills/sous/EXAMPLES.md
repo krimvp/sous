@@ -10,6 +10,17 @@ sous run --agents agents.json "Add input validation to src/cli.js with unit test
 Finish with a check that runs: node --test"
 ```
 
+## Research over many documents (folder mode)
+
+From a folder of documents that is not a git repository, sous collects the workers' files into
+`.sous/runs/<id>/output/`:
+
+```bash
+cd ~/reports
+sous run "Summarise each document here in its own Markdown file, then write overview.md from those summaries. \
+Use agent pi for workers. Finish with a check that runs: test -s overview.md"
+```
+
 ## Fixed steps: writer, reviewer, check, approval
 
 ```json

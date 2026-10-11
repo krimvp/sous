@@ -1,6 +1,6 @@
 ---
 name: sous
-description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex or Pi workers do the work in git worktrees, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
+description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex or Pi workers do the work (code, research, writing) in git worktrees or their own folders, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
 ---
 
 # sous
@@ -16,14 +16,16 @@ M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill 
 
 ## Quick start
 
-Run from the git repository the agents should work in (it needs at least one commit):
+Run from the directory the agents should work in: a git repository (with at least one commit) for code, or any
+folder (folder mode, automatic when it is not in a git repository):
 
 ```bash
 $M run "Add a --precision N option to the CLI, with tests and a check that node --test passes"
 ```
 
 A lead (default `ollama-cloud/deepseek-v4.1-flash`) splits the goal into workers, checks and sub-leads. The
-result lands on branch `sous/<run-id>`; the person's own branch is never touched.
+result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
+`.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting.
 
 ## Workflow
 
@@ -42,8 +44,8 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
    - `$M resume`: continue after Ctrl-C or a crash; finished turns, spawns and merges are not repeated, and
      recorded check results are kept (a check still running when the supervisor stopped runs again).
-6. **Check the result yourself** on `sous/<run-id>` (run the tests, try the program) before telling the user
-   it works. Merging that branch into their branch is the user's decision.
+6. **Check the result yourself** on `sous/<run-id>` or in the output folder (run the tests, try the program,
+   read the files) before telling the user it works. Merging that branch into their branch is the user's decision.
 7. **Export traces** if asked: `$M export atif` (writes `.sous/runs/<id>/trace.atif.json`) or `$M export otlp`
    (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`).
 
@@ -51,7 +53,7 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
 
 - Agents that exist: built-ins `claude`, `codex`, `pi`, `lead`, plus what the run defines. The run prints
   `agents: …; not available: …` at start; a CLI must be on PATH and logged in.
-- Workers run with full permissions inside their own worktree. Say so if the user has not accepted that.
+- Workers run with full permissions inside their own worktree or folder. Say so if the user has not accepted that.
 - Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.
 - Prefer cheap models for experiments (`pi` on Ollama models, the default lead).

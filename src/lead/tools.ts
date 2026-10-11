@@ -1,10 +1,10 @@
-// A lead's only tools, one per LeadCall variant, and its system prompt.
+// A lead's only tools, one per LeadCall and LeadRead variant, and its system prompt.
 import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
 import { RUNTIMES } from '../agents.ts'
-import type { LeadCall, LeadHost } from '../types.ts'
+import type { LeadCall, LeadHost, LeadRead } from '../types.ts'
 
 const strict = { additionalProperties: false }
 const NewAgent = Type.Object({
@@ -43,6 +43,19 @@ const schemas = {
   escalate: Type.Object({ question: Type.String() }, strict),
 } satisfies Record<LeadCall['tool'], TSchema>
 
+const PATH = 'Paths are relative, as list_files shows them; without a path it lists the top level. You may only read.'
+const readSchemas = {
+  list_files: Type.Object({ path: Type.Optional(Type.String({ description: 'A directory (or file) to list; default: the top level' })) }, strict),
+  read_file: Type.Object({
+    path: Type.String({ description: 'A text file, as list_files shows it' }),
+    offset: Type.Optional(Type.Integer({ minimum: 0, description: 'Byte to start from, to read on in a long file; default 0' })),
+  }, strict),
+} satisfies Record<LeadRead['tool'], TSchema>
+const readDescriptions: Record<LeadRead['tool'], string> = {
+  list_files: `List the files of the workspace and of the results so far, recursively, at most 200 entries (.git, .sous and node_modules are left out). ${PATH}`,
+  read_file: `Read up to 32 KB of a text file of the workspace or of the results so far; the answer says which offset reads on. ${PATH}`,
+}
+
 const descriptions: Record<LeadCall['tool'], string> = {
   spawn: 'Add children under your node. They start once their needs are met; their outcomes are delivered to you.',
   send: 'Message one of your children or your parent.',
@@ -53,7 +66,8 @@ const descriptions: Record<LeadCall['tool'], string> = {
   escalate: 'Ask your parent (or the person) a question you cannot answer yourself.',
 }
 
-const role = `You are a lead in sous. You cannot do work yourself: you have no files, shell or web, only the tools below.
+const role = `You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, only the tools below.
+- You may look at files with list_files and read_file before you decide how to split; keep it brief, your children do the work.
 - Split your goal into children with spawn. Give each a self-contained brief and acceptance criteria; use a check child for anything a command can verify.
 - After acting, end your turn by answering briefly. Each child's outcome, question or message wakes you as a new message.
 - Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.
@@ -61,7 +75,8 @@ const role = `You are a lead in sous. You cannot do work yourself: you have no f
 - Limits: at most 12 children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
 
 /** The orchestration extension of lead `node`. Every call goes to the host, which is idempotent per call ID, so a call
- * replayed after a crash returns exactly the original result: a different replay text made a model stop early. */
+ * replayed after a crash returns exactly the original result: a different replay text made a model stop early. Reads
+ * change nothing, so a replayed read simply reads again. */
 export function leadExtension(node: string, host: LeadHost): Extension {
   const tool = (name: LeadCall['tool']) => defineTool({
     name,
@@ -73,10 +88,21 @@ export function leadExtension(node: string, host: LeadHost): Extension {
       return { content: [{ type: 'text', text: host.act(node, api.callId, call) }] }
     },
   })
+  const reader = (name: LeadRead['tool']) => defineTool({
+    name,
+    description: readDescriptions[name],
+    parameters: readSchemas[name] as TSchema,
+    replay: 'safe',
+    execute: async (args, api) => {
+      const call = { tool: name, ...(args as object) } as LeadRead
+      return { content: [{ type: 'text', text: host.read(node, api.callId, call) }] }
+    },
+  })
   const names = Object.keys(schemas) as LeadCall['tool'][]
+  const readers = Object.keys(readSchemas) as LeadRead['tool'][]
   return defineExtension({
     name: 'sous-lead',
-    tools: names.map(tool),
+    tools: [...names.map(tool), ...readers.map(reader)],
     sections: [section('role', () => role, { tag: false })],
   })
 }

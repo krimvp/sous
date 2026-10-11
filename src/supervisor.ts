@@ -10,9 +10,11 @@ import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
   recoveryPrompt, resultReminder,
 } from './brief.ts'
+import { collect, listFiles, readText } from './files.ts'
+import type { Root } from './files.ts'
 import {
-  abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
-  resetTo, withConflictMarkers,
+  abortMerge, changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto,
+  mergeInProgress, resetTo, withConflictMarkers,
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
@@ -180,6 +182,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   }
   const commandsDir = join(runDir, 'commands')
   mkdirSync(commandsDir, { recursive: true })
+  // Folder mode (no git): each work node writes in its own folder, collected into the output folder when it is done.
+  const folder = fold(log.events).mode === 'folder'
+  const output = join(runDir, 'output')
+  const nodeFolder = (id: string) => join(runDir, 'work', id)
   let closed = false
   const inFlight = new Map<string, { spec: NodeSpec; done: Promise<void> }>()
   // Live process groups, so a stop request can reach them; `turn` is absent for shell checks.
@@ -232,6 +238,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (tree.base) log.append({ type: 'integration.created', branch: tree.branch, path: tree.path, base: tree.base })
     return (integration = tree)
   }
+  /** Where the results gather and check nodes run: the integration worktree (git mode) or the output folder (folder
+   * mode), created (or found again) before the first work or check node runs. */
+  const resultsDir = (): string => {
+    if (!folder) return integrationTree().path
+    mkdirSync(output, { recursive: true })
+    return output
+  }
 
   // ---- Leads ----------------------------------------------------------------------------------
 
@@ -246,6 +259,25 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       log.append({ type: 'lead.call', node, callId, call, ok: !why, result })
       wakeUp()
       return result
+    },
+    read(node, callId, call) {
+      if (closed) return 'refused: the run is over'
+      let text: string
+      let bytes = 0
+      let refused: string | undefined
+      try {
+        const roots: Root[] = folder ? [{ name: 'workspace', path: workspace }, { name: 'results', path: resultsDir() }] : [{ path: resultsDir() }]
+        if (call.tool === 'list_files') bytes = Buffer.byteLength(text = listFiles(roots, call.path))
+        else if (call.tool === 'read_file') ({ text, bytes } = readText(roots, call.path, call.offset ?? 0))
+        else throw new Error(`unknown tool ${String((call as { tool?: unknown })?.tool)}`)
+      } catch (err) {
+        refused = (err as Error).message
+        text = `refused: ${refused}`
+      }
+      const { tool, path } = call
+      const offset = call.tool === 'read_file' ? call.offset : undefined
+      log.append({ type: 'lead.read', node, callId, tool, ...(path !== undefined ? { path } : {}), ...(offset ? { offset } : {}), bytes, ...(refused ? { refused } : {}) })
+      return text
     },
     settled(node, turn) {
       const { requestId, status, text, model, usage } = turn
@@ -293,7 +325,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (typeof agent === 'string') return abandon(state, id, agent)
     if (lead.status === 'ready') {
       const depth = { at: ancestors(state, id).length + 1, max: state.maxDepth }
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depth, agent.instructions)
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depth, agent.instructions, state.mode)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
@@ -452,7 +484,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const ask = (spec: NodeSpec, result: TurnResult) =>
     log.append({ type: 'message', from: spec.id, to: spec.parent ?? PERSON, body: result.question ?? result.summary, mode: 'queue' })
 
-  /** Turns of a work node, in its own worktree, until it is queued for merging, fails, or waits for a message.
+  /** Turns of a work node, in its own worktree or folder, until it is queued for merging, fails, or waits for a message.
    * Messages that arrive meanwhile are delivered by resuming the session; a `done` counts only with an empty inbox.
    * A node still `running` after a restart continues from its last turn: a `done` is checked, and a turn
    * without a result is resumed with a recovery note (or started again from the brief without a session). */
@@ -463,9 +495,16 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const agent = agentOf(state, node)
     let sessionId = node.turns.findLast((t) => t.sessionId)?.sessionId
     const instructions = typeof agent === 'string' ? undefined : agent.instructions
-    const tree = createNodeWorktree(workspace, runId, runDir, spec.id, head(integrationTree().path))
-    if (tree.base) log.append({ type: 'worktree.created', node: spec.id, branch: tree.branch, path: tree.path, base: tree.base })
-    const brief = () => composeBrief(state.goal, spec, tree.path, notesFor(state, spec.id), node.inbox, instructions)
+    let cwd = nodeFolder(spec.id)
+    let branch: string | undefined
+    if (folder) mkdirSync(cwd, { recursive: true })
+    else {
+      const tree = createNodeWorktree(workspace, runId, runDir, spec.id, head(integrationTree().path))
+      if (tree.base) log.append({ type: 'worktree.created', node: spec.id, branch: tree.branch, path: tree.path, base: tree.base })
+      ;({ path: cwd, branch } = tree)
+    }
+    const folders = folder ? { workspace, output: resultsDir() } : undefined
+    const brief = () => composeBrief(state.goal, spec, cwd, notesFor(state, spec.id), node.inbox, instructions, folders)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
     let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
@@ -486,7 +525,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       let t: { result?: TurnResult; sessionId?: string; check?: CheckState }
       if (recorded) t = recorded
       else if (typeof agent === 'string') return fail(spec.id, agent)
-      else t = await runTurn(spec, agent, turn, prompt, tree.path, sessionId, recovery)
+      else t = await runTurn(spec, agent, turn, prompt, cwd, sessionId, recovery)
       recorded = undefined
       recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return
@@ -508,7 +547,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       if (t.result.status !== 'done') return // waits for a message to resume it
       if (spec.command) {
-        const c = t.check ?? await check(spec.id, spec.command, tree.path)
+        const c = t.check ?? await check(spec.id, spec.command, cwd)
         if (stopping || isFinal(nodeNow(spec.id))) return
         // Messages that arrived during the check come first (an urgent one stopped the check); no fix round is spent.
         inbox = nodeNow(spec.id).inbox
@@ -525,14 +564,15 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
           continue
         }
       }
-      commitAll(tree.path, `${spec.id}: ${t.result.summary}`)
-      return void log.append({ type: 'merge.queued', node: spec.id, branch: tree.branch })
+      if (folder) return void log.append({ type: 'merge.queued', node: spec.id })
+      commitAll(cwd, `${spec.id}: ${t.result.summary}`)
+      return void log.append({ type: 'merge.queued', node: spec.id, branch })
     }
   }
 
   const runCheckNode = async (spec: NodeSpec) => {
     // After a restart, a check whose outcome was recorded settles from it (a check node runs its command once).
-    const c = nodeNow(spec.id).checks.at(-1) ?? await check(spec.id, spec.command!, integrationTree().path)
+    const c = nodeNow(spec.id).checks.at(-1) ?? await check(spec.id, spec.command!, resultsDir())
     if (stopping || isFinal(nodeNow(spec.id))) return
     if (c.exitCode === 0) complete(spec.id, 'check passed')
     else fail(spec.id, `check exited ${c.exitCode}`)
@@ -546,12 +586,24 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     log.append({ type: 'merge.failed', node: id, reason })
   }
 
-  /** Merge the first node of the queue into the integration worktree: one merge at a time, in queue order. */
+  /** Folder mode: add a finished node's files to the output folder. Collecting again after a crash changes nothing. */
+  const collectFiles = (spec: NodeSpec) => {
+    try {
+      const { files, renamed } = collect(nodeFolder(spec.id), resultsDir(), spec.id)
+      log.append({ type: 'merge.done', node: spec.id, by: files.length ? 'supervisor' : 'nothing', files, ...(Object.keys(renamed).length ? { renamed } : {}) })
+    } catch (err) {
+      if (!stopping && !isFinal(nodeNow(spec.id))) log.append({ type: 'merge.failed', node: spec.id, reason: `supervisor error: ${(err as Error).message}` })
+    }
+  }
+
+  /** Merge (or, in folder mode, collect) the first node of the queue into the results: one at a time, in queue order. */
   const mergeNext = async () => {
     const n = [...current().nodes.values()].filter((n) => n.status === 'merging').sort((a, b) => a.merge!.queued - b.merge!.queued)[0]
     if (!n) return
     const { spec } = n
-    const { branch, conflict } = n.merge!
+    if (folder) return collectFiles(spec)
+    const { conflict } = n.merge!
+    const branch = n.merge!.branch!
     const { path } = integrationTree()
     let onto = conflict?.onto
     try {
@@ -563,7 +615,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       // Messages that arrived while it waited come first: it leaves the queue and its worker resumes with them.
       if (onto === undefined && n.inbox.length) return void log.append({ type: 'merge.withdrawn', node: spec.id })
       if (onto === undefined) {
-        if (!hasChanges(path, branch)) return void log.append({ type: 'merge.done', node: spec.id, commit, by: 'nothing' })
+        if (!hasChanges(path, branch)) return void log.append({ type: 'merge.done', node: spec.id, commit, by: 'nothing', files: [] })
         onto = commit
         const r = merge(path, branch, `sous: merge ${spec.id}`)
         if (!r.ok) {
@@ -580,7 +632,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
           return await integrate(spec, onto)
         }
       }
-      log.append({ type: 'merge.done', node: spec.id, commit, by: 'supervisor' })
+      log.append({ type: 'merge.done', node: spec.id, commit, by: 'supervisor', files: changedFiles(path, onto, branch) })
     } catch (err) {
       if (stopping || isFinal(nodeNow(spec.id))) return
       try {
@@ -596,7 +648,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const n = state.nodes.get(id)!
     const merged = [...state.nodes.values()].filter((m) => m.status === 'completed' && m.merge).sort((a, b) => a.endSeq! - b.endSeq!).map((m) => m.spec)
     const files = n.merge!.conflict!.files
-    return mergeRequest(n.spec, n.merge!.branch, integrationTree().branch, files, merged, files.length ? undefined : n.turns.at(-1)?.check)
+    return mergeRequest(n.spec, n.merge!.branch!, integrationTree().branch, files, merged, files.length ? undefined : n.turns.at(-1)?.check)
   }
 
   /** Hand the node's merge to the integrator and verify its answer: no merge in progress, nothing left uncommitted, and
@@ -604,7 +656,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const integrate = async (spec: NodeSpec, onto: string) => {
     const id = spec.id
     const { path, branch } = integrationTree()
-    const { branch: nodeBranch, conflict } = nodeNow(id).merge!
+    const { conflict } = nodeNow(id).merge!
+    const nodeBranch = nodeNow(id).merge!.branch!
     if (!current().nodes.has(INTEGRATOR)) {
       const agent = integratorAgent(current().agents, unavailable)
       if (!agent) return mergeFailed(id, 'no agent is available for the integrator', onto)
@@ -653,7 +706,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         if (c.exitCode !== 0) why = `its check still fails (exit code ${c.exitCode}):\n${c.output.trimEnd()}`
       }
       if (isFinal(nodeNow(id))) continue
-      if (!why) return void log.append({ type: 'merge.done', node: id, commit: head(path), by: 'integrator' })
+      if (!why) return void log.append({ type: 'merge.done', node: id, commit: head(path), by: 'integrator', files: changedFiles(path, onto, nodeBranch) })
       if (requests() > 1) return mergeFailed(id, `not verified after a retry: ${why.split('\n')[0]}`, onto)
       request(`Node ${id} is not merged yet: ${why}\n\nFix it and commit, then report done again.`)
     }
@@ -709,7 +762,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // ---- Main loop ------------------------------------------------------------------------------
 
-  // The merge in progress, if any. It and check nodes take turns in the integration worktree.
+  // The merge (or collection) in progress, if any. It and check nodes take turns in the results.
   let merging: Promise<void> | undefined
   const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : [])]
 
@@ -788,10 +841,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         if (n.spec.kind === 'lead' || n.spec.kind === 'gate' || n.spec.standing || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue
         // `running` with nothing in flight: the node was running when the last supervisor stopped.
         if (n.status !== 'ready' && n.status !== 'running' && !(n.status === 'waiting' && n.inbox.length)) continue
-        // A check runs in the integration worktree, so not while a merge changes it.
+        // A check runs in the results, so not while a merge changes them.
         if (n.spec.kind === 'check' && merging) continue
         try {
-          integrationTree()
+          resultsDir()
         } catch (err) {
           log.append({ type: 'run.failed', reason: (err as Error).message })
           break

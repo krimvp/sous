@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { agentNames, agentSpec, checkAgents, whyUnavailable } from './agents.ts'
+import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
@@ -100,9 +101,12 @@ async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: num
   console.log(`run ${id} (${runDir})`)
 
   const unavailable = await agents(graph, deps)
+  // Decided once: a resumed run keeps the mode it was created with.
+  const mode = inWorkTree(workspace) ? 'git' : 'folder'
+  if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}) })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), mode })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -133,10 +137,15 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   return outcome === 'completed' ? 0 : 1
 }
 
-/** Names the branch that holds the run's merged work, once the run has one. */
+/** Where the run's results are: the branch that holds its merged work, once it has one, or its output folder. */
 function printResult(runDir: string): void {
-  const branch = fold(readEvents(runDir)).integration?.branch
-  if (branch) console.log(`result: branch ${branch}`)
+  const result = resultOf(fold(readEvents(runDir)), runDir)
+  if (result) console.log(`result: ${result}`)
+}
+
+function resultOf(state: RunState, runDir: string): string | undefined {
+  if (state.mode === 'folder') return existsSync(join(runDir, 'output')) ? `folder ${join(runDir, 'output')}` : undefined
+  return state.integration && `branch ${state.integration.branch}`
 }
 
 /** Check which agents can run, once per run start, and print it. */
@@ -189,15 +198,16 @@ function printEvent(e: Event): void {
     case 'message': text = `${e.from} -> ${e.to} (${e.mode})`; break
     case 'lead.delivered': text = `${e.node} <- ${e.requestId} (${e.mode})`; break
     case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
+    case 'lead.read': text = `${e.node} ${e.tool} ${e.path ?? '.'}${e.offset ? ` from ${e.offset}` : ''}: ${e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`}`; break
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
     case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
-    case 'merge.queued': text = `${e.node} ${e.branch}`; break
+    case 'merge.queued': text = `${e.node}${e.branch ? ` ${e.branch}` : ''}`; break
     case 'merge.withdrawn': text = `${e.node}: messages arrived; its worker resumes`; break
     case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
-    case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
+    case 'merge.done': text = `${e.node}${e.commit ? ` ${e.commit}` : ''} by ${e.by}${e.files ? `, ${e.files.length} files` : ''}`; break
     case 'merge.failed': text = `${e.node}: ${e.reason}`; break
     case 'run.completed': text = e.summary; break
     case 'run.failed': text = e.reason; break
@@ -233,7 +243,8 @@ function status(workspace: string, runId?: string): number {
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
   console.log(`run ${id} ${live}: ${state.goal}`)
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
-  if (state.integration) console.log(`  result: branch ${state.integration.branch}`)
+  const result = resultOf(state, runDir)
+  if (result) console.log(`  result: ${result}`)
   const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
   const print = (n: NodeState, depth: number) => {
     const turns = n.turns.length ? ` turns ${n.turns.length}` : ''

@@ -5,11 +5,11 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { CreateLeadRunner, LeadCall } from '../../src/types.ts'
+import type { CreateLeadRunner, LeadCall, LeadRead } from '../../src/types.ts'
 
 export interface FakeLeadStep {
-  /** Tool calls in order; `callId` defaults to <node>-<step>-<index>. */
-  calls?: (LeadCall & { callId?: string })[]
+  /** Tool calls in order, reads included; `callId` defaults to <node>-<step>-<index>. */
+  calls?: ((LeadCall | LeadRead) & { callId?: string })[]
   /** Wait before playing the step, leaving the delivery unanswered meanwhile. */
   sleepMs?: number
 }
@@ -60,7 +60,8 @@ export const fakeLeadRunner: CreateLeadRunner = ({ runDir, host }) => {
         if (l.plan[step]?.sleepMs) await sleep(l.plan[step].sleepMs)
         for (const [i, c] of (l.plan[step]?.calls ?? []).entries()) {
           const { callId = `${node}-${step}-${i}`, ...call } = c
-          record({ op: 'act', node, callId, result: host.act(node, callId, call as LeadCall) })
+          const read = call.tool === 'list_files' || call.tool === 'read_file'
+          record({ op: 'act', node, callId, result: read ? host.read(node, callId, call as LeadRead) : host.act(node, callId, call as LeadCall) })
         }
         host.settled(node, { requestId, status: 'done', text: `played step ${step}`, model: model ?? '' })
         record({ op: 'settled', node, requestId })
