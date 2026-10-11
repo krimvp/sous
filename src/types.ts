@@ -114,6 +114,56 @@ export interface WorkerAdapter {
   parse(raw: string): ParsedTurn
 }
 
+// ---- Leads (v1) ------------------------------------------------------------------------------
+
+/** A child a lead asks for. Its id is unique in the run; its parent is the calling lead. */
+export interface ChildSpec {
+  id: string
+  kind: 'work' | 'check' | 'lead'
+  brief?: string
+  command?: string
+  acceptance?: string[]
+  /** Earlier siblings (children of the same lead) that must complete first. */
+  needs?: string[]
+  harness?: HarnessName
+  /** For work nodes the harness's model; for leads `provider/model`. */
+  model?: string
+}
+
+/** One orchestration tool call made by a lead. These are a lead's only tools. */
+export type LeadCall =
+  | { tool: 'spawn'; children: ChildSpec[] }
+  | { tool: 'send'; to: string; body: string; mode: 'queue' | 'interrupt' }
+  | { tool: 'note'; text: string }
+  | { tool: 'cancel'; node: string }
+  | { tool: 'complete'; summary: string }
+  | { tool: 'fail'; reason: string }
+  | { tool: 'escalate'; question: string }
+
+/** What the supervisor offers the lead runner. */
+export interface LeadHost {
+  /** Apply one tool call of lead `node` and return the text the model sees. Idempotent per `callId`:
+   * a repeated callId returns the first result unchanged and applies nothing. */
+  act(node: string, callId: string, call: LeadCall): string
+  /** Lead `node` finished answering a delivery and is idle. */
+  settled(node: string, turn: { requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }): void
+}
+
+/** Runs leads as durable conversations (pi-durable), one storage per lead under `<runDir>/leads/<node>/`. */
+export interface LeadRunner {
+  /** Deliver text to lead `node`, creating its conversation on first use. Idempotent per `requestId`.
+   * `queue` is answered after the current run; `interrupt` steers the running one. Resolves once admitted. */
+  deliver(node: string, text: string, opts: { requestId: string; mode: 'queue' | 'interrupt'; model?: string }): Promise<void>
+  /** Resume unfinished lead work after a restart (pi-durable resume). */
+  resume(): Promise<void>
+  close(): Promise<void>
+}
+
+export type CreateLeadRunner = (opts: { runDir: string; host: LeadHost }) => LeadRunner
+
+/** Default lead model when neither the node nor the run sets one. */
+export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
+
 // ---- Event log -------------------------------------------------------------------------------
 
 export type EventBody =
@@ -127,6 +177,15 @@ export type EventBody =
   | { type: 'node.completed'; node: string; summary: string }
   | { type: 'node.failed'; node: string; reason: string }
   | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt' }
+  /** Text delivered to a lead (its brief, a child's outcome, a message). */
+  | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
+  /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
+   * one event in the fold, so a call applies atomically. `ok: false` means policy refused it and nothing changed. */
+  | { type: 'lead.call'; node: string; callId: string; call: LeadCall; ok: boolean; result: string }
+  /** A lead answered a delivery and is idle again. */
+  | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
+  /** A node and its whole subtree are cancelled (by a lead or by the person). */
+  | { type: 'node.cancelled'; node: string; by: string }
   | { type: 'run.completed'; summary: string }
   | { type: 'run.failed'; reason: string }
 
@@ -135,3 +194,6 @@ export type Event = EventBody & { seq: number; at: string }
 
 /** The implicit root node's ID. */
 export const ROOT = 'root'
+
+/** Message address of the person running Murmuration: the parent of top-level nodes. */
+export const PERSON = 'person'
