@@ -7,112 +7,105 @@
 <title>sous</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Nunito:wght@500;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: the whole page is the kitchen. The tiled wall is the background, the pixel counter runs across the top,
-   content sits on steel plaques and a paper order pad, the footer is the counter front. One deliberate light world. */
+/* Layout: a sunny restaurant kitchen. Sky-to-warm page background, a detailed pixel scene as the hero,
+   then rounded game-UI panels: how the chef composes, a real service, the menu. One deliberate light world. */
 :root {
   color-scheme: light;
-  --tile: #a8dde6;  --tile-hi: #c4ebf0;  --grout: #82b9c4;
-  --steel: #c2c3c7; --steel-hi: #eef0f1; --steel-dk: #5f574f;
-  --wood: #ab5236;  --wood-dk: #6e3424;
-  --cream: #fff1e8; --ink: #1d2b53;      --muted: #45507a;
-  --red: #ff004d;   --orange: #ffa300;   --yellow: #ffec27;
-  --green: #00e436; --green-dk: #008751; --blue: #29adff; --pink: #ff77a8; --lilac: #83769c;
-  --font-pixel: "Pixelify Sans", "Silkscreen", ui-monospace, monospace;
-  --font-tiny: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
-  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sky: #d6efff;      --warm: #fff3e2;
+  --panel: #fffdf8;    --line: #3d2f4a;   --shade: rgba(61, 47, 74, 0.18);
+  --ink: #33283f;      --muted: #6b5f7a;
+  --orange: #f08c2a;   --orange-soft: #ffe2bf;
+  --blue: #3f97e6;     --blue-soft: #d6ecff;
+  --green: #3fae55;    --green-soft: #d8f3d6;
+  --red: #e64a55;      --red-soft: #ffdade;
+  --yellow: #ffcf3f;   --wood: #d99e5f;
+  --font-pixel: "Pixelify Sans", ui-monospace, monospace;
+  --font-ui: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 * { box-sizing: border-box; }
-body {
-  color: var(--ink); font: 17px/1.6 var(--font-body);
-  background-color: var(--tile);
-  background-image:
-    linear-gradient(var(--grout) 2px, transparent 2px),
-    linear-gradient(90deg, var(--grout) 2px, transparent 2px),
-    linear-gradient(var(--tile-hi) 2px, transparent 2px);
-  background-size: 64px 32px, 64px 32px, 64px 32px;
-  background-position: 0 0, 0 0, 0 2px;
-}
+body { color: var(--ink); font: 500 17px/1.6 var(--font-ui); background: linear-gradient(180deg, var(--sky) 0, #eaf6ff 420px, var(--warm) 1100px, var(--warm) 100%); background-color: var(--warm); }
 p { margin: 0; }
-h1, h2, h3 { margin: 0; text-wrap: balance; font-family: var(--font-pixel); font-weight: 700; }
-h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.05; color: var(--cream); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink); }
-a { color: var(--ink); text-decoration-color: var(--red); text-decoration-thickness: 3px; }
-a:focus-visible, button:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
-code { font: 0.9em var(--font-mono); background: rgba(29, 43, 83, 0.09); padding: 0.05em 0.35em; border-radius: 3px; overflow-wrap: anywhere; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h2 { font: 700 clamp(1.7rem, 4vw, 2.4rem)/1.05 var(--font-pixel); color: var(--ink); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+h2 .chip { font: 800 0.8rem/1 var(--font-ui); letter-spacing: .06em; text-transform: uppercase; padding: 6px 10px; border: 3px solid var(--line); border-radius: 999px; background: var(--yellow); }
+a { color: var(--ink); text-decoration-color: var(--orange); text-decoration-thickness: 3px; text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+code { font: 0.88em var(--font-mono); background: rgba(61, 47, 74, 0.08); padding: 0.05em 0.35em; border-radius: 5px; overflow-wrap: anywhere; }
 .wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; }
 canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
-.plaque { background: var(--steel-hi); border: 3px solid var(--steel-dk); box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 var(--steel), 5px 5px 0 rgba(29, 43, 83, 0.35); }
+.panel { background: var(--panel); border: 3px solid var(--line); border-radius: 14px; box-shadow: 0 5px 0 var(--shade); }
 
 /* Header */
-header.wrap { padding-block: clamp(32px, 6vh, 64px) 22px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
-h1 { font-size: clamp(4.5rem, 16vw, 9rem); line-height: 0.85; }
-h1 span { text-shadow: 5px 5px 0 var(--ink), -3px 0 0 var(--ink), 0 -3px 0 var(--ink), 3px 0 0 var(--ink), 0 3px 0 var(--ink); }
-h1 .s1 { color: var(--red); } h1 .s2 { color: var(--orange); } h1 .s3 { color: var(--yellow); } h1 .s4 { color: var(--green); }
-.tagline { padding: 14px 18px; display: grid; gap: 12px; max-width: 760px; }
-.tag { font: 500 clamp(1.2rem, 2.6vw, 1.55rem)/1.3 var(--font-pixel); }
-.tag b { color: var(--red); }
-pre { margin: 0; min-width: 0; background: var(--ink); color: var(--cream); padding: 10px 14px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--red); }
-pre .p { color: var(--green); user-select: none; }
+header.wrap { padding-block: clamp(28px, 5vh, 56px) 20px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.brand { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
+h1 { font: 700 clamp(4.2rem, 14vw, 8rem)/0.85 var(--font-pixel); color: #fff; -webkit-text-stroke: 0; text-shadow: 0 6px 0 var(--line), 4px 0 0 var(--line), -4px 0 0 var(--line), 0 -4px 0 var(--line), 4px 6px 0 var(--line), -4px 6px 0 var(--line); letter-spacing: 0.02em; }
+h1 span:nth-child(1) { color: #ff8a5c; } h1 span:nth-child(2) { color: var(--yellow); } h1 span:nth-child(3) { color: #7fd38a; } h1 span:nth-child(4) { color: #7cc7ff; }
+.brand p { font: 700 clamp(1.1rem, 2.4vw, 1.45rem)/1.35 var(--font-ui); max-width: 34ch; padding-bottom: 6px; }
+.brand p b { color: var(--red); }
+pre { margin: 0; min-width: 0; background: var(--line); color: #fff7ee; padding: 10px 16px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); border-radius: 10px; box-shadow: 0 4px 0 var(--shade); justify-self: start; max-width: 100%; }
+pre .p { color: #8fe08a; user-select: none; }
 
 /* The scene */
-.scene-box { padding: 10px; background: var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); }
-.scene-scroll { overflow-x: auto; }
-.scene-scroll canvas { margin: 0 auto; }
-.scene-note { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--cream); font-size: 0.86rem; }
-.scene-note i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: 0; border: 1px solid var(--cream); }
+.scene { padding: 10px; }
+.scene-scroll { overflow-x: auto; border-radius: 8px; }
+.scene-scroll canvas { margin: 0 auto; border-radius: 6px; }
+.keys { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.86rem; }
+.keys span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 6px; border: 2px solid var(--line); border-radius: 999px; background: #fff; font-weight: 700; }
+.keys i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); }
+.keys .label { border: 0; background: none; padding-left: 2px; color: var(--muted); }
 
-main.wrap { display: grid; gap: clamp(56px, 8vw, 96px); padding-block: clamp(48px, 7vw, 80px) 72px; grid-template-columns: minmax(0, 1fr); }
+main.wrap { display: grid; gap: clamp(56px, 8vw, 92px); padding-block: clamp(44px, 7vw, 76px) 72px; grid-template-columns: minmax(0, 1fr); }
 section { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
-.lead { max-width: 64ch; padding: 14px 18px; }
+.lead { max-width: 64ch; color: var(--muted); font-size: 1.05rem; }
 
 /* How the chef composes */
 .recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
-.card { padding: 12px 14px 10px; display: grid; justify-items: center; gap: 6px; min-width: 128px; }
-.card canvas { width: 64px; height: 96px; }
-.card b { font: 700 1rem var(--font-pixel); }
-.card span { font-size: 0.82rem; color: var(--muted); text-align: center; max-width: 16ch; line-height: 1.3; }
-.card.out { border-color: var(--green-dk); }
-.op { font: 700 2.4rem var(--font-pixel); color: var(--yellow); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink); }
+.card { padding: 12px 14px 12px; display: grid; justify-items: center; gap: 6px; min-width: 136px; }
+.card canvas { width: 80px; height: 96px; }
+.card b { font: 800 1rem var(--font-ui); }
+.card span { font-size: 0.84rem; color: var(--muted); text-align: center; max-width: 16ch; line-height: 1.3; }
+.card.out { background: var(--green-soft); }
+.op { font: 700 2.4rem var(--font-pixel); color: var(--line); }
 .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-.rules > div { padding: 14px 16px; display: grid; gap: 6px; align-content: start; min-width: 0; border-top: 8px solid var(--orange); }
-.rules > div:nth-child(2) { border-top-color: var(--blue); }
-.rules > div:nth-child(3) { border-top-color: var(--green-dk); }
-.rules h3 { font-size: 1.2rem; }
-.rules p { color: var(--muted); font-size: 0.97rem; }
+.rules > div { padding: 16px 18px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.rules > div:nth-child(1) { background: var(--orange-soft); }
+.rules > div:nth-child(2) { background: var(--blue-soft); }
+.rules > div:nth-child(3) { background: var(--green-soft); }
+.rules h3 { font: 800 1.15rem var(--font-ui); }
+.rules p { color: var(--ink); font-size: 0.97rem; }
 
 /* A real service */
 .service { padding: clamp(14px, 3vw, 22px); display: grid; gap: 16px; }
 .service > * { min-width: 0; }
 .chart-wrap { overflow-x: auto; }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.9rem; color: var(--muted); }
-.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.9rem; color: var(--muted); font-weight: 700; }
+.legend i { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; border: 2px solid var(--line); border-radius: 3px; }
 .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.counts div { display: grid; }
-.counts b { font: 700 2rem/1.1 var(--font-pixel); font-variant-numeric: tabular-nums; }
-.counts div:nth-child(1) b { color: var(--red); } .counts div:nth-child(2) b { color: #c87400; }
-.counts div:nth-child(3) b { color: var(--green-dk); } .counts div:nth-child(4) b { color: #0b78c4; }
-.counts span { color: var(--muted); font-size: 0.86rem; }
+.counts div { display: grid; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--line); }
+.counts div:nth-child(1) { background: var(--red-soft); } .counts div:nth-child(2) { background: var(--orange-soft); }
+.counts div:nth-child(3) { background: var(--green-soft); } .counts div:nth-child(4) { background: var(--blue-soft); }
+.counts b { font: 700 1.9rem/1.1 var(--font-pixel); font-variant-numeric: tabular-nums; }
+.counts span { color: var(--muted); font-size: 0.86rem; font-weight: 700; }
 
-/* The menu: a paper order pad */
-.menu { background: var(--cream); border: 3px solid var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); padding: 0 clamp(18px, 4vw, 40px) clamp(20px, 4vw, 36px); display: grid; gap: 22px; max-width: 860px; justify-self: center; width: 100%; }
-.menu::before { content: ""; display: block; height: 14px; margin-inline: calc(-1 * clamp(18px, 4vw, 40px)); background: repeating-linear-gradient(90deg, var(--red) 0 16px, var(--cream) 16px 32px); border-bottom: 3px solid var(--ink); }
-.menu h2 { text-align: center; }
-.menu h3 { font: 400 0.82rem var(--font-tiny); letter-spacing: .1em; text-transform: uppercase; color: var(--red); text-align: center; }
+/* The menu */
+.menu { padding: clamp(18px, 4vw, 36px); display: grid; gap: 22px; max-width: 860px; justify-self: center; width: 100%; background: #fffaf1; }
+.menu h2 { justify-content: center; }
+.menu h3 { font: 800 0.8rem var(--font-ui); letter-spacing: .14em; text-transform: uppercase; color: var(--red); text-align: center; }
 .menu .course { display: grid; gap: 9px; }
 .dish { display: grid; grid-template-columns: max-content minmax(1rem, 1fr) minmax(0, max-content); align-items: baseline; gap: 10px; }
-.dish code { background: none; padding: 0; font-weight: 600; }
-.dish .dots { border-bottom: 3px dotted var(--lilac); transform: translateY(-4px); }
+.dish code { background: none; padding: 0; font-weight: 600; color: var(--ink); }
+.dish .dots { border-bottom: 3px dotted #cbbfd8; transform: translateY(-4px); }
 .dish span:last-child { color: var(--muted); text-align: right; font-size: 0.95rem; }
 .menu .note { text-align: center; color: var(--muted); font-size: 0.92rem; max-width: 60ch; justify-self: center; }
 @media (max-width: 640px) { .dish { grid-template-columns: 1fr; gap: 0; } .dish .dots { display: none; } .dish span:last-child { text-align: left; margin-bottom: 6px; } }
 
-/* Footer: the counter front */
-footer { background-color: var(--wood); border-top: 10px solid var(--steel); box-shadow: inset 0 3px 0 var(--steel-hi); background-image: repeating-linear-gradient(90deg, transparent 0 126px, var(--wood-dk) 126px 128px); }
-footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; color: var(--cream); }
-footer a { color: var(--cream); text-decoration-color: var(--yellow); }
-.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--yellow); background: none; border: 0; cursor: pointer; padding: 0; text-shadow: 2px 2px 0 var(--ink); }
+footer { background: #e7b177; border-top: 6px solid #f6cf98; box-shadow: inset 0 -6px 0 #c98e55; }
+footer .wrap { padding-block: 20px 34px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; font-weight: 700; }
+.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--ink); background: #fff8e8; border: 3px solid var(--line); border-radius: 999px; padding: 4px 16px 4px 8px; cursor: pointer; box-shadow: 0 4px 0 var(--shade); }
+.bell:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--shade); }
 .bell canvas { width: 44px; height: 36px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -120,46 +113,46 @@ footer a { color: var(--cream); text-decoration-color: var(--yellow); }
 <body style="margin:0">
 
 <header class="wrap">
-  <h1><span class="s1">s</span><span class="s2">o</span><span class="s3">u</span><span class="s4">s</span></h1>
-  <div class="tagline plaque">
-    <p class="tag">You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until the plate is served.</p>
-    <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
+  <div class="brand">
+    <h1><span>s</span><span>o</span><span>u</span><span>s</span></h1>
+    <p>You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until it's served.</p>
   </div>
+  <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
 </header>
 
 <figure class="wrap" style="margin-inline:auto;margin-block:0">
-  <div class="scene-box">
-    <div class="scene-scroll"><canvas id="kitchen" role="img" aria-label="A pixel-art kitchen counter. From left: a ticket rail with your orders; the sous chef in red pointing at the line and calling fire; a pantry shelf of model jars; three cooks in orange, blue and green, labelled Claude, Codex and Pi, stirring bubbling pots and catching the ingredients the chef tosses them; and the pass under a heat lamp, where finished plates arrive and the bell rings."></canvas></div>
-    <p class="scene-note"><span>Pantry jars:</span><span><i style="background:var(--pink)"></i>opus</span><span><i style="background:var(--orange)"></i>sonnet</span><span><i style="background:var(--green)"></i>gpt-5.5</span><span><i style="background:var(--blue)"></i>glm</span><span><i style="background:var(--lilac)"></i>deepseek</span><span>· the models you allow</span></p>
+  <div class="scene panel">
+    <div class="scene-scroll"><canvas id="kitchen" role="img" aria-label="A sunny pixel-art restaurant kitchen. From left: tickets pinned on the order rail; the sous chef pointing at the line and calling fire; a pantry shelf of model jars under a window; three cooks in white coats with orange, blue and green aprons, labelled Claude, Codex and Pi with their models, stirring pots as the chef tosses them ingredients; and the pass under heat lamps, where finished plates arrive and the bell rings."></canvas></div>
+    <div class="keys"><span class="label">Pantry jars, the models you allow:</span><span><i style="background:#ff8fb4"></i>opus</span><span><i style="background:#ffb347"></i>sonnet</span><span><i style="background:#7fd38a"></i>gpt-5.5</span><span><i style="background:#7cc7ff"></i>glm</span><span><i style="background:#b9a6e0"></i>deepseek</span></div>
   </div>
 </figure>
 
 <main class="wrap">
   <section>
-    <h2>How the chef composes the kitchen</h2>
-    <p class="lead plaque">You stock the pantry and hire the cooks. For each part of the order the sous picks a cook, adds an ingredient and writes the recipe. Your goal is the order; each part becomes a plate.</p>
+    <h2>How the chef composes the kitchen <span class="chip">the idea</span></h2>
+    <p class="lead">You stock the pantry and hire the cooks. For each part of the order the sous picks a cook, adds an ingredient and writes the recipe. Your goal is the order; each part becomes a plate.</p>
     <div class="recipe" aria-label="A cook, plus an ingredient, plus a recipe card, makes a new station">
-      <div class="card plaque"><canvas data-sprite="cook" width="32" height="48" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
+      <div class="card panel"><canvas data-sprite="cook" width="40" height="48" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
       <span class="op" aria-hidden="true">+</span>
-      <div class="card plaque"><canvas data-sprite="jar" width="32" height="48" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
+      <div class="card panel"><canvas data-sprite="jar" width="40" height="48" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
       <span class="op" aria-hidden="true">+</span>
-      <div class="card plaque"><canvas data-sprite="ticket" width="32" height="48" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
+      <div class="card panel"><canvas data-sprite="ticket" width="40" height="48" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
       <span class="op" aria-hidden="true">=</span>
-      <div class="card plaque out"><canvas data-sprite="station" width="32" height="48" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
+      <div class="card panel out"><canvas data-sprite="station" width="40" height="48" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
     </div>
     <div class="rules">
-      <div class="plaque"><h3>You stock the kitchen</h3><p>Hire your own cooks, and choose which models leads may use, per harness. Leads only cook with what is in the pantry; the cooks you name yourself bring their own.</p></div>
-      <div class="plaque"><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
-      <div class="plaque"><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
+      <div class="panel"><h3>You stock the kitchen</h3><p>Hire your own cooks, and choose which models leads may use, per harness. Leads only cook with what is in the pantry; the cooks you name yourself bring their own.</p></div>
+      <div class="panel"><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
+      <div class="panel"><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
     </div>
   </section>
 
   <section>
-    <h2>A real service: order #0142</h2>
-    <p class="lead plaque">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
-    <div class="service plaque">
+    <h2>A real service <span class="chip" style="background:var(--green-soft)">order #0142</span></h2>
+    <p class="lead">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
+    <div class="service panel">
       <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Orders fired to cooks and plates through the pass, per minute, over the 29-minute calc run"></canvas></div>
-      <div class="legend"><span><i style="background:var(--red)"></i>orders fired to cooks</span><span><i style="background:var(--green)"></i>plates through the pass</span></div>
+      <div class="legend"><span><i style="background:#ff7a7a"></i>orders fired to cooks</span><span><i style="background:#7fd38a"></i>plates through the pass</span></div>
       <div class="counts">
         <div><b>99</b><span>in the brigade (41 leads)</span></div>
         <div><b>28</b><span>cooks, one turn each</span></div>
@@ -170,7 +163,7 @@ footer a { color: var(--cream); text-decoration-color: var(--yellow); }
   </section>
 
   <section>
-    <div class="menu">
+    <div class="menu panel">
       <h2>The menu</h2>
       <div class="course"><h3>To start</h3>
         <div class="dish"><code>npm install -g @krimvp/sous</code><span class="dots"></span><span>Node 22.19+, git, and Claude Code, Codex or Pi</span></div>
@@ -198,25 +191,45 @@ footer a { color: var(--cream); text-decoration-color: var(--yellow); }
 
 <footer>
   <div class="wrap">
-    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="22" height="18" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
+    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="24" height="20" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
     <span><a href="https://github.com/krimvp/sous">github.com/krimvp/sous</a> · runs on your machine</span>
   </div>
 </footer>
 
 <script>
 (function () {
-  const C = {
-    ink: '#1d2b53', plum: '#7e2553', moss: '#008751', wood: '#ab5236', woodDk: '#6e3424', woodHi: '#c06a48',
-    stone: '#5f574f', steel: '#c2c3c7', steelHi: '#eef0f1', white: '#fff1e8', red: '#ff004d', redDk: '#b8003a',
-    orange: '#ffa300', orangeDk: '#c87400', yellow: '#ffec27', yellowDk: '#d4b800', green: '#00e436', greenDk: '#00a32a',
-    blue: '#29adff', blueDk: '#0b78c4', lilac: '#83769c', pink: '#ff77a8', skin: '#ffccaa', skinDk: '#e8a07a', black: '#000000',
-    tile: '#a8dde6', tileHi: '#c4ebf0', grout: '#82b9c4',
-  }
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-  // ---- drawing helpers ----
-  const px = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w, h) }
-  function disc(g, cx, cy, r, c, maxDy = r) { g.fillStyle = c; for (let dy = -r; dy <= maxDy; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r + r * 0.6) g.fillRect(cx + dx, cy + dy, 1, 1) }
+  const OUT = '#3d2f4a'
+  // colour ramps: [highlight, base, shade, deep]
+  const R = {
+    skin:  ['#ffdcc2', '#f6c2a0', '#e09f7e', '#c27c60'],
+    white: ['#ffffff', '#f4f6fb', '#dde3ee', '#b9c3d6'],
+    hair:  ['#9a6448', '#7a4a35', '#5a3326', '#3f2219'],
+    steel: ['#f7fafd', '#dae2ec', '#b2bfd0', '#8492a8'],
+    wood:  ['#f8d39f', '#e7b177', '#c98e55', '#a26a3c'],
+    plank: ['#fbe0b6', '#f1c991', '#dcab6e', '#bb8650'],
+    orange:['#ffd08a', '#ffb347', '#f08c2a', '#c46818'],
+    blue:  ['#bfe3ff', '#7cc7ff', '#3f97e6', '#2a6bb3'],
+    green: ['#c4f0b8', '#7fd38a', '#45b85a', '#2f8a45'],
+    red:   ['#ffb3b3', '#ff7a7a', '#e64a55', '#b02f43'],
+    pink:  ['#ffd0e0', '#ff8fb4', '#e86393', '#b8456f'],
+    lilac: ['#e5dcf6', '#b9a6e0', '#9580c8', '#6f5ca3'],
+    gold:  ['#fff2a8', '#ffd84a', '#f0b62a', '#c48a1a'],
+    leaf:  ['#b8ef8c', '#7fcf5a', '#4fa83f', '#2f7a33'],
+  }
+  const px = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h) }
+  function blob(g, cx, cy, rx, ry, c) { g.fillStyle = c; for (let y = -ry; y <= ry; y++) for (let x = -rx; x <= rx; x++) if ((x * x) / (rx * rx + 0.6) + (y * y) / (ry * ry + 0.6) <= 1) g.fillRect(cx + x, cy + y, 1, 1) }
+  function outline(cv, col = OUT) {
+    const g = cv.getContext('2d'), { width: w, height: h } = cv, d = g.getImageData(0, 0, w, h), a = d.data, o = new Uint8ClampedArray(a)
+    const [r, gg, b] = [1, 3, 5].map((i) => parseInt(col.slice(i, i + 2), 16))
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4; if (a[i + 3]) continue
+      const n = (xx, yy) => xx >= 0 && yy >= 0 && xx < w && yy < h && a[(yy * w + xx) * 4 + 3] > 0
+      if (n(x - 1, y) || n(x + 1, y) || n(x, y - 1) || n(x, y + 1)) { o[i] = r; o[i + 1] = gg; o[i + 2] = b; o[i + 3] = 255 }
+    }
+    g.putImageData(new ImageData(o, w, h), 0, 0); return cv
+  }
+  function sprite(w, h, draw) { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d')); return outline(cv) }
   const FONT = {
     A:['.#.','#.#','###','#.#','#.#'],B:['##.','#.#','##.','#.#','##.'],C:['.##','#..','#..','#..','.##'],D:['##.','#.#','#.#','#.#','##.'],
     E:['###','#..','##.','#..','###'],F:['###','#..','##.','#..','#..'],G:['.##','#..','#.#','#.#','.##'],H:['#.#','#.#','###','#.#','#.#'],
@@ -226,172 +239,251 @@ footer a { color: var(--cream); text-decoration-color: var(--yellow); }
     W:['#.#','#.#','###','###','#.#'],X:['#.#','#.#','.#.','#.#','#.#'],Y:['#.#','#.#','.#.','.#.','.#.'],Z:['###','..#','.#.','#..','###'],
     0:['###','#.#','#.#','#.#','###'],1:['.#.','##.','.#.','.#.','###'],2:['##.','..#','.#.','#..','###'],3:['##.','..#','.#.','..#','##.'],
     4:['#.#','#.#','###','..#','..#'],5:['###','#..','##.','..#','##.'],6:['.##','#..','###','#.#','###'],7:['###','..#','.#.','.#.','.#.'],
-    8:['###','#.#','###','#.#','###'],9:['###','#.#','###','..#','##.'],'#':['#.#','###','#.#','###','#.#'],'!':['.#.','.#.','.#.','...','.#.'],
-    '-':['...','...','###','...','...'],':':['...','.#.','...','.#.','...'],'.':['...','...','...','...','.#.'],',':['...','...','...','.#.','#..'],' ':['...','...','...','...','...'],
+    8:['###','#.#','###','#.#','###'],9:['###','#.#','###','..#','##.'],'!':['.#.','.#.','.#.','...','.#.'],'-':['...','...','###','...','...'],
+    '.':['...','...','...','...','.#.'],':':['...','.#.','...','.#.','...'],' ':['...','...','...','...','...'],'·':['...','...','.#.','...','...'],
   }
-  function text(g, s, x, y, c, k = 1) { for (const ch of s) { const gl = FONT[ch] || FONT[' ']; for (let r = 0; r < 5; r++) for (let q = 0; q < 3; q++) if (gl[r][q] === '#') px(g, x + q * k, y + r * k, k, k, c); x += 4 * k } }
-  const textW = (s, k = 1) => s.length * 4 * k - k
+  function text(g, s, x, y, c) { for (const ch of s) { const gl = FONT[ch] || FONT[' ']; for (let r = 0; r < 5; r++) for (let q = 0; q < 3; q++) if (gl[r][q] === '#') px(g, x + q, y + r, 1, 1, c); x += 4 } }
+  const tw = (s) => s.length * 4 - 1
 
-  // ---- sprites, drawn procedurally at full detail ----
-  function chef(g, x, y, coat, coatDk, o = {}) {           // about 28 x 44
-    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx + 1, y + cy + 1, r, C.steel)
-    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx, y + cy, r, C.white)
-    px(g, x + 11, y + 1, 3, 1, '#ffffff'); px(g, x + 10, y + 2, 2, 1, '#ffffff')
-    px(g, x + 6, y + 11, 17, 5, C.white); px(g, x + 6, y + 15, 17, 1, C.steel); px(g, x + 19, y + 11, 4, 4, C.steelHi)
-    px(g, x + 8, y + 16, 13, 11, C.skin); px(g, x + 18, y + 16, 3, 10, C.skinDk)
-    px(g, x + 7, y + 16, 1, 5, C.woodDk); px(g, x + 21, y + 16, 1, 5, C.woodDk)
-    px(g, x + 10, y + 19, 3, 1, C.woodDk); px(g, x + 16, y + 19, 3, 1, C.woodDk)
-    px(g, x + 11, y + 20, 2, 2, C.ink); px(g, x + 16, y + 20, 2, 2, C.ink); px(g, x + 11, y + 20, 1, 1, '#ffffff'); px(g, x + 16, y + 20, 1, 1, '#ffffff')
-    px(g, x + 9, y + 23, 2, 1, C.pink); px(g, x + 18, y + 23, 2, 1, C.pink)
-    if (o.mustache) { px(g, x + 10, y + 23, 9, 2, C.woodDk); px(g, x + 9, y + 24, 1, 1, C.woodDk); px(g, x + 19, y + 24, 1, 1, C.woodDk) }
-    px(g, x + 13, y + (o.mustache ? 25 : 24), 3, 1, C.plum)
-    px(g, x + 10, y + 27, 9, 2, o.scarf || C.white)
-    px(g, x + 5, y + 29, 19, 15, coat); px(g, x + 19, y + 30, 5, 14, coatDk)
-    px(g, x + 9, y + 29, 4, 3, C.white); px(g, x + 16, y + 29, 4, 3, C.white); px(g, x + 13, y + 29, 3, 1, C.white)
-    for (const yy of [33, 37, 41]) { px(g, x + 11, y + yy, 2, 2, C.white); px(g, x + 17, y + yy, 2, 2, C.white) }
-    px(g, x + 2, y + 31, 4, 10, coat); px(g, x + 2, y + 41, 4, 3, C.skin)
-    if (o.point) { px(g, x + 23, y + 31, 9, 4, coat); px(g, x + 23, y + 34, 9, 1, coatDk); px(g, x + 32, y + 30, 4, 4, C.skin); px(g, x + 36, y + 31, 2, 1, C.skin) }
-    else if (o.stir !== undefined) { const d = o.stir % 2; px(g, x + 23, y + 30, 4, 7, coat); px(g, x + 24, y + 27 + d, 3, 3, C.skin); for (let i = 0; i < 9; i++) px(g, x + 26 + i, y + 27 + d + i, 1, 1, C.stone); px(g, x + 34, y + 35 + d, 3, 3, C.stone) }
-    else { px(g, x + 23, y + 31, 4, 10, coat); px(g, x + 23, y + 41, 4, 3, C.skin) }
+  // ---- characters (about 36 x 56, drawn with ramps, then outlined) ----
+  function chef(g, o) {
+    const tall = o.tall ? 6 : 0, X = 2
+    // toque
+    const puffs = tall ? [[12, 6, 6, 5], [20, 3, 7, 5], [28, 6, 6, 5]] : [[12, 6, 6, 5], [20, 4, 7, 5], [28, 6, 6, 5]]
+    for (const [cx, cy, rx, ry] of puffs) blob(g, X + cx, cy, rx, ry, R.white[2])
+    for (const [cx, cy, rx, ry] of puffs) blob(g, X + cx - 1, cy - 1, rx - 1, ry - 1, R.white[1])
+    blob(g, X + 17, 2 + (tall ? 0 : 1), 3, 2, R.white[0])
+    if (tall) { px(g, X + 11, 9, 19, 9, R.white[1]); px(g, X + 26, 9, 4, 9, R.white[2]); for (let i = 0; i < 3; i++) px(g, X + 15 + i * 5, 10, 1, 7, R.white[2]) }
+    const band = 10 + tall
+    px(g, X + 10, band, 21, 5, R.white[1]); px(g, X + 10, band + 4, 21, 1, R.white[3]); px(g, X + 26, band, 5, 4, R.white[2])
+    // head
+    const hy = band + 5
+    px(g, X + 12, hy, 17, 13, R.skin[1]); px(g, X + 11, hy + 1, 1, 10, R.skin[1]); px(g, X + 29, hy + 1, 1, 10, R.skin[2])
+    px(g, X + 25, hy, 4, 13, R.skin[2]); px(g, X + 13, hy + 12, 15, 1, R.skin[2])
+    px(g, X + 11, hy, 3, 4, R.hair[1]); px(g, X + 27, hy, 3, 4, R.hair[2]); px(g, X + 11, hy + 4, 1, 3, R.hair[2]); px(g, X + 29, hy + 4, 1, 3, R.hair[3])
+    px(g, X + 14, hy + 4, 4, 1, R.hair[2]); px(g, X + 22, hy + 4, 4, 1, R.hair[2])
+    for (const ex of [15, 23]) { px(g, X + ex, hy + 6, 2, 3, OUT); px(g, X + ex, hy + 6, 1, 1, '#ffffff') }
+    px(g, X + 13, hy + 9, 3, 1, R.pink[1]); px(g, X + 25, hy + 9, 3, 1, R.pink[1])
+    px(g, X + 19, hy + 8, 2, 2, R.skin[2])
+    if (o.mustache) { px(g, X + 15, hy + 10, 11, 2, R.hair[1]); px(g, X + 14, hy + 11, 1, 1, R.hair[1]); px(g, X + 26, hy + 11, 1, 1, R.hair[1]); px(g, X + 17, hy + 10, 7, 1, R.hair[0]) }
+    else { px(g, X + 18, hy + 10, 4, 1, R.red[3]); px(g, X + 17, hy + 9, 1, 1, R.red[3]); px(g, X + 22, hy + 9, 1, 1, R.red[3]) }
+    // neck, coat
+    const ty = hy + 13
+    px(g, X + 17, ty, 7, 2, R.skin[2])
+    px(g, X + 9, ty + 2, 23, 20, R.white[1]); px(g, X + 26, ty + 3, 6, 19, R.white[2]); px(g, X + 9, ty + 20, 23, 2, R.white[3])
+    px(g, X + 13, ty + 2, 5, 3, R.white[0]); px(g, X + 23, ty + 2, 5, 3, R.white[2])
+    const acc = R[o.accent]
+    px(g, X + 15, ty + 2, 11, 3, acc[2]); px(g, X + 15, ty + 2, 11, 1, acc[1]); px(g, X + 19, ty + 5, 3, 3, acc[2])
+    if (o.apron) { px(g, X + 12, ty + 10, 17, 12, acc[1]); px(g, X + 24, ty + 10, 5, 12, acc[2]); px(g, X + 12, ty + 10, 17, 1, acc[3]); px(g, X + 15, ty + 14, 6, 4, acc[0]); px(g, X + 15, ty + 17, 6, 1, acc[2]) }
+    else for (const by of [8, 12, 16]) { px(g, X + 16, ty + by, 2, 2, R.gold[1]); px(g, X + 23, ty + by, 2, 2, R.gold[2]) }
+    // arms
+    px(g, X + 4, ty + 3, 6, 13, R.white[1]); px(g, X + 4, ty + 3, 2, 13, R.white[0]); px(g, X + 4, ty + 15, 6, 4, R.skin[1])
+    if (o.pose === 'point') { px(g, X + 31, ty + 3, 8, 6, R.white[1]); px(g, X + 31, ty + 7, 8, 2, R.white[2]); px(g, X + 39, ty + 3, 4, 5, R.skin[1]); px(g, X + 43, ty + 4, 2, 2, R.skin[1]) }
+    else if (o.pose === 'stir') { const d = o.d || 0; px(g, X + 31, ty + 4, 6, 9, R.white[1]); px(g, X + 34, ty + 4, 3, 9, R.white[2]); px(g, X + 32, ty + 12 + d, 5, 4, R.skin[1]) }
+    else { px(g, X + 31, ty + 3, 6, 13, R.white[2]); px(g, X + 31, ty + 15, 6, 4, R.skin[2]) }
   }
-  function pot(g, x, y, f, soup) {                           // 24 x 16, burner and flames below
-    px(g, x - 1, y + 14, 26, 2, C.black)
-    ;[[2, 3], [8, 4], [14, 3], [20, 4]].forEach(([fx, h], i) => { const hh = h - ((f + i) % 2); px(g, x + fx, y + 15 - hh, 3, hh, (f + i) % 2 ? C.orange : C.red); px(g, x + fx + 1, y + 16 - hh, 1, Math.max(1, hh - 2), C.yellow) })
-    px(g, x - 2, y + 5, 2, 3, C.stone); px(g, x + 24, y + 5, 2, 3, C.stone)
-    px(g, x + 1, y + 3, 22, 11, C.steel); px(g, x + 1, y + 11, 22, 3, C.stone); px(g, x + 3, y + 5, 2, 6, C.steelHi)
-    px(g, x, y + 2, 24, 2, C.steelHi); px(g, x, y + 3, 24, 1, C.steel)
-    px(g, x + 2, y + 1, 20, 1, soup)
-    for (let i = 0; i < 3; i++) { const bx = x + 5 + ((f * 3 + i * 7) % 14), by = y - ((f + i * 2) % 3); px(g, bx, by, 2, 2, soup); px(g, bx, by, 1, 1, C.white) }
-  }
-  function jar(g, x, y, fill) {                              // 16 x 22
-    px(g, x + 3, y, 10, 4, C.wood); px(g, x + 3, y, 10, 1, C.woodHi); px(g, x + 4, y + 1, 2, 2, C.woodHi)
-    px(g, x + 2, y + 4, 12, 2, C.steel)
-    px(g, x + 1, y + 6, 14, 16, C.steel); px(g, x + 2, y + 6, 12, 15, '#e8f6f8')
-    px(g, x + 2, y + 11, 12, 10, fill); px(g, x + 2, y + 11, 12, 1, '#ffffff')
-    px(g, x + 3, y + 13, 10, 4, C.white); px(g, x + 4, y + 14, 8, 1, fill); px(g, x + 4, y + 15, 5, 1, C.stone)
-    px(g, x + 3, y + 7, 1, 13, '#ffffff')
-  }
-  function plate(g, x, y, food) {                            // 18 x 8
-    px(g, x + 4, y + 1, 10, 3, food); px(g, x + 6, y, 6, 1, food); px(g, x + 5, y + 1, 3, 1, '#ffffff')
-    px(g, x + 8, y - 1, 2, 2, C.green); px(g, x + 10, y, 1, 1, C.greenDk)
-    px(g, x, y + 4, 18, 2, C.white); px(g, x + 2, y + 6, 14, 1, C.steel); px(g, x + 1, y + 4, 16, 1, '#ffffff')
-  }
-  function bell(g, x, y) {                                   // 20 x 17
-    px(g, x + 9, y, 2, 3, C.stone); px(g, x + 8, y, 4, 1, C.stone)
-    disc(g, x + 10, y + 12, 8, C.yellowDk, 0); disc(g, x + 10, y + 11, 8, C.yellow, 0)
-    px(g, x + 1, y + 12, 18, 2, C.yellowDk); px(g, x - 1, y + 14, 22, 3, C.stone); px(g, x - 1, y + 14, 22, 1, C.steel)
-    px(g, x + 5, y + 6, 2, 4, '#ffffff'); px(g, x + 7, y + 5, 2, 1, '#ffffff')
-  }
-  function ticket(g, x, y, lines) {                          // 24 x 32
-    px(g, x + 1, y + 1, 24, 32, 'rgba(29,43,83,0.25)')
-    px(g, x, y, 24, 32, C.white); px(g, x, y, 24, 4, C.red)
-    for (let i = 0; i < 24; i += 2) px(g, x + i, y + 31, 1, 1, C.steel)
-    lines.forEach((s, i) => text(g, s, x + 2, y + 6 + i * 7, i === 0 ? C.ink : C.stone))
-  }
-  function sign(g, cx, y, s, bg = C.ink) { const w = textW(s) + 6, x = Math.round(cx - w / 2); px(g, x, y, w, 9, bg); px(g, x, y + 8, w, 1, C.black); text(g, s, x + 3, y + 2, C.white) }
+  const chefSprite = (o) => sprite(52, 64, (g) => chef(g, o))
 
-  // ---- icon canvases ----
+  function jarSprite(ramp, h = 22) {
+    return sprite(18, h + 2, (g) => {
+      px(g, 4, 1, 10, 4, R.wood[2]); px(g, 4, 1, 10, 1, R.wood[0]); px(g, 5, 2, 3, 1, R.wood[1])
+      px(g, 3, 5, 12, 2, R.steel[2])
+      px(g, 2, 7, 14, h - 7, '#e9f6fd'); px(g, 2, 7 + 4, 14, h - 11, ramp[1]); px(g, 11, 11, 5, h - 11, ramp[2]); px(g, 2, 11, 14, 1, ramp[0])
+      px(g, 4, 13, 10, 5, '#fffdf8'); px(g, 5, 14, 8, 1, ramp[2]); px(g, 5, 16, 5, 1, R.steel[3])
+      px(g, 4, 8, 1, h - 10, '#ffffff'); px(g, 5, 8, 1, 2, '#ffffff')
+    })
+  }
+  function potSprite(ramp, f) {
+    return sprite(30, 20, (g) => {
+      px(g, 1, 7, 3, 4, R.steel[3]); px(g, 26, 7, 3, 4, R.steel[3])
+      px(g, 4, 5, 22, 13, R.steel[1]); px(g, 18, 5, 8, 13, R.steel[2]); px(g, 4, 15, 22, 3, R.steel[3]); px(g, 6, 7, 2, 7, R.steel[0])
+      px(g, 3, 3, 24, 3, R.steel[0]); px(g, 3, 5, 24, 1, R.steel[2])
+      px(g, 5, 2, 20, 2, ramp[2]); px(g, 6, 2, 8, 1, ramp[0])
+      for (let i = 0; i < 3; i++) { const bx = 7 + ((f * 3 + i * 7) % 14); blob(g, bx, 1 - ((f + i) % 2), 1, 1, ramp[1]) }
+    })
+  }
+  function plateSprite(top) {
+    return sprite(22, 11, (g) => {
+      blob(g, 11, 7, 10, 2, R.white[1]); px(g, 2, 8, 18, 1, R.white[3]); px(g, 3, 6, 16, 1, '#ffffff')
+      blob(g, 8, 4, 4, 2, '#fffaf0'); blob(g, 14, 4, 4, 2, '#fffaf0')
+      blob(g, 8, 3, 3, 1, top[1]); blob(g, 14, 3, 3, 1, top[1]); px(g, 6, 2, 3, 1, top[0]); px(g, 12, 2, 3, 1, top[0])
+      px(g, 10, 1, 2, 2, R.leaf[1])
+    })
+  }
+  function bellSprite() {
+    return sprite(24, 20, (g) => {
+      px(g, 11, 1, 2, 3, R.steel[3]); px(g, 10, 1, 4, 1, R.steel[2])
+      for (let y = 0; y <= 10; y++) { const half = Math.round(Math.sqrt(Math.max(0, 100 - (10 - y) * (10 - y))) * 0.95); px(g, 12 - half, 4 + y, half * 2, 1, y < 4 ? R.gold[1] : R.gold[2]) }
+      px(g, 6, 7, 2, 5, R.gold[0]); px(g, 8, 6, 2, 1, R.gold[0])
+      px(g, 2, 15, 20, 3, R.steel[2]); px(g, 2, 15, 20, 1, R.steel[0]); px(g, 3, 17, 18, 1, R.steel[3])
+    })
+  }
+  function ticketSprite(lines, ramp) {
+    return sprite(26, 32, (g) => {
+      px(g, 1, 2, 24, 29, '#fffdf8'); px(g, 1, 2, 24, 4, ramp[1]); px(g, 1, 28, 24, 3, '#f1ebe0')
+      lines.forEach((s, i) => text(g, s, 3, 8 + i * 6, i ? '#7a6d88' : OUT))
+      px(g, 11, 0, 4, 3, R.red[2]); px(g, 11, 0, 4, 1, R.red[0])
+    })
+  }
+
+  // ---- small icons ----
   const icons = {
-    cook: (g) => chef(g, 1, 2, C.orange, C.orangeDk, { stir: 0 }),
-    jar: (g) => jar(g, 8, 14, C.orange),
-    ticket: (g) => ticket(g, 4, 8, ['HR', 'SPEC.', 'NOTES']),
-    station: (g) => { chef(g, 2, 0, C.pink, C.plum, {}); sign(g, 16, 38, 'HR', C.moss) },
-    bell: (g) => bell(g, 1, 0),
+    cook: (cv) => cv.getContext('2d').drawImage(chefSprite({ accent: 'orange', apron: true }), -5, -8),
+    jar: (cv) => cv.getContext('2d').drawImage(jarSprite(R.orange, 26), 11, 14),
+    ticket: (cv) => cv.getContext('2d').drawImage(ticketSprite(['HR', 'SPEC.', 'NOTES'], R.green), 7, 10),
+    station: (cv) => { const g = cv.getContext('2d'); g.drawImage(chefSprite({ accent: 'pink', apron: true }), -5, -8); badge(g, 20, 40, 'HR', R.green) },
+    bell: (cv) => cv.getContext('2d').drawImage(bellSprite(), 0, 0),
   }
-  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => icons[cv.dataset.sprite](cv.getContext('2d')))
-
-  // ---- the kitchen scene: 520 x 184 ----
-  const W = 520, H = 184, TOP = 122
-  const cv = document.getElementById('kitchen'), g = cv.getContext('2d')
-  cv.width = W; cv.height = H
-  function fit() { const s = Math.max(1, Math.floor(cv.parentElement.clientWidth / W)); cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px' }
-  fit(); window.addEventListener('resize', fit)
-
-  const JARS = [C.pink, C.orange, C.green, C.blue, C.lilac].map((fill, i) => ({ fill, x: 158 + i * 24, y: 34 }))
-  const COOKS = [{ x: 290, c: C.orange, d: C.orangeDk, name: 'CLAUDE' }, { x: 338, c: C.blue, d: C.blueDk, name: 'CODEX' }, { x: 386, c: C.green, d: C.greenDk, name: 'PI' }]
-  let f = 0, plates = [{ x: 410, food: C.green }], served = 2, ding = 0, toss = null, call = 0
-
-  function wall() {
-    px(g, 0, 0, W, TOP, C.tile)
-    for (let y = 0; y < TOP; y += 8) {
-      px(g, 0, y, W, 1, C.grout); px(g, 0, y + 1, W, 1, C.tileHi)
-      for (let x = (y / 8) % 2 ? 0 : 8; x < W; x += 16) { px(g, x, y, 1, 8, C.grout); px(g, x + 1, y + 1, 1, 7, C.tileHi) }
-    }
-    for (let x = 0; x < W; x += 16) { px(g, x + 1, 89, 15, 7, [C.red, C.yellow, C.blue, C.green][(x / 16) % 4]); px(g, x + 1, 89, 15, 1, '#ffffff') }
-    px(g, 6, 8, 92, 3, C.stone); px(g, 6, 8, 92, 1, C.steelHi)
-    ticket(g, 10, 11, ['0141', 'GREET', 'CLASH', 'OK']); ticket(g, 38, 12, ['0142', 'CALC', '99 UP', '166OK']); ticket(g, 66, 11, ['0143', 'FIXES', '2 MIN', 'OK'])
-    px(g, 150, 56, 128, 4, C.wood); px(g, 150, 56, 128, 1, C.woodHi); px(g, 150, 59, 128, 1, C.woodDk)
-    px(g, 156, 60, 3, 8, C.woodDk); px(g, 270, 60, 3, 8, C.woodDk)
-    for (const j of JARS) jar(g, j.x, j.y, j.fill)
-    px(g, 440, 0, 4, TOP, C.steel); px(g, 441, 0, 1, TOP, C.steelHi)
-    px(g, 450, 2, 62, 8, C.stone); px(g, 450, 2, 62, 1, C.steel)
-    for (let i = 0; i < 4; i++) { disc(g, 460 + i * 14, 12, 3, C.orange); px(g, 459 + i * 14, 11, 2, 1, C.yellow) }
-    for (let y = 16; y < TOP; y++) for (let x = 448 + (y % 2); x < 514; x += 2) if ((x + y * 3) % 9 === 0) px(g, x, y, 1, 1, C.yellow)
+  function badge(g, cx, y, s, ramp, sub) {
+    // a game-style name tag: the name with a coloured dot, and the model on a second line
+    const w = Math.max(tw(s) + (ramp ? 14 : 8), sub ? tw(sub) + 8 : 0), hgt = sub ? 17 : 11, x = Math.round(cx - w / 2)
+    px(g, x + 1, y, w - 2, hgt, OUT); px(g, x, y + 1, w, hgt - 2, OUT)
+    px(g, x + 1, y + 1, w - 2, hgt - 2, '#ffffff'); px(g, x + 1, y + hgt - 3, w - 2, 2, '#ece6f2')
+    if (ramp) { blob(g, x + 5, y + 5, 2, 2, ramp[2]); px(g, x + 4, y + 4, 1, 1, ramp[0]) }
+    text(g, s, x + (ramp ? 10 : 4), y + 3, OUT)
+    if (sub) { px(g, x + 3, y + 9, w - 6, 1, '#ece6f2'); text(g, sub, Math.round(cx - tw(sub) / 2), y + 11, '#8a7a9a') }
+    px(g, cx - 1, y + hgt, 3, 1, OUT); px(g, cx, y + hgt + 1, 1, 1, OUT)
   }
+  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => icons[cv.dataset.sprite](cv))
+
+  // ---- the scene: 480 x 216 logical pixels, drawn at an integer scale ----
+  const W = 480, H = 216, TOP = 140
+  const view = document.getElementById('kitchen'), vg = view.getContext('2d')
+  const off = document.createElement('canvas'); off.width = W; off.height = H; const g = off.getContext('2d')
+  let S = 2
+  function fit() { S = Math.max(1, Math.floor(view.parentElement.clientWidth / W)); view.width = W * S; view.height = H * S; vg.imageSmoothingEnabled = false; present() }
+
+  const JAR_RAMPS = [R.pink, R.orange, R.green, R.blue, R.lilac]
+  const JARS = JAR_RAMPS.map((ramp, i) => ({ ramp, sp: jarSprite(ramp), x: 160 + i * 15, y: 64 }))
+  const COOKS = [
+    { x: 236, accent: 'orange', name: 'CLAUDE', model: 'SONNET', soup: R.orange },
+    { x: 294, accent: 'blue', name: 'CODEX', model: 'GPT-5.5', soup: R.blue },
+    { x: 352, accent: 'green', name: 'PI', model: 'GLM', soup: R.green },
+  ]
+  const TICKETS = [ticketSprite(['0141', 'GREET', 'CLASH', 'OK'], R.blue), ticketSprite(['0142', 'CALC', '99 UP', '166OK'], R.orange), ticketSprite(['0143', 'FIXES', '2MIN', 'OK'], R.green)]
+  const BELL = bellSprite(), TOPS = [R.orange, R.red, R.green, R.pink]
+  const PLATES = TOPS.map(plateSprite)
+  let f = 0, plates = [{ x: 380, k: 1 }], served = 2, ding = 0, toss = null, call = 0, steam = []
+
+  function room() {
+    // plaster wall with a soft vertical gradient and speckle
+    const grad = g.createLinearGradient(0, 0, 0, TOP); grad.addColorStop(0, '#fff8ea'); grad.addColorStop(1, '#f6e4c6'); g.fillStyle = grad; g.fillRect(0, 0, W, TOP)
+    for (let i = 0; i < 160; i++) px(g, (i * 53) % W, (i * 29) % 100, 1, 1, '#efdcbc')
+    // beadboard wainscot
+    px(g, 0, 104, W, TOP - 104, R.plank[1]); for (let x = 0; x < W; x += 6) { px(g, x, 106, 1, TOP - 106, R.plank[3]); px(g, x + 1, 106, 1, TOP - 106, R.plank[0]) }
+    px(g, 0, 102, W, 4, R.wood[2]); px(g, 0, 102, W, 1, R.wood[0]); px(g, 0, 105, W, 1, R.wood[3])
+    // window with sky, clouds and light rays
+    px(g, 156, 10, 80, 50, R.wood[2]); px(g, 156, 10, 80, 2, R.wood[0])
+    const sky = g.createLinearGradient(0, 14, 0, 56); sky.addColorStop(0, '#8fd0ff'); sky.addColorStop(1, '#dff3ff'); g.fillStyle = sky; g.fillRect(160, 14, 72, 42)
+    for (const [cx, cy, s] of [[178, 26, 1], [212, 36, 0.8]]) { blob(g, cx, cy, 7 * s, 3 * s, '#ffffff'); blob(g, cx + 6 * s, cy - 2, 5 * s, 3 * s, '#ffffff'); blob(g, cx - 1, cy + 2, 8 * s, 2, '#eaf6ff') }
+    px(g, 195, 14, 2, 42, R.wood[1]); px(g, 160, 34, 72, 2, R.wood[1]); px(g, 152, 58, 88, 4, R.wood[2]); px(g, 152, 58, 88, 1, R.wood[0])
+    g.save(); g.globalAlpha = 0.16; g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(160, 56); g.lineTo(232, 56); g.lineTo(300, TOP); g.lineTo(196, TOP); g.closePath(); g.fill(); g.restore()
+    // string lights
+    for (let x = 4; x < W - 4; x++) px(g, x, 5 + Math.round(Math.sin((x / W) * Math.PI * 3) * 2 + 2), 1, 1, '#8a7a6a')
+    for (let x = 14; x < W; x += 26) { const y = 7 + Math.round(Math.sin((x / W) * Math.PI * 3) * 2 + 2); glow(x, y + 2, 9, 'rgba(255,214,120,0.28)'); blob(g, x, y + 2, 2, 2, (x / 26 + f / 6) % 2 < 1 ? R.gold[1] : R.gold[0]); px(g, x, y, 1, 1, R.steel[3]) }
+    // order rail with pinned tickets
+    px(g, 8, 20, 86, 3, R.steel[2]); px(g, 8, 20, 86, 1, R.steel[0])
+    TICKETS.forEach((t, i) => g.drawImage(t, 12 + i * 27, 21 + (i % 2)))
+    // pantry shelf, jars and herbs
+    px(g, 152, 86, 88, 4, R.wood[1]); px(g, 152, 86, 88, 1, R.wood[0]); px(g, 152, 89, 88, 1, R.wood[3]); px(g, 158, 90, 3, 6, R.wood[3]); px(g, 232, 90, 3, 6, R.wood[3])
+    for (const j of JARS) g.drawImage(j.sp, j.x, j.y)
+    herb(238, 70); herb(128, 88)
+    // utensil rail over the line
+    px(g, 244, 36, 150, 2, R.steel[2]); px(g, 244, 36, 150, 1, R.steel[0])
+    ladle(256, 38); pan(286, 38); whisk(322, 38); ladle(346, 38); pan(372, 38)
+    // the pass: heat shelf and lamps
+    px(g, 412, 0, 3, TOP, R.steel[2]); px(g, 413, 0, 1, TOP, R.steel[0])
+    for (const lx of [430, 462]) { px(g, lx - 1, 0, 2, 22, R.steel[3]); blob(g, lx, 26, 8, 4, R.red[2]); px(g, lx - 8, 26, 17, 3, R.red[3]); glowCone(lx, 30) }
+    px(g, 418, 96, 58, 4, R.steel[1]); px(g, 418, 96, 58, 1, R.steel[0]); px(g, 418, 99, 58, 1, R.steel[3])
+  }
+  function glow(x, y, r, c) { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, c); gr.addColorStop(1, 'rgba(255,214,120,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2) }
+  function glowCone(x, y) { const gr = g.createLinearGradient(0, y, 0, TOP); gr.addColorStop(0, 'rgba(255,170,80,0.35)'); gr.addColorStop(1, 'rgba(255,170,80,0.05)'); g.fillStyle = gr; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.lineTo(x + 18, TOP); g.lineTo(x - 18, TOP); g.closePath(); g.fill() }
+  function herb(x, y) { px(g, x - 5, y + 8, 10, 8, R.orange[3]); px(g, x - 6, y + 8, 12, 2, R.orange[2]); px(g, x - 4, y + 10, 2, 5, R.orange[2]); for (const [dx, dy, r] of [[-3, 4, 3], [2, 3, 3], [0, 0, 3], [-1, 6, 2], [4, 6, 2]]) { blob(g, x + dx, y + dy, r, r, R.leaf[2]); blob(g, x + dx - 1, y + dy - 1, r - 1, r - 1, R.leaf[1]) } }
+  function ladle(x, y) { px(g, x, y, 1, 3, R.steel[3]); px(g, x - 1, y + 3, 2, 14, R.steel[2]); blob(g, x, y + 20, 4, 3, R.steel[2]); blob(g, x - 1, y + 19, 2, 1, R.steel[0]) }
+  function pan(x, y) { px(g, x, y, 1, 3, R.steel[3]); px(g, x - 1, y + 3, 3, 10, '#5a4a40'); blob(g, x, y + 20, 8, 7, '#4a3f3a'); blob(g, x - 1, y + 19, 6, 5, '#625650'); px(g, x - 4, y + 16, 3, 1, '#8a7c74') }
+  function whisk(x, y) { px(g, x, y, 1, 3, R.steel[3]); px(g, x - 1, y + 3, 3, 7, R.wood[2]); for (let i = -3; i <= 3; i += 2) for (let k = 0; k < 10; k++) px(g, x + Math.round(i * Math.sin((k / 10) * Math.PI)), y + 10 + k, 1, 1, R.steel[2]) }
+
   function counter() {
-    px(g, 0, TOP, W, 8, C.steel); px(g, 0, TOP, W, 2, C.steelHi); px(g, 0, TOP + 7, W, 1, C.stone)
-    px(g, 0, TOP + 8, 440, H - TOP - 8, C.wood)
-    for (let x = 0; x < 440; x += 48) { px(g, x, TOP + 8, 2, H - TOP - 8, C.woodDk); px(g, x + 2, TOP + 8, 1, H - TOP - 8, C.woodHi) }
-    for (let i = 0; i < 70; i++) { const gx = (i * 37) % 432 + 4, gy = TOP + 12 + (i * 13) % (H - TOP - 16); px(g, gx, gy, 4 + (i % 3), 1, C.woodDk) }
-    px(g, 440, TOP + 8, 80, H - TOP - 8, C.steel); px(g, 440, TOP + 8, 80, 1, C.steelHi)
-    for (let x = 446; x < W; x += 16) { px(g, x, TOP + 14, 2, 2, C.stone); px(g, x, H - 8, 2, 2, C.stone) }
-    sign(g, 52, TOP + 26, 'ORDER'); sign(g, 124, TOP + 26, 'SOUS', C.redDk); sign(g, 214, TOP + 26, 'PANTRY')
-    COOKS.forEach((k) => sign(g, k.x + 22, TOP + 26, k.name, k.d)); sign(g, 480, TOP + 26, 'PASS', C.stone)
+    // butcher-block top
+    px(g, 0, TOP, W, 9, R.wood[1]); px(g, 0, TOP, W, 2, R.wood[0]); px(g, 0, TOP + 8, W, 1, R.wood[3])
+    for (let x = 0; x < W; x += 14) px(g, x, TOP + 2, 1, 6, R.wood[2])
+    // front panels
+    px(g, 0, TOP + 9, 412, H - TOP - 9, R.plank[1])
+    for (let x = 0; x < 412; x += 58) { px(g, x + 4, TOP + 16, 50, H - TOP - 26, R.plank[2]); px(g, x + 6, TOP + 18, 46, H - TOP - 30, R.plank[1]); px(g, x + 6, TOP + 18, 46, 1, R.plank[0]); px(g, x + 26, TOP + 34, 6, 2, R.wood[3]) }
+    px(g, 0, H - 8, 412, 8, '#7fb8c4'); for (let x = 0; x < 412; x += 8) px(g, x, H - 8, 1, 8, '#6aa1ad'); px(g, 0, H - 8, 412, 1, '#a7dbe4')
+    // stainless pass front
+    px(g, 412, TOP + 9, 68, H - TOP - 9, R.steel[1]); px(g, 412, TOP + 9, 68, 2, R.steel[0]); for (let x = 418; x < W; x += 12) { px(g, x, TOP + 16, 2, 2, R.steel[3]); px(g, x, H - 8, 2, 2, R.steel[3]) }
   }
-  function scene() {
-    wall()
-    chef(g, 108, TOP - 44, C.red, C.redDk, { point: true, mustache: true, scarf: C.yellow })
-    const callout = toss ? 'FIRE!' : (call % 4 === 0 ? 'YES CHEF' : '')
-    if (callout) { const w = textW(callout) + 8; px(g, 92, TOP - 64, w, 11, C.white); px(g, 92, TOP - 54, w, 1, C.stone); px(g, 104, TOP - 53, 3, 2, C.white); text(g, callout, 96, TOP - 61, toss ? C.red : C.ink) }
-    COOKS.forEach((k, i) => chef(g, k.x, TOP - 44, k.c, k.d, { stir: still ? 0 : f + i }))
-    counter()
-    COOKS.forEach((k, i) => pot(g, k.x + 22, TOP - 16, still ? i : f + i, k.c))
-    if (!still) COOKS.forEach((k, i) => { for (let s = 0; s < 3; s++) { const sy = TOP - 22 - ((f * 2 + s * 6 + i * 4) % 18); px(g, k.x + 28 + s * 6 + (sy % 3), sy, 2 + (s % 2), 2, C.steelHi) } })
-    for (let i = 0; i < served; i++) plate(g, 452, TOP - 8 - i * 6, [C.green, C.orange, C.pink, C.blue][i % 4])
-    for (const p of plates) plate(g, Math.round(p.x), TOP - 8, p.food)
-    bell(g, 484 + (ding > 0 ? (ding % 2 ? 1 : -1) : 0), TOP - 17)
-    if (ding > 0) { px(g, 474, TOP - 32, 30, 11, C.yellow); text(g, 'DING!', 479, TOP - 29, C.ink) }
-    if (toss) {
-      const t = toss.t / 16, x = toss.x0 + (toss.x1 - toss.x0) * t, y = toss.y0 + (toss.y1 - toss.y0) * t - Math.sin(t * Math.PI) * 34
-      disc(g, Math.round(x), Math.round(y), 2, toss.fill); px(g, Math.round(x) - 1, Math.round(y) - 1, 1, 1, '#ffffff')
-    }
+  function people() {
+    const bob = still ? 0 : Math.floor(f / 4) % 2
+    g.drawImage(chefSprite({ accent: 'red', tall: true, mustache: true, pose: (call % 2) ? 'point' : 'idle' }), 100, TOP - 60 + bob)
+    COOKS.forEach((k, i) => { k.sp = chefSprite({ accent: k.accent, apron: true, pose: 'stir', d: still ? 0 : (f + i) % 2 }); g.drawImage(k.sp, k.x, TOP - 54 + ((bob + i) % 2)) })
   }
+  function stoves() {
+    COOKS.forEach((k, i) => {
+      const x = k.x + 36, ff = still ? i : f + i
+      px(g, x, TOP - 2, 30, 3, '#3d3540'); px(g, x + 2, TOP - 3, 26, 1, '#5d5560')
+      for (let j = 0; j < 5; j++) { const hh = 2 + ((ff + j) % 3); px(g, x + 3 + j * 5, TOP - 3 - hh, 3, hh, ((ff + j) % 2) ? R.orange[2] : R.red[2]); px(g, x + 4 + j * 5, TOP - 2 - hh, 1, Math.max(1, hh - 1), R.gold[1]) }
+      g.drawImage(potSprite(k.soup, ff), x, TOP - 22)
+      // the ladle from the cook's hand into the pot
+      const hy = TOP - 54 + 46 + (still ? 0 : (f + i) % 2)
+      for (let s = 0; s <= 8; s++) px(g, k.x + 41 + s, hy - 6 + Math.round(s * 0.6), 1, 1, R.steel[3])
+    })
+    for (const p of steam) { g.save(); g.globalAlpha = p.a; blob(g, Math.round(p.x), Math.round(p.y), p.r, p.r, '#ffffff'); g.restore() }
+  }
+  function passArea() {
+    for (let i = 0; i < served; i++) g.drawImage(PLATES[i % 4], 424 + (i % 2) * 24, 84 - Math.floor(i / 2) * 8)
+    for (const p of plates) g.drawImage(PLATES[p.k], Math.round(p.x), TOP - 9)
+    g.drawImage(BELL, 448 + (ding > 0 ? (ding % 2 ? 1 : -1) : 0), TOP - 18)
+    if (ding > 0) { const y = TOP - 36 - (10 - ding); px(g, 442, y, 34, 12, OUT); px(g, 443, y + 1, 32, 10, R.gold[1]); text(g, 'DING!', 449, y + 4, OUT) }
+  }
+  function overlays() {
+    badge(g, 52, 60, 'ORDER', R.red); badge(g, 196, 92, 'PANTRY', R.lilac)
+    badge(g, 126, TOP - 84, 'SOUS', R.red, 'DEEPSEEK')
+    COOKS.forEach((k) => badge(g, k.x + 24, TOP - 78, k.name, R[k.accent], k.model))
+    badge(g, 446, 52, 'THE PASS', R.gold)
+    const callout = toss ? 'FIRE!' : (call % 3 === 0 ? 'YES CHEF!' : '')
+    if (callout) { const w = tw(callout) + 10, x = 98 - w, y = TOP - 62; px(g, x + 1, y, w - 2, 13, OUT); px(g, x, y + 1, w, 11, OUT); px(g, x + 1, y + 1, w - 2, 11, toss ? R.red[0] : '#ffffff'); px(g, x + w, y + 5, 3, 3, OUT); text(g, callout, x + 5, y + 4, OUT) }
+    if (toss) { const t = toss.t / 16, x = toss.x0 + (toss.x1 - toss.x0) * t, y = toss.y0 + (toss.y1 - toss.y0) * t - Math.sin(t * Math.PI) * 40; blob(g, Math.round(x), Math.round(y), 3, 3, OUT); blob(g, Math.round(x), Math.round(y), 2, 2, toss.ramp[1]); px(g, Math.round(x) - 1, Math.round(y) - 1, 1, 1, '#ffffff'); for (let k = 1; k < 4; k++) { const tt = Math.max(0, t - k * 0.06); px(g, toss.x0 + (toss.x1 - toss.x0) * tt, toss.y0 + (toss.y1 - toss.y0) * tt - Math.sin(tt * Math.PI) * 40, 1, 1, toss.ramp[0]) } }
+  }
+  function draw() { room(); people(); counter(); stoves(); passArea(); overlays(); present() }
+  function present() { vg.imageSmoothingEnabled = false; vg.clearRect(0, 0, view.width, view.height); vg.drawImage(off, 0, 0, W * S, H * S) }
   function step() {
-    f++; if (f % 8 === 0) call++
+    f++; if (f % 10 === 0) call++
     if (ding > 0) ding--
-    if (!toss && f % 24 === 0) { const j = JARS[(f / 24) % JARS.length | 0], k = COOKS[(f / 24) % COOKS.length | 0]; toss = { x0: j.x + 8, y0: j.y + 12, x1: k.x + 14, y1: TOP - 40, fill: j.fill, t: 0 } }
+    if (!toss && f % 26 === 0) { const j = JARS[(f / 26) % JARS.length | 0], k = COOKS[(f / 26) % COOKS.length | 0]; toss = { x0: j.x + 9, y0: j.y + 10, x1: k.x + 24, y1: TOP - 50, ramp: j.ramp, t: 0 } }
     if (toss && ++toss.t > 16) toss = null
-    if (f % 30 === 0) { const k = COOKS[(f / 30) % COOKS.length | 0]; plates.push({ x: k.x + 24, food: k.c }) }
-    plates.forEach((p) => (p.x += 2.5))
-    const arrived = plates.filter((p) => p.x >= 452)
-    if (arrived.length) { plates = plates.filter((p) => p.x < 452); served = served >= 4 ? 1 : served + 1; ding = 10 }
+    if (f % 3 === 0) COOKS.forEach((k) => steam.push({ x: k.x + 44 + Math.random() * 14, y: TOP - 24, r: 2, a: 0.7 }))
+    steam.forEach((p) => { p.y -= 1.2; p.x += Math.sin((p.y + f) / 6) * 0.4; p.r = Math.min(5, p.r + 0.12); p.a -= 0.03 }); steam = steam.filter((p) => p.a > 0)
+    if (f % 32 === 0) { const i = (f / 32) % COOKS.length | 0; plates.push({ x: COOKS[i].x + 40, k: i }) }
+    plates.forEach((p) => (p.x += 2.6))
+    if (plates.some((p) => p.x >= 418)) { plates = plates.filter((p) => p.x < 418); served = served >= 5 ? 1 : served + 1; ding = 12 }
   }
-  scene()
-  if (!still) { let last = 0; const loop = (now) => { if (now - last > 100) { last = now; step(); scene() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
-
+  fit(); draw(); window.addEventListener('resize', () => { fit(); draw() })
+  if (!still) { let last = 0; const loop = (now) => { if (now - last > 90) { last = now; step(); draw() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
   const btn = document.getElementById('ding'), txt = document.getElementById('ding-text')
-  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 12; if (still) scene(); setTimeout(() => (txt.textContent = 'Service!'), 1400) })
+  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 12; if (still) draw(); setTimeout(() => (txt.textContent = 'Service!'), 1400) })
 
   // ---- a real service: per minute of the calc run (from its event log) ----
   const fired = [0,0,2,2,1,0,3,1,0,0,1,0,0,0,0,0,0,0,1,0,1,3,2,1,4,1,3,1,1]
   const out   = [0,0,1,1,3,0,3,0,0,1,0,0,0,0,0,0,0,0,1,1,1,3,2,1,3,2,2,1,1]
-  const ch = document.getElementById('chart'), h = ch.getContext('2d')
-  const n = fired.length, bw = 5, colw = 16, L = 16, CW = L + n * colw + 6, CH = 92, base = 74, unit = 14
-  ch.width = CW; ch.height = CH
-  const cs = () => { const s = Math.max(1, Math.floor(ch.parentElement.clientWidth / CW)); ch.style.width = CW * s + 'px'; ch.style.height = CH * s + 'px' }
-  cs(); window.addEventListener('resize', cs)
-  px(h, 0, 0, CW, CH, C.steelHi)
-  for (let v = 1; v <= 4; v++) { for (let x = L; x < CW - 4; x += 4) px(h, x, base - v * unit, 2, 1, C.steel); text(h, String(v), 4, base - v * unit - 2, C.stone) }
-  px(h, L - 2, base, CW - L - 2, 2, C.ink)
+  const ch = document.getElementById('chart'), cg = ch.getContext('2d')
+  const n = fired.length, bw = 5, colw = 16, L = 16, CW = L + n * colw + 6, CH = 96, base = 76, unit = 14
+  const co = document.createElement('canvas'); co.width = CW; co.height = CH; const h = co.getContext('2d')
+  px(h, 0, 0, CW, CH, '#fffdf8')
+  for (let v = 1; v <= 4; v++) { for (let x = L; x < CW - 4; x += 4) px(h, x, base - v * unit, 2, 1, '#e6dff0'); text(h, String(v), 5, base - v * unit - 2, '#7a6d88') }
+  px(h, L - 2, base, CW - L - 2, 2, OUT)
   for (let i = 0; i < n; i++) {
     const x = L + i * colw + 2
-    if (fired[i]) { px(h, x, base - fired[i] * unit, bw, fired[i] * unit, C.red); px(h, x, base - fired[i] * unit, bw, 1, C.pink); px(h, x + bw - 1, base - fired[i] * unit, 1, fired[i] * unit, C.redDk) }
-    if (out[i]) { px(h, x + bw + 1, base - out[i] * unit, bw, out[i] * unit, C.green); px(h, x + bw + 1, base - out[i] * unit, bw, 1, '#a8ffbe'); px(h, x + 2 * bw, base - out[i] * unit, 1, out[i] * unit, C.greenDk) }
-    if (i % 5 === 0) { px(h, x + bw, base + 2, 1, 3, C.ink); text(h, `${i}M`, x + bw - 3, base + 7, C.stone) }
+    if (fired[i]) { const y = base - fired[i] * unit; px(h, x - 1, y - 1, bw + 2, fired[i] * unit + 1, OUT); px(h, x, y, bw, fired[i] * unit, R.red[1]); px(h, x, y, 2, fired[i] * unit, R.red[0]) }
+    if (out[i]) { const y = base - out[i] * unit, xx = x + bw + 2; px(h, xx - 1, y - 1, bw + 2, out[i] * unit + 1, OUT); px(h, xx, y, bw, out[i] * unit, R.green[1]); px(h, xx, y, 2, out[i] * unit, R.green[0]) }
+    if (i % 5 === 0) { px(h, x + bw, base + 2, 1, 3, OUT); text(h, `${i}M`, x + bw - 3, base + 7, '#7a6d88') }
   }
   const qx = L + 10 * colw, qw = 8 * colw
-  for (let x = qx; x < qx + qw; x += 4) px(h, x, base - 2.4 * unit, 2, 1, C.orangeDk)
-  text(h, 'ONE COOK: THE PARSER, 8:44', qx + 4, base - 2.4 * unit - 8, C.orangeDk)
+  for (let x = qx; x < qx + qw; x += 4) px(h, x, base - 2.4 * unit, 2, 1, R.orange[3])
+  text(h, 'ONE COOK: THE PARSER, 8:44', qx + 4, base - 2.4 * unit - 8, R.orange[3])
+  const cs = () => { const s = Math.max(1, Math.floor(ch.parentElement.clientWidth / CW)); ch.width = CW * s; ch.height = CH * s; cg.imageSmoothingEnabled = false; cg.drawImage(co, 0, 0, CW * s, CH * s) }
+  cs(); window.addEventListener('resize', cs)
 })()
 </script>
 </body>
