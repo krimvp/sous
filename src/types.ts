@@ -198,13 +198,17 @@ export interface LeadRunner {
 
 export type CreateLeadRunner = (opts: { runDir: string; host: LeadHost }) => LeadRunner
 
+/** How deep leads may nest (a top-level lead is depth 1) unless the run sets `--max-depth`. */
+export const DEFAULT_MAX_LEAD_DEPTH = 3
+
 /** Default lead model when neither the node nor the run sets one. */
 export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 
 // ---- Event log -------------------------------------------------------------------------------
 
 export type EventBody =
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile }
+  /** `maxDepth`: how deep leads may nest in this run (`murm run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; maxDepth?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */

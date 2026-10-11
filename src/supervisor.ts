@@ -42,7 +42,6 @@ export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
 const MAX_CONCURRENT = 4
 const MAX_FIX_ROUNDS = 2
 const OUTPUT_TAIL = 4096
-const MAX_LEAD_DEPTH = 3
 const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
 /** Times a supervisor stop may cut a node's turn short before the node fails. */
@@ -118,7 +117,7 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
       const siblings = children.map((c) => c.spec.id)
       for (const c of call.children) {
         const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, state.graph)
-          ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > MAX_LEAD_DEPTH ? `leads may nest at most ${MAX_LEAD_DEPTH} deep` : undefined)
+          ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > state.maxDepth ? `leads may nest at most ${state.maxDepth} deep` : undefined)
         if (why) return `child ${String(c?.id)}: ${why}`
         siblings.push(c.id)
       }
@@ -290,7 +289,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const agent = agentOf(state, lead)
     if (typeof agent === 'string') return abandon(state, id, agent)
     if (lead.status === 'ready') {
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.graph, unavailable), agent.instructions)
+      const depth = { at: ancestors(state, id).length + 1, max: state.maxDepth }
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.graph, unavailable), depth, agent.instructions)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)

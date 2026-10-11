@@ -1,5 +1,5 @@
 // Run state as a pure fold of the event log.
-import { PERSON } from './types.ts'
+import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
 import type { ChildSpec, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
@@ -84,6 +84,8 @@ export interface NodeState {
 
 export interface RunState {
   goal: string
+  /** How deep leads may nest in this run. */
+  maxDepth: number
   workspace: string
   graph?: GraphFile
   status: 'running' | 'completed' | 'failed'
@@ -140,7 +142,7 @@ export function childrenOf(state: RunState, id: string | undefined): NodeState[]
 }
 
 export function fold(events: readonly Event[]): RunState {
-  const state: RunState = { goal: '', workspace: '', status: 'running', nodes: new Map(), questions: [], calls: new Map() }
+  const state: RunState = { goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, workspace: '', status: 'running', nodes: new Map(), questions: [], calls: new Map() }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
     spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], idle: false, reminders: 0, escalated: false,
@@ -175,7 +177,7 @@ export function fold(events: readonly Event[]): RunState {
     }
     switch (e.type) {
       case 'run.created':
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph })
+        Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH })
         break
       case 'node.added':
         add(e.node)

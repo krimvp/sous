@@ -65,7 +65,7 @@ export function resultReminder(): string {
 // ---- Leads -------------------------------------------------------------------------------------
 
 /** A lead's first delivery, with its agent's standing instructions and the agents its children may name. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, instructions?: string): string {
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string): string {
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
   parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
@@ -82,7 +82,9 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents:
     `Agents a child may name: for work children ${agents.work.join(', ') || 'none'}` +
       (agents.defaultWork ? ` (default ${agents.defaultWork})` : ''),
     `for lead children ${agents.lead.join(', ') || 'none'} (default: your own agent).`,
-  ].join('; '))
+  ].join('; '), depth.at < depth.max
+    ? `You are a lead at depth ${depth.at}; leads may nest ${depth.max} deep, so your lead children are at depth ${depth.at + 1}.`
+    : `You are a lead at depth ${depth.at}, the deepest allowed: spawn no lead children.`)
   return parts.join('\n\n') + '\n'
 }
 
