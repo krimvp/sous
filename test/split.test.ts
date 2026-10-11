@@ -1,9 +1,9 @@
 // The splitter: a standing agent that proposes each lead's split before its brief. Real git worktrees, fake workers
 // and the scripted fake lead runner; the approval gate and recovery through real `sous` processes.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { openLog, readEvents } from '../src/log.ts'
@@ -14,7 +14,7 @@ import { toAtif } from '../src/trace/atif.ts'
 import { toOtlp } from '../src/trace/otlp.ts'
 import { loadRun } from '../src/trace/run.ts'
 import { SPLITTER } from '../src/types.ts'
-import type { ChildSpec, Definitions, Event, NodeSpec } from '../src/types.ts'
+import type { ChildSpec, Definitions, Event, EventBody, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
@@ -29,16 +29,17 @@ const splitter = (steps: FakeStep[]): Definitions => ({ agents: { [SPLITTER]: { 
 /** Writes a proposal for `lead`; the splitter works in <runDir>/worktrees/splitter. */
 const propose = (lead: string, parts: unknown[]) => ({ [`../../splits/${lead}.json`]: JSON.stringify({ parts }) })
 const task = (id: string, steps: FakeStep[]): ChildSpec => ({ id, kind: 'work', brief: `Do ${id}.\n${fakePlan(steps)}` })
-const lead = (steps: FakeLeadStep[]): NodeSpec => ({ id: 'lead', kind: 'lead', brief: `Lead the test goal.\n${fakeLeadPlan(steps)}` })
+const lead = (steps: FakeLeadStep[], id = 'lead'): NodeSpec => ({ id, kind: 'lead', brief: `Lead the test goal.\n${fakeLeadPlan(steps)}` })
 
 /** Runs `nodes` in a git workspace whose first commit holds `files`, with the definitions `defs`. */
-async function runGraph(nodes: NodeSpec[], defs: Definitions, opts: { files?: Record<string, string> } & Partial<SupervisorOptions> = {}) {
+async function runGraph(nodes: NodeSpec[], defs: Definitions, opts: { files?: Record<string, string>; more?: EventBody[] } & Partial<SupervisorOptions> = {}) {
   const workspace = gitWorkspace('sous-split-', opts.files)
   const runDir = join(workspace, '.sous', 'runs', 'r1')
   mkdirSync(runDir, { recursive: true })
   const log = openLog(runDir)
   log.append({ type: 'run.created', goal: 'test goal', workspace, graph: { goal: 'test goal', ...defs, nodes } })
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
+  for (const body of opts.more ?? []) log.append(body)
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
@@ -46,7 +47,7 @@ async function runGraph(nodes: NodeSpec[], defs: Definitions, opts: { files?: Re
   const events = readEvents(runDir)
   const state = fold(events)
   const prompts = (node: string) => {
-    const session = state.nodes.get(node)!.turns[0].sessionId
+    const session = state.nodes.get(node)!.turns.findLast((t) => t.sessionId)!.sessionId
     return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).prompts as string[]
   }
   return { workspace, runDir, outcome, events, state, prompts }
@@ -132,6 +133,60 @@ test('a sub-lead gets its split from the same splitter session, on a worktree re
   assert.match(prompts(SPLITTER)[1], /^Message from supervisor:\nPropose a split for lead sub\.\n\nIts task:\nDo b\./)
   assert.match(prompts(SPLITTER)[1], /Lead sub is at depth 2 of at most 3/)
   assert.match(briefOf(events, 'sub'), /The run's splitter proposed this split of your task: b alone/)
+})
+
+test('leads ready together get one request each, in order, even when the first needs a retry', async () => {
+  const steps = (id: string): FakeLeadStep[] => [
+    { calls: [{ tool: 'spawn', children: [task(`${id}-w`, [{ result: done(id) }])] }] },
+    { calls: [{ tool: 'complete', summary: `${id} done` }] },
+  ]
+  const { outcome, events, prompts } = await runGraph([lead(steps('l1'), 'l1'), lead(steps('l2'), 'l2')], splitter([
+    { result: done('forgot to write') },
+    { write: propose('l1', [task('l1-w', [])]), result: done('l1 split') },
+    { write: propose('l2', [task('l2-w', [])]), result: done('l2 split') },
+  ]))
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(splitEvents(events).map((e) => [e.type, e.node]), [
+    ['split.requested', 'l1'], ['split.requested', 'l2'], ['split.proposed', 'l1'], ['split.proposed', 'l2'],
+  ])
+  assert.deepEqual(prompts(SPLITTER).map((p) => p.match(/^(?:[^]*?Message from supervisor:\n)?(Propose a split for lead \w+|Your proposal for lead \w+)/)?.[1]), [
+    'Propose a split for lead l1', 'Your proposal for lead l1', 'Propose a split for lead l2',
+  ])
+})
+
+test('cancelling a lead stops the splitter turn working on its split', async () => {
+  const started = Date.now()
+  const { outcome, events, state } = await runGraph([lead([])], splitter([{ sleepMs: 60_000, result: done('too late') }]), {
+    onEvent: (e) => {
+      if (e.type !== 'turn.started' || e.node !== SPLITTER) return
+      const commands = join(dirname(dirname(dirname(e.outFile))), 'commands')
+      writeFileSync(join(commands, 'cancel.tmp'), JSON.stringify({ type: 'cancel', node: 'lead' }))
+      renameSync(join(commands, 'cancel.tmp'), join(commands, 'cancel.json'))
+    },
+  })
+  assert.equal(outcome, 'failed')
+  assert.ok(Date.now() - started < 30_000, 'the splitter turn was stopped')
+  assert.equal(state.nodes.get(SPLITTER)!.turns[0].interrupted?.reason, 'lead finished before its split')
+  assert.deepEqual(splitEvents(events).map((e) => (e.type === 'split.failed' ? e.reason : e.type)), ['split.requested', 'lead finished before its split'])
+})
+
+test('a splitter turn that took the request but was cut short before starting gets the request again on resume', async () => {
+  const request = 'Propose a split for lead lead. (the request a stopped supervisor sent)'
+  const { outcome, events, prompts } = await runGraph([lead([
+    { calls: [{ tool: 'spawn', children: [task('a', [{ result: done('a') }])] }] },
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])], splitter([{ write: propose('lead', [task('a', [])]), result: done('recovered split') }]), {
+    resume: true,
+    more: [
+      { type: 'split.requested', node: 'lead' },
+      { type: 'node.added', node: { id: SPLITTER, kind: 'work', standing: true, agent: SPLITTER, brief: 'Split.' }, by: 'supervisor' },
+      { type: 'message', from: 'supervisor', to: SPLITTER, body: request, mode: 'queue' },
+      { type: 'turn.started', node: SPLITTER, turn: 1, mode: 'start', harness: 'codex', agent: SPLITTER, pid: 999_999_999, outFile: '/nonexistent/turn-1.jsonl', errFile: '/nonexistent/turn-1.err' },
+    ],
+  })
+  assert.equal(outcome, 'completed')
+  assert.match(prompts(SPLITTER)[0], new RegExp(`Message from supervisor:\n${request.replace(/[.()]/g, '\\$&')}`))
+  assert.deepEqual(splitEvents(events).map((e) => e.type), ['split.requested', 'split.proposed'])
 })
 
 test('an invalid proposal goes back to the splitter once with the reason; the corrected one is proposed', async () => {

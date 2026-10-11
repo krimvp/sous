@@ -264,7 +264,9 @@ cheap leads. Without a splitter, leads split on their own, as before.
   changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
   failed split needs no approval.
 - **Recovery** is the integrator's: a splitter turn a supervisor stop cut short resumes its session with a recovery
-  note; a turn that ended before the stop is settled from its result and its file without running again.
+  note that repeats the split's request (the cut turn may have stopped before the splitter read it); a turn that ended
+  before the stop is settled from its result and its file without running again. Cancelling a lead stops the
+  splitter turn working on its split.
 - **Traces.** `split.requested`, `split.proposed` (with its parts) and `split.failed` are system steps in the lead's
   ATIF trajectory, before its brief, and a `split` span under the lead in Langfuse, so a run shows what was proposed
   beside what the lead spawned. The splitter is its own trajectory under the root.

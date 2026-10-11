@@ -689,6 +689,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // ---- Splitting ------------------------------------------------------------------------------
 
+  // The lead whose split the splitter's running turn works on: the turn stops when that lead finishes.
+  let splitFor: string | undefined
+
   /** Ask the splitter for the first requested split and record its proposal once it is valid as a spawn of the lead.
    * The splitter works in its own worktree, reset to the integration branch before each request, so what it reads is
    * current and nothing it writes reaches the run. One retry for an invalid proposal; then, or when the splitter is
@@ -719,13 +722,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const file = join(runDir, 'splits', `${id}.json`)
     const tree = createNodeWorktree(workspace, runId, runDir, SPLITTER, head(integration))
     if (tree.base) log.append({ type: 'worktree.created', node: SPLITTER, branch: tree.branch, path: tree.path, base: tree.base })
-    const since = nodeNow(id).split!.seq
-    const requests = () => log.events.filter((e) => e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === SPLITTER).length
+    // Splits run one at a time in request order, so this one's messages are those after it was requested and after every
+    // other split settled: a lead requested while an earlier split ran must not count that split's messages.
+    const before = current()
+    const since = Math.max(before.nodes.get(id)!.split!.seq, ...[...before.nodes.values()].flatMap((n) => n.split?.endSeq ?? []))
+    const ours = (): InboxMessage[] => log.events.flatMap((e) =>
+      e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === SPLITTER ? [{ seq: e.seq, from: e.from, body: e.body, mode: e.mode }] : [])
+    const requests = () => ours().length
     const request = (body: string) => log.append({ type: 'message', from: SUPERVISOR, to: SPLITTER, body, mode: 'queue' })
+    mkdirSync(join(runDir, 'splits'), { recursive: true })
     if (!requests()) {
       const commit = head(integration)
       resetTo(tree.path, commit)
-      mkdirSync(join(runDir, 'splits'), { recursive: true })
       rmSync(file, { force: true })
       const state = current()
       const used = [...state.nodes.keys()].filter((n) => n !== SPLITTER && n !== INTEGRATOR)
@@ -747,10 +755,16 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         const agent = agentOf(state, sp)
         if (typeof agent === 'string') return failed(agent)
         const sessionId = sp.turns.findLast((t) => t.sessionId)?.sessionId
-        const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, sp.inbox, agent.instructions)
-          : recorded ? recoveryPrompt(sp.inbox) : inboxPrompt(sp.inbox)
+        // A turn cut short may have stopped before the splitter read its prompt: a recovery turn repeats this split's
+        // messages, and so does a first prompt whose request a cut-short turn already took from the inbox.
+        const inbox = recorded || !sp.inbox.length ? ours() : sp.inbox
+        const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, agent.instructions)
+          : recorded ? recoveryPrompt(inbox) : inboxPrompt(inbox)
+        splitFor = id
         result = (await runTurn(sp.spec, agent, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
+        splitFor = undefined
         if (stopping) return
+        if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
         if (nodeNow(SPLITTER).inbox.length) continue // messages that arrived meanwhile come first
       }
       if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
@@ -840,7 +854,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       for (const [pid, g] of groups) {
         const n = state.nodes.get(g.node)!
         const urgent = n.inbox.find((m) => m.mode === 'interrupt')
-        if (!isFinal(n) && !urgent) continue
+        const orphaned = g.node === SPLITTER && splitFor !== undefined && isFinal(state.nodes.get(splitFor)) ? splitFor : undefined
+        if (!isFinal(n) && !urgent && !orphaned) continue
         if (g.turn === undefined && !isFinal(n)) {
           // The worker's acceptance check: stop it, and the worker resumes with the message.
           if (!interruptedChecks.has(pid)) interruptedChecks.set(pid, `message from ${urgent!.from}`)
@@ -849,7 +864,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         }
         const t = n.turns.find((t) => t.number === g.turn)
         if (t && !t.interrupted && !t.ended) {
-          const reason = isFinal(n) ? n.reason ?? 'node finished' : `message from ${urgent!.from}`
+          const reason = isFinal(n) ? n.reason ?? 'node finished' : orphaned ? `${orphaned} finished before its split` : `message from ${urgent!.from}`
           log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn!, reason, signal: 'SIGTERM' })
         }
         if (isFinal(n) || (t && !t.interrupted)) void terminate(pid)
