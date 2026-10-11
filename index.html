@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Murmuration: give it a goal, and a tree of agents builds it, merges it and checks it, on your machine.">
+<title>Murmuration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: a single screen; the flock fills the background, one column of text sits on it. */
+:root {
+  --sky: #eef1f3; --paper: #ffffff; --ink: #141b21; --muted: #56626d; --rule: #d3dae0;
+  --sheen: #2b7a6a; --bird: rgba(20, 27, 33, 0.72);
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --sky: #0d1216; --paper: #141b21; --ink: #e6ebef; --muted: #9aa6b0; --rule: #26313a; --sheen: #5fbfa9; --bird: rgba(214, 224, 232, 0.6); color-scheme: dark; }
+}
+:root[data-theme="dark"] { --sky: #0d1216; --paper: #141b21; --ink: #e6ebef; --muted: #9aa6b0; --rule: #26313a; --sheen: #5fbfa9; --bird: rgba(214, 224, 232, 0.6); color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--sky); color: var(--ink); font: 17px/1.6 var(--font-body); }
+#flock { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+main { position: relative; min-height: 100%; max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: clamp(48px, 12vh, 120px) 48px; display: grid; gap: 26px; align-content: center; }
+h1 { font: 800 clamp(3rem, 12vw, 7rem)/1 var(--font-display); letter-spacing: -0.035em; margin: 0; }
+.tag { font: 400 clamp(1.25rem, 3vw, 1.65rem)/1.35 var(--font-display); max-width: 28ch; margin: 0; }
+pre { margin: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 0.95rem/1.5 var(--font-mono); }
+pre .p { color: var(--sheen); user-select: none; }
+ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--muted); max-width: 60ch; }
+ul li::before { content: "—"; color: var(--sheen); margin-right: 10px; }
+a { color: var(--sheen); }
+a:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
+.link { font-weight: 500; }
+</style>
+</head>
+<body style="margin:0">
+
+<canvas id="flock" aria-hidden="true"></canvas>
+<main>
+  <h1>Murmuration</h1>
+  <p class="tag">Give it a goal. A tree of agents builds it, merges it and checks it.</p>
+  <pre><span class="p">$ </span>murm run "Add a --precision option to the CLI, with tests"</pre>
+  <ul>
+    <li>Lead agents split the goal into work.</li>
+    <li>Claude Code, Codex and Pi do it, each in its own git worktree.</li>
+    <li>Every branch is merged and checked; conflicts go to an agent.</li>
+    <li>It runs on your machine and resumes after a crash.</li>
+  </ul>
+  <p><a class="link" href="https://github.com/krimvp/murmuration">github.com/krimvp/murmuration</a></p>
+</main>
+<script>
+(function () {
+  const canvas = document.getElementById('flock')
+  const ctx = canvas.getContext('2d')
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  let W = 0, H = 0, birds = []
+  const color = () => getComputedStyle(document.documentElement).getPropertyValue('--bird').trim() || 'rgba(20,27,33,.7)'
+  function size() {
+    const r = canvas.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2)
+    W = r.width; H = r.height
+    canvas.width = W * d; canvas.height = H * d
+    ctx.setTransform(d, 0, 0, d, 0, 0)
+  }
+  function seed() {
+    const n = Math.round(Math.min(260, Math.max(90, W * H / 4200)))
+    birds = Array.from({ length: n }, () => {
+      const a = Math.random() * Math.PI * 2
+      return { x: W * (0.55 + Math.random() * 0.4), y: H * (0.15 + Math.random() * 0.6), vx: Math.cos(a), vy: Math.sin(a) }
+    })
+  }
+  function step(t) {
+    const cx = W * (0.72 + 0.16 * Math.sin(t / 5200)), cy = H * (0.45 + 0.22 * Math.sin(t / 3700))
+    for (const b of birds) {
+      let ax = 0, ay = 0, mx = 0, my = 0, sx = 0, sy = 0, n = 0
+      for (const o of birds) {
+        if (o === b) continue
+        const dx = o.x - b.x, dy = o.y - b.y, d2 = dx * dx + dy * dy
+        if (d2 < 1600) { ax += o.x; ay += o.y; mx += o.vx; my += o.vy; n++; if (d2 < 120) { sx -= dx; sy -= dy } }
+      }
+      if (n) { b.vx += ((mx / n) - b.vx) * 0.06 + ((ax / n) - b.x) * 0.0009; b.vy += ((my / n) - b.vy) * 0.06 + ((ay / n) - b.y) * 0.0009 }
+      b.vx += sx * 0.012 + (cx - b.x) * 0.00035; b.vy += sy * 0.012 + (cy - b.y) * 0.00035
+      const s = Math.hypot(b.vx, b.vy) || 1, v = Math.min(2.2, Math.max(1.1, s))
+      b.vx = b.vx / s * v; b.vy = b.vy / s * v
+      b.x += b.vx; b.y += b.vy
+    }
+  }
+  function draw() {
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = color()
+    for (const b of birds) {
+      const a = Math.atan2(b.vy, b.vx)
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(a)
+      ctx.beginPath(); ctx.moveTo(3.2, 0); ctx.lineTo(-2.4, 1.6); ctx.lineTo(-1.4, 0); ctx.lineTo(-2.4, -1.6); ctx.closePath(); ctx.fill()
+      ctx.restore()
+    }
+  }
+  function frame(t) { step(t); draw(); if (!document.hidden) requestAnimationFrame(frame) }
+  size(); seed()
+  for (let i = 0; i < 120; i++) step(i * 16)   // settle into a flock before the first frame
+  draw()
+  if (!still) requestAnimationFrame(frame)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !still) requestAnimationFrame(frame) })
+  window.addEventListener('resize', () => { size(); seed(); for (let i = 0; i < 60; i++) step(i * 16); draw() })
+})()
+</script>
+</body>
+</html>
