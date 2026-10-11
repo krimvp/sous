@@ -5,11 +5,13 @@ description: Run a task to completion with a tree of agents using sous, named af
 
 # sous
 
-sous (`~/workspace/sous`) runs a goal with a tree of agents on this machine. The supervisor (plain
-code) starts every agent, routes messages, merges work and recovers after crashes. You start and steer runs.
+sous runs a goal with a tree of agents on this machine. The supervisor (plain code) starts every agent,
+routes messages, merges work and recovers after crashes. You start and steer runs.
 
 ```bash
-M="node $HOME/workspace/sous/src/cli.ts"   # or `sous` if installed
+M=sous                                   # if installed (npm install -g @krimvp/sous)
+M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill lives in (src/cli.ts,
+                                         # three levels above this skill's folder)
 ```
 
 ## Quick start
