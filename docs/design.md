@@ -128,9 +128,11 @@ reopened lead continues where it stopped.
 - **Its only tools are the orchestration tools below**, offered through one extension. Each is
   `replay: "safe"`, keyed by the model's tool call ID, and **returns the original result on replay**: in
   the spike, a different replay result made the model stop early.
-- **Model:** `openai-codex/gpt-5.5` through the user's Pi login, read from `~/.pi/agent/auth.json` and
-  never refreshed by Murmuration (a refresh rotates Pi's token; an expired login is refreshed by running
-  `pi` once).
+- **Model:** the node's or graph's `model` as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
+  (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
+  from the user's Pi login in `~/.pi/agent/auth.json`, read only: Murmuration never refreshes them (a
+  refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
+  small provider definition, because pi-ai has none built in.
 
 Its tools:
 
