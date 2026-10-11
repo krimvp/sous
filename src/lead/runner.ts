@@ -15,11 +15,11 @@ import { leadExtension } from './tools.ts'
 
 const ctx = BACKGROUND_CONTEXT
 
-// Murmuration's own record in each lead's storage: the deliveries already reported to the host, and whether the lead
+// sous's own record in each lead's storage: the deliveries already reported to the host, and whether the lead
 // was cancelled. A delivery is recorded right after `host.settled`, so a crash between the two reports it once more
 // on resume; the host should ignore a requestId it already recorded.
 const LeadDoc = defineDoc<{ reported: string[]; cancelled: boolean }>({
-  kind: 'murm.lead', version: 1, scope: 'session', initial: () => ({ reported: [], cancelled: false }),
+  kind: 'sous.lead', version: 1, scope: 'session', initial: () => ({ reported: [], cancelled: false }),
 })
 
 interface Lead {
@@ -72,7 +72,7 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
     if (lead.watching.has(requestId)) return
     lead.watching.add(requestId)
     submission.wait(ctx).then((settled) => report(lead, settled, requestId)).catch((err) => {
-      if (!closing) console.error(`murm: lead ${lead.node}: reporting ${requestId} failed: ${err?.stack ?? err}`)
+      if (!closing) console.error(`sous: lead ${lead.node}: reporting ${requestId} failed: ${err?.stack ?? err}`)
     })
   }
 
@@ -91,7 +91,7 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
   // sees (it has no model message).
   async function wake(lead: Lead) {
     const root = await lead.harness.conversation(ROOT_CONVERSATION_ID, ctx)
-    await root?.submit({ type: 'write', entry: { kind: 'murm.wake' } }, ctx)
+    await root?.submit({ type: 'write', entry: { kind: 'sous.wake' } }, ctx)
   }
 
   // The answer text (or, for an unanswered delivery, the reason), and the usage of the model responses that followed
@@ -122,7 +122,7 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
         if (counting) {
           const u = message.usage
           usage ??= { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 }
-          // pi-ai's `input` excludes cache reads and writes; Murmuration's inputTokens includes them.
+          // pi-ai's `input` excludes cache reads and writes; sous's inputTokens includes them.
           usage.inputTokens += u.input + u.cacheRead + u.cacheWrite
           usage.outputTokens += u.output
           usage.cachedTokens += u.cacheRead

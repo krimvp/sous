@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// murm: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
+// sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
 // running run.
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
@@ -20,13 +20,13 @@ import { PERSON } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
-  murm run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
-  murm resume [run-id] [--workspace <dir>]
-  murm status [run-id] [--workspace <dir>]
-  murm answer <node> "text" [--workspace <dir>]
-  murm approve <node> [--workspace <dir>]
-  murm cancel <node> [--workspace <dir>]
-  murm export atif|otlp [run-id] [--workspace <dir>]`
+  sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
+  sous resume [run-id] [--workspace <dir>]
+  sous status [run-id] [--workspace <dir>]
+  sous answer <node> "text" [--workspace <dir>]
+  sous approve <node> [--workspace <dir>]
+  sous cancel <node> [--workspace <dir>]
+  sous export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
@@ -53,7 +53,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         const raw = parsed.values['max-depth']
         const maxDepth = raw === undefined ? undefined : Number(raw)
         if (maxDepth !== undefined && !(Number.isInteger(maxDepth) && maxDepth >= 1 && maxDepth <= 8)) {
-          console.error('murm: --max-depth must be a whole number from 1 to 8')
+          console.error('sous: --max-depth must be a whole number from 1 to 8')
           return 2
         }
         return await run(args[0], workspace, deps, maxDepth, parsed.values.agents)
@@ -76,7 +76,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
     }
   } catch (err) {
-    console.error(`murm: ${(err as Error).message}`)
+    console.error(`sous: ${(err as Error).message}`)
     return 1
   }
   console.error(USAGE)
@@ -93,7 +93,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: num
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
-  const runDir = join(workspace, '.murm', 'runs', id)
+  const runDir = join(workspace, '.sous', 'runs', id)
   mkdirSync(runDir, { recursive: true })
   const createdAt = new Date().toISOString()
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), ...(definitions ? { agents: resolve(agentsFile!) } : {}), createdAt }, null, 2) + '\n')
@@ -110,7 +110,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: num
     workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
   })
   printResult(runDir)
-  if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
+  if (outcome === 'interrupted') console.log(`stopped; continue with: sous resume ${id}`)
   return outcome === 'completed' ? 0 : 1
 }
 
@@ -129,7 +129,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
     resume: true, unavailable,
   })
   printResult(runDir)
-  if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
+  if (outcome === 'interrupted') console.log(`stopped; continue with: sous resume ${id}`)
   return outcome === 'completed' ? 0 : 1
 }
 
@@ -164,12 +164,12 @@ function printer(past: Event[] = []): (e: Event) => void {
     const m = eventMessage(e, (id) => nodes.get(id)?.parent)
     if (m?.to !== PERSON) return
     if (nodes.get(m.from)?.kind === 'gate') console.log(`\n${approvalText(m.from, m.body)}\n`)
-    else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: murm answer ${m.from} "<answer>"\n`)
+    else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: sous answer ${m.from} "<answer>"\n`)
   }
 }
 
 const approvalText = (gate: string, body: string) =>
-  `Approval requested by ${gate}:\n${body}\nApprove with: murm approve ${gate}, or reject with: murm cancel ${gate}`
+  `Approval requested by ${gate}:\n${body}\nApprove with: sous approve ${gate}, or reject with: sous cancel ${gate}`
 
 function printEvent(e: Event): void {
   const time = e.at.slice(11, 19)
@@ -207,7 +207,7 @@ function printEvent(e: Event): void {
 
 /** The run directory for `runId`, or the latest run. */
 function findRun(workspace: string, runId?: string): { id: string; runDir: string } {
-  const runsDir = join(workspace, '.murm', 'runs')
+  const runsDir = join(workspace, '.sous', 'runs')
   const ids = existsSync(runsDir) ? readdirSync(runsDir).sort() : []
   const id = runId ?? ids.at(-1)
   if (!id || !ids.includes(id)) throw new Error(runId ? `no run ${runId} in ${runsDir}` : `no runs in ${runsDir}`)
@@ -243,7 +243,7 @@ function status(workspace: string, runId?: string): number {
   }
   for (const n of children(undefined)) print(n, 1)
   printPending(state)
-  if (live === 'stopped') console.log(`continue it with: murm resume ${id}`)
+  if (live === 'stopped') console.log(`continue it with: sous resume ${id}`)
   return 0
 }
 
@@ -253,9 +253,9 @@ function printPending(state: RunState): void {
   const isGate = (q: { from: string }) => state.nodes.get(q.from)?.spec.kind === 'gate'
   const questions = open.filter((q) => !isGate(q))
   const gates = open.filter(isGate)
-  if (questions.length) console.log('questions for you (murm answer <node> "<answer>"):')
+  if (questions.length) console.log('questions for you (sous answer <node> "<answer>"):')
   for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
-  if (gates.length) console.log('approvals for you (murm approve <node>, or murm cancel <node> to reject):')
+  if (gates.length) console.log('approvals for you (sous approve <node>, or sous cancel <node> to reject):')
   for (const q of gates) console.log(`  ${q.from}: ${oneLine(q.body)}`)
 }
 
@@ -266,7 +266,7 @@ function sendCommand(workspace: string, cmd: PersonCommand): number {
   if (!node) throw new Error(`run ${id} has no node ${cmd.node}`)
   if (isFinal(node)) throw new Error(`node ${cmd.node} is already ${node.status}`)
   const gate = node.spec.kind === 'gate'
-  if (cmd.type === 'answer' && gate) throw new Error(`node ${cmd.node} is a gate: approve it with murm approve, or reject it with murm cancel`)
+  if (cmd.type === 'answer' && gate) throw new Error(`node ${cmd.node} is a gate: approve it with sous approve, or reject it with sous cancel`)
   if (cmd.type === 'approve' && !gate) throw new Error(`node ${cmd.node} is not a gate`)
   if (cmd.type === 'approve' && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)

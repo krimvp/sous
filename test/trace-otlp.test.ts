@@ -81,7 +81,7 @@ test('exportOtlp posts one deterministic Langfuse trace with a run → node → 
 
   const children = (id?: string) => spans.filter((s) => s.parentSpanId === id)
   assert.deepEqual(render(spans), [
-    'span murm run trace-run',
+    'span sous run trace-run',
     '  agent work impl',
     '    chain turn 1',
     '      generation generation',
@@ -118,7 +118,7 @@ test('exportOtlp posts one deterministic Langfuse trace with a run → node → 
 
   const docsTurn = children(spans.find((s) => s.name === 'work docs')!.spanId)[0]
   assert.equal(attr(docsTurn, 'langfuse.observation.status_message'), 'no turn result: interrupted')
-  assert.equal(attr(spans.find((s) => s.name === 'check verify')!, 'murm.check.exit_code'), '0')
+  assert.equal(attr(spans.find((s) => s.name === 'check verify')!, 'sous.check.exit_code'), '0')
 })
 
 test('postOtlp throws with the response body when Langfuse rejects the batch', async (t) => {
@@ -136,7 +136,7 @@ test('exportOtlp names the missing Langfuse variables', async () => {
 
 test('a turn without assistant text keeps its usage and cost', () => {
   // Turns whose output is only tool calls plus the structured result are common for Codex and Claude.
-  const dir = mkdtempSync(join(tmpdir(), 'murm-otlp-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sous-otlp-'))
   cpSync(RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'nodes', 'impl', 'turn-1.jsonl')
   const turn = JSON.parse(readFileSync(file, 'utf8'))
@@ -157,7 +157,7 @@ test('a lead run nests child nodes under the spawn call, inside a chain per deli
   assert.equal(new Set(spans.map((s) => s.spanId)).size, spans.length)
   for (const s of spans) assert.ok(BigInt(s.endTimeUnixNano) >= BigInt(s.startTimeUnixNano), s.name)
   assert.deepEqual(render(spans), [
-    'span murm run lead-run',
+    'span sous run lead-run',
     '  agent lead lead',
     '    chain delivery lead:brief',
     '      tool spawn',
@@ -196,7 +196,7 @@ test('a lead run nests child nodes under the spawn call, inside a chain per deli
     ['2026-10-11T11:00:16.010Z', '2026-10-11T11:00:19.000Z'],
     ['2026-10-11T11:00:18.010Z', '2026-10-11T11:00:22.000Z'],
   ])
-  assert.equal(attr(evt19, 'murm.lead.mode'), 'interrupt')
+  assert.equal(attr(evt19, 'sous.lead.mode'), 'interrupt')
   assert.equal(attr(evt17, 'langfuse.observation.output'), 'Cancelled docs as the person asked.')
 
   const generation = spans.find((s) => s.parentSpanId === brief.spanId && attr(s, 'langfuse.observation.type') === 'generation')!
@@ -206,8 +206,8 @@ test('a lead run nests child nodes under the spawn call, inside a chain per deli
   const spawn = byName('spawn')[0]
   assert.deepEqual(JSON.parse(attr(spawn, 'langfuse.observation.input')).children.map((c: Span) => c.id), ['impl', 'docs'])
   assert.equal(attr(spawn, 'langfuse.observation.output'), 'Spawned impl, docs.')
-  assert.equal(attr(spawn, 'murm.tool.call_id'), 'call_1')
-  const refused = byName('complete').find((s) => attr(s, 'murm.tool.ok') === false)!
+  assert.equal(attr(spawn, 'sous.tool.call_id'), 'call_1')
+  const refused = byName('complete').find((s) => attr(s, 'sous.tool.ok') === false)!
   assert.deepEqual([attr(refused, 'langfuse.observation.level'), refused.status], ['WARNING', undefined])
 
   // Cancelled nodes and the turn the cancel stopped are warnings with the reason, not errors.

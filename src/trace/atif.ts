@@ -1,8 +1,8 @@
 // ATIF-v1.8 export (Harbor RFC 0001): one document per run; each node is an embedded subagent trajectory.
-// ATIF rejects unknown keys, so everything Murmuration-specific goes in `extra`.
+// ATIF rejects unknown keys, so everything sous-specific goes in `extra`.
 
 import type { Usage } from '../types.ts'
-import { loadRun, MURM_VERSION, usagesOf, viewRun } from './run.ts'
+import { loadRun, SOUS_VERSION, usagesOf, viewRun } from './run.ts'
 import type { LoadedRun, NodeView, ParseTurn, TurnView } from './run.ts'
 
 const ATIF_VERSION = 'ATIF-v1.8'
@@ -217,9 +217,9 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     session_id: runId,
     trajectory_id: `${runId}/${spec.id}`,
     agent: spec.kind === 'lead'
-      ? { name: 'murmuration-lead', version: MURM_VERSION, model_name: leadModel }
+      ? { name: 'sous-lead', version: SOUS_VERSION, model_name: leadModel }
       : spec.kind === 'check' || !agent
-        ? { name: 'murmuration', version: MURM_VERSION }
+        ? { name: 'sous', version: SOUS_VERSION }
         : { name: agent, version: 'unknown', model_name: turns[0]?.model },
     steps,
     final_metrics: finalMetrics(subtreeUsages(node), steps.length),
@@ -252,7 +252,7 @@ export function toAtif(run: LoadedRun): object {
   add({ source: 'user', timestamp: view.createdAt, message: view.goal })
   for (const node of view.top) addDispatch(add, view.runId, node)
   for (const e of run.events) {
-    if (e.type === 'run.resumed') add({ source: 'system', timestamp: e.at, message: 'Run resumed by murm resume after its supervisor stopped' })
+    if (e.type === 'run.resumed') add({ source: 'system', timestamp: e.at, message: 'Run resumed by sous resume after its supervisor stopped' })
     if (e.type === 'integration.created') add({ source: 'system', timestamp: e.at, message: `Integration branch ${e.branch} created from ${e.base}`, extra: { path: e.path } })
   }
   if (view.end) {
@@ -263,9 +263,9 @@ export function toAtif(run: LoadedRun): object {
     schema_version: ATIF_VERSION,
     session_id: view.runId,
     trajectory_id: view.runId,
-    agent: { name: 'murmuration', version: MURM_VERSION },
+    agent: { name: 'sous', version: SOUS_VERSION },
     steps,
-    notes: 'Root trajectory is the Murmuration supervisor; each node is an embedded subagent trajectory, nested under the lead that spawned it. final_metrics totals include the subagents.',
+    notes: 'Root trajectory is the sous supervisor; each node is an embedded subagent trajectory, nested under the lead that spawned it. final_metrics totals include the subagents.',
     final_metrics: finalMetrics(view.nodes.flatMap(usagesOf), steps.length),
     extra: {
       goal: view.goal,

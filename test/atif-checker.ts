@@ -1,4 +1,4 @@
-// A strict checker for the subset of ATIF-v1.8 (Harbor RFC 0001) that Murmuration emits.
+// A strict checker for the subset of ATIF-v1.8 (Harbor RFC 0001) that sous emits.
 // It rejects unknown keys like Harbor's models do, and adds the cross-reference rules the RFC states.
 
 type Obj = Record<string, unknown>

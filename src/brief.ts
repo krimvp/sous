@@ -53,7 +53,7 @@ export function fixPrompt(command: string, exitCode: number | null, output: stri
 /** Resume prompt after a supervisor stop cut the last turn short, with the messages that arrived meanwhile. */
 export function recoveryPrompt(inbox: InboxMessage[]): string {
   return [
-    'You were interrupted: Murmuration stopped while you worked. Re-check the workspace, since some of your last',
+    'You were interrupted: sous stopped while you worked. Re-check the workspace, since some of your last',
     'steps may not have happened, then continue your task.',
   ].join(' ') + '\n\n' + [...messages(inbox), RESULT].join('\n\n') + '\n'
 }

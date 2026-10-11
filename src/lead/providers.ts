@@ -1,5 +1,5 @@
 // Model access for leads: Ollama Cloud and the ChatGPT login (openai-codex), with credentials read from the
-// user's Pi login. Murmuration never refreshes or writes them: a refresh rotates the refresh token Pi itself
+// user's Pi login. sous never refreshes or writes them: a refresh rotates the refresh token Pi itself
 // uses. An expired login is refreshed by running `pi` once.
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'

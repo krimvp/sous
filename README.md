@@ -1,20 +1,22 @@
-# Murmuration
+# sous
 
 Give it a task, or a set of tasks, and it runs them to completion on your machine with a tree of agents.
-Lead agents plan and split the work; workers (Claude Code, Codex, Pi or your own agent) do it; plain code
-keeps everything moving, delivers messages between levels, and recovers after a crash.
+Like a kitchen brigade: you call the order, lead agents split it across stations, workers (Claude Code, Codex,
+Pi or your own agent) cook, and checks and merges inspect every plate at the pass. Plain code keeps everything
+moving, delivers messages between levels, and recovers after a crash.
 
-- **Local only.** One supervisor process per run, state in `.murm/runs/<id>/` as plain files.
+- **Local only.** One supervisor process per run, state in `.sous/runs/<id>/` as plain files. Runs from
+  before the rename, under `.murm/`, are not read.
 - **Few dependencies.** Node 22.19 or later runs the TypeScript sources directly; only the lead runner
   depends on Pi's durable runtime.
 - **Any worker.** Workers sit behind a small adapter interface and run in turns: a message waits in an
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.
 
-Status: v4 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
+Status: v4 works: give `sous run` a goal and a lead agent splits it into workers and checks, answers their
 questions, and asks you when it cannot. Workers run in parallel in their own git worktrees and their work is
 merged into one result branch, with conflicts resolved by an integrator agent. Leads may define new agents on the
-runtimes and models you allow. If the run stops or crashes, `murm resume` continues it without repeating
+runtimes and models you allow. If the run stops or crashes, `sous resume` continues it without repeating
 finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and `gate`
 nodes also run. Read [docs/design.md](docs/design.md).
 
@@ -27,7 +29,7 @@ node src/cli.ts approve <gate>             # from another terminal: approve a ga
 node src/cli.ts resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
 
-`murm resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
+`sous resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
 stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
 interrupted more than 3 times fails.
 
@@ -37,10 +39,10 @@ Code, else Codex, else Pi, each with its default model; a goal can ask for anoth
 every work child". Each run prints which agents are available.
 
 The workspace must be a git repository with at least one commit. Each work node runs in its own git worktree,
-in parallel with the others; when it is done its branch is merged into the run's branch `murm/<run-id>`, one
+in parallel with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one
 merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
 (Codex, else Claude, else Pi; or a graph agent named `integrator`) that resolves it in the integration worktree.
-Your own checkout is not touched: `murm status` names the result branch, and merging it is up to you.
+Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
 
 Or give it a fixed graph file:
 
@@ -56,9 +58,9 @@ Or give it a fixed graph file:
 ```
 
 ```bash
-node src/cli.ts run graph.json        # runs in the current directory; state in .murm/runs/<id>/
+node src/cli.ts run graph.json        # runs in the current directory; state in .sous/runs/<id>/
 node src/cli.ts status                # latest run as a tree
-node src/cli.ts export atif           # writes .murm/runs/<id>/trace.atif.json
+node src/cli.ts export atif           # writes .sous/runs/<id>/trace.atif.json
 node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 ```
 
@@ -75,12 +77,12 @@ the `model` a lead sets on a child that names its agent. A goal run takes the sa
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker
-npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex, Pi and lead runs
+npm run check        # type check and tests; SOUS_LIVE=1 adds real Claude, Codex, Pi and lead runs
 ```
 
 ## For agents
 
-The `murmuration` skill in [.agents/skills/murmuration](.agents/skills/murmuration/SKILL.md) (linked for Claude Code
+The `sous` skill in [.agents/skills/sous](.agents/skills/sous/SKILL.md) (linked for Claude Code
 from `.claude/skills`) teaches an agent to start, watch, steer, resume and export runs. The landing page is
-[site/index.html](site/index.html), published at https://krimvp.github.io/murmuration/ with
+[site/index.html](site/index.html), published at https://krimvp.github.io/sous/ with
 `scripts/publish-site.sh`.

@@ -47,7 +47,7 @@ continued to `c`. The resubmitted goal reused the existing submission (the goal 
    built-in one. glm-5.3's thinking quoted the goal, so counting the goal text in storage overcounted;
    the check now counts `pi.user` entries.
 6. **Pi updated to 1.1.0** (2026-10-11) in the user npm prefix (`~/.npm-global`), which comes first in PATH;
-   the root-owned 0.80.6 in `/usr/lib` is untouched. Murmuration's Pi adapter live test passes on 1.1.0.
+   the root-owned 0.80.6 in `/usr/lib` is untouched. sous's Pi adapter live test passes on 1.1.0.
 
 ## Run it
 

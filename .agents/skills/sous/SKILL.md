@@ -1,15 +1,17 @@
 ---
-name: murmuration
-description: Run a task to completion with a tree of agents using Murmuration (`murm`): a lead agent splits the goal, Claude Code, Codex or Pi workers do the work in git worktrees, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a Murmuration run started, watched, answered, resumed or exported.
+name: sous
+description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex or Pi workers do the work in git worktrees, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
 ---
 
-# Murmuration
+# sous
 
-Murmuration (`~/workspace/murmuration`) runs a goal with a tree of agents on this machine. The supervisor (plain
-code) starts every agent, routes messages, merges work and recovers after crashes. You start and steer runs.
+sous runs a goal with a tree of agents on this machine. The supervisor (plain code) starts every agent,
+routes messages, merges work and recovers after crashes. You start and steer runs.
 
 ```bash
-M="node $HOME/workspace/murmuration/src/cli.ts"   # or `murm` if installed
+M=sous                                   # if installed (npm install -g @krimvp/sous)
+M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill lives in (src/cli.ts,
+                                         # three levels above this skill's folder)
 ```
 
 ## Quick start
@@ -21,7 +23,7 @@ $M run "Add a --precision N option to the CLI, with tests and a check that node 
 ```
 
 A lead (default `ollama-cloud/deepseek-v4.1-flash`) splits the goal into workers, checks and sub-leads. The
-result lands on branch `murm/<run-id>`; the person's own branch is never touched.
+result lands on branch `sous/<run-id>`; the person's own branch is never touched.
 
 ## Workflow
 
@@ -40,9 +42,9 @@ result lands on branch `murm/<run-id>`; the person's own branch is never touched
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
    - `$M resume`: continue after Ctrl-C or a crash; finished turns, spawns and merges are not repeated, and
      recorded check results are kept (a check still running when the supervisor stopped runs again).
-6. **Check the result yourself** on `murm/<run-id>` (run the tests, try the program) before telling the user
+6. **Check the result yourself** on `sous/<run-id>` (run the tests, try the program) before telling the user
    it works. Merging that branch into their branch is the user's decision.
-7. **Export traces** if asked: `$M export atif` (writes `.murm/runs/<id>/trace.atif.json`) or `$M export otlp`
+7. **Export traces** if asked: `$M export atif` (writes `.sous/runs/<id>/trace.atif.json`) or `$M export otlp`
    (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`).
 
 ## Rules that save time
@@ -53,7 +55,7 @@ result lands on branch `murm/<run-id>`; the person's own branch is never touched
 - Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.
 - Prefer cheap models for experiments (`pi` on Ollama models, the default lead).
-- A failing check is often a wrong command in the goal, not wrong code: read its output in `.murm/runs/<id>/events.jsonl`
+- A failing check is often a wrong command in the goal, not wrong code: read its output in `.sous/runs/<id>/events.jsonl`
   (`check.ended`) before blaming the agents, and correct the lead with `answer`.
 - Write check commands that work in Node 22: `node --test`, not `node --test test/`.
 

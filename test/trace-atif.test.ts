@@ -38,7 +38,7 @@ test('loadRun skips the truncated final event line and parses each turn with its
 })
 
 test('loadRun rejects a corrupt line that is not the last one', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'murm-trace-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sous-trace-'))
   writeFileSync(join(dir, 'events.jsonl'), '{"seq":1,"at":"2026-10-11T10:00:00Z","type":"run.cr\n{"seq":2}\n')
   assert.throws(() => loadRun(dir, parseTurn), /events\.jsonl:1/)
 })
@@ -49,7 +49,7 @@ test('the ATIF document passes the strict checker', () => {
 
 test('the strict checker catches unknown keys and dangling call and trajectory references', () => {
   const bad = structuredClone(doc)
-  bad.steps[0].murm_node = 'impl'
+  bad.steps[0].sous_node = 'impl'
   bad.steps[1].observation.results[0].source_call_id = 'nope'
   bad.steps[2].observation.results[0].subagent_trajectory_ref[0].trajectory_id = 'trace-run/missing'
   bad.subagent_trajectories[0].steps[1].step_id = 7
@@ -133,7 +133,7 @@ const hasHarbor = spawnSync(harborPython, ['-I', '-c', 'import harbor.utils.traj
 
 test('Harbor\'s validator accepts the ATIF documents', { skip: !hasHarbor && 'Harbor not installed (set HARBOR_PYTHON)' }, () => {
   for (const dir of [RUN_DIR, LEAD_RUN_DIR]) {
-    const file = join(mkdtempSync(join(tmpdir(), 'murm-atif-')), 'trajectory.json')
+    const file = join(mkdtempSync(join(tmpdir(), 'sous-atif-')), 'trajectory.json')
     writeFileSync(file, JSON.stringify(toAtif(loadRun(dir, parseTurn))))
     const out = spawnSync(harborPython, ['-I', '-m', 'harbor.utils.trajectory_validator', file], { encoding: 'utf8' })
     assert.equal(out.status, 0, `${dir}: ${out.stdout}${out.stderr}`)
@@ -141,7 +141,7 @@ test('Harbor\'s validator accepts the ATIF documents', { skip: !hasHarbor && 'Ha
 })
 
 test('a turn with no parsed items keeps its usage as step metrics', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sous-atif-'))
   cpSync(RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'nodes', 'impl', 'turn-1.jsonl')
   writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), items: [] }))
@@ -172,7 +172,7 @@ test('spawned nodes nest under their lead and are referenced from the spawn step
 
 test('a lead trajectory has its deliveries, tool calls and answers in event order', () => {
   const lead = leadSub('lead')
-  assert.deepEqual(lead.agent, { name: 'murmuration-lead', version: '0.0.0', model_name: 'ollama-cloud/deepseek-v4.1-flash' })
+  assert.deepEqual(lead.agent, { name: 'sous-lead', version: '0.0.0', model_name: 'ollama-cloud/deepseek-v4.1-flash' })
   assert.deepEqual(lead.steps.map((s: Obj) => [s.source, s.tool_calls?.[0].function_name ?? s.message, s.extra?.request_id, s.extra?.mode]), [
     ['user', 'Your brief: Add greet() with user docs', 'lead:brief', 'queue'],
     ['agent', 'spawn', undefined, undefined],
@@ -223,7 +223,7 @@ test('a cancelled subtree ends each unfinished node with a system step and a fai
 })
 
 test('a cancellation by the person comes from node.cancelled, and the lead\'s later cancel call changes nothing', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sous-atif-'))
   cpSync(LEAD_RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'events.jsonl')
   const lines = readFileSync(file, 'utf8').trim().split('\n')
@@ -241,7 +241,7 @@ test('a cancellation by the person comes from node.cancelled, and the lead\'s la
 })
 
 test('a spawned work child shows the agent its turns ran on, parsed by that agent\'s harness; a child lead takes its parent\'s model', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sous-atif-'))
   cpSync(LEAD_RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'events.jsonl')
   const events = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l))

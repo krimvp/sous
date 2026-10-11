@@ -3,12 +3,12 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-/** Murmuration's commits carry this identity, so they work without any user git config. */
+/** sous's commits carry this identity, so they work without any user git config. */
 const IDENTITY = {
-  GIT_AUTHOR_NAME: 'Murmuration',
-  GIT_AUTHOR_EMAIL: 'murmuration@localhost',
-  GIT_COMMITTER_NAME: 'Murmuration',
-  GIT_COMMITTER_EMAIL: 'murmuration@localhost',
+  GIT_AUTHOR_NAME: 'sous',
+  GIT_AUTHOR_EMAIL: 'sous@localhost',
+  GIT_COMMITTER_NAME: 'sous',
+  GIT_COMMITTER_EMAIL: 'sous@localhost',
 }
 
 export interface Worktree {
@@ -37,7 +37,7 @@ function git(cwd: string, args: string[]): string {
   return r.stdout.trim()
 }
 
-/** The workspace must be a git repository with at least one commit. Excludes `.murm/` from git. */
+/** The workspace must be a git repository with at least one commit. Excludes `.sous/` from git. */
 export function ensureRepo(workspace: string): void {
   if (run(workspace, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']).status !== 0) {
     throw new Error(`${workspace} must be a git repository with at least one commit`)
@@ -45,20 +45,20 @@ export function ensureRepo(workspace: string): void {
   const info = join(git(workspace, ['rev-parse', '--path-format=absolute', '--git-common-dir']), 'info')
   const exclude = join(info, 'exclude')
   const text = existsSync(exclude) ? readFileSync(exclude, 'utf8') : ''
-  if (text.split('\n').some((line) => line.trim() === '.murm/')) return
+  if (text.split('\n').some((line) => line.trim() === '.sous/')) return
   mkdirSync(info, { recursive: true })
-  appendFileSync(exclude, (text && !text.endsWith('\n') ? '\n' : '') + '.murm/\n')
+  appendFileSync(exclude, (text && !text.endsWith('\n') ? '\n' : '') + '.sous/\n')
 }
 
-/** Branch `murm/<run>` from the workspace's HEAD, checked out at `<runDir>/integration/`. */
+/** Branch `sous/<run>` from the workspace's HEAD, checked out at `<runDir>/integration/`. */
 export function createIntegration(workspace: string, runId: string, runDir: string): Worktree {
-  return ensureWorktree(workspace, `murm/${runId}`, join(runDir, 'integration'), 'HEAD')
+  return ensureWorktree(workspace, `sous/${runId}`, join(runDir, 'integration'), 'HEAD')
 }
 
-/** Branch `murm/<run>.<node>` from `fromCommit`, checked out at `<runDir>/worktrees/<node>/`. git cannot
- * have `murm/<run>/<node>` beside the branch `murm/<run>`, so the node joins the run ID with a dot. */
+/** Branch `sous/<run>.<node>` from `fromCommit`, checked out at `<runDir>/worktrees/<node>/`. git cannot
+ * have `sous/<run>/<node>` beside the branch `sous/<run>`, so the node joins the run ID with a dot. */
 export function createNodeWorktree(workspace: string, runId: string, runDir: string, node: string, fromCommit: string): Worktree {
-  return ensureWorktree(workspace, `murm/${runId}.${node}`, join(runDir, 'worktrees', node), fromCommit)
+  return ensureWorktree(workspace, `sous/${runId}.${node}`, join(runDir, 'worktrees', node), fromCommit)
 }
 
 /** Creates the branch and its worktree, or returns them when they already exist (resume); an existing

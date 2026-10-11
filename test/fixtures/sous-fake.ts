@@ -1,4 +1,4 @@
-// `murm` with the fake adapter for every harness and the scripted fake lead runner, whose leads are always available.
+// `sous` with the fake adapter for every harness and the scripted fake lead runner, whose leads are always available.
 // Session files go to $FAKE_SESSIONS.
 import { main } from '../../src/cli.ts'
 import { fakeAdapter } from './fake-adapter.ts'

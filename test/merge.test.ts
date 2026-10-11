@@ -20,7 +20,7 @@ import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import type { FakeLeadStep } from './fixtures/fake-lead.ts'
 import { git, gitWorkspace } from './fixtures/git-repo.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
-import { murm } from './fixtures/murm-proc.ts'
+import { sous } from './fixtures/sous-proc.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[], extra: Partial<NodeSpec> = {}): NodeSpec =>
@@ -31,8 +31,8 @@ const COMMIT = 'git -c user.name=I -c user.email=i@example.com commit -q --no-ed
 
 /** Runs `nodes` in a git workspace whose first commit holds `files`. */
 async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string>; agents?: GraphFile['agents']; workspace?: string } & Partial<SupervisorOptions> = {}) {
-  const workspace = opts.workspace ?? gitWorkspace('murm-merge-', opts.files)
-  const runDir = join(workspace, '.murm', 'runs', 'r1')
+  const workspace = opts.workspace ?? gitWorkspace('sous-merge-', opts.files)
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
   mkdirSync(runDir, { recursive: true })
   const log = openLog(runDir)
   log.append({ type: 'run.created', goal: 'test goal', workspace, graph: { goal: 'test goal', agents: opts.agents, nodes } })
@@ -51,7 +51,7 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
 }
 
 const mergeDone = (events: Event[], node: string) => events.flatMap((e) => (e.type === 'merge.done' && e.node === node ? [e] : []))[0]
-const show = (cwd: string, path: string) => git(cwd, 'show', `murm/r1:${path}`)
+const show = (cwd: string, path: string) => git(cwd, 'show', `sous/r1:${path}`)
 
 test('two work nodes run in parallel in their own worktrees, both merge, and a check that needs both sees both', async () => {
   const slow = (file: string): FakeStep[] => [{ sleepMs: 300, write: { [file]: `${file}\n` }, result: done(`wrote ${file}`) }]
@@ -99,8 +99,8 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
   const ig = state.nodes.get(INTEGRATOR)!
   assert.deepEqual([ig.spec.standing, ig.spec.parent, ig.status, ig.turns[0].agent], [true, undefined, 'idle', 'integrator'])
   const request = prompts(INTEGRATOR)[0]
-  assert.match(request, new RegExp(`You work in ${integration}, the integration worktree on branch murm/r1`))
-  assert.match(request, /Merge node b \(branch murm\/r1\.b\) into murm\/r1\.[^]*conflicts in:\n- f\.txt[^]*grep -q b f\.txt[^]*Brief of b:\nDo b\.[^]*Already merged, in order:\n- a: Do a\./)
+  assert.match(request, new RegExp(`You work in ${integration}, the integration worktree on branch sous/r1`))
+  assert.match(request, /Merge node b \(branch sous\/r1\.b\) into sous\/r1\.[^]*conflicts in:\n- f\.txt[^]*grep -q b f\.txt[^]*Brief of b:\nDo b\.[^]*Already merged, in order:\n- a: Do a\./)
   // The merge shows in b's trace; the integrator has its own trajectory under the root; the document stays valid ATIF.
   const loaded = loadRun(runDir, (_, raw) => fakeAdapter(tmpdir()).parse(raw))
   const spans = (toOtlp(loaded) as { resourceSpans: { scopeSpans: { spans: { spanId: string; parentSpanId?: string; name: string }[] }[] }[] })
@@ -112,7 +112,7 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
   const trajectory = (id: string) => doc.subagent_trajectories.find((t) => t.trajectory_id === `r1/${id}`)!
   assert.ok(trajectory(INTEGRATOR))
   assert.deepEqual(trajectory('b').steps.map((s) => s.message).filter((m) => /^Merge/.test(m)), [
-    'Merge queued: branch murm/r1.b',
+    'Merge queued: branch sous/r1.b',
     'Merge conflict, sent to the integrator: conflict in f.txt',
     `Merged by integrator at ${mergeDone(events, 'b')?.commit}`,
   ])
@@ -146,7 +146,7 @@ test('an integrator that aborts the merge does not get it accepted: after a retr
   ], { files: { 'f.txt': 'base\n' }, agents: integrator([abort, abort]) })
   assert.equal(outcome, 'failed')
   assert.equal(mergeDone(events, 'b'), undefined)
-  assert.equal(state.nodes.get('b')!.reason, 'merge failed: not verified after a retry: branch murm/r1.b is not merged')
+  assert.equal(state.nodes.get('b')!.reason, 'merge failed: not verified after a retry: branch sous/r1.b is not merged')
   assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\n')
 })
 
@@ -189,8 +189,8 @@ test('a check that fails after a clean merge goes to the integrator, which fixes
   const conflict = events.flatMap((e) => (e.type === 'merge.conflict' ? [e] : []))
   assert.deepEqual(conflict.map((e) => [e.node, e.reason, e.files]), [['b', 'check failed after the merge (exit 1)', []]])
   assert.equal(mergeDone(events, 'b')?.by, 'integrator')
-  assert.equal(git(workspace, 'log', '-1', '--format=%s', 'murm/r1'), 'fix')
-  assert.equal(git(workspace, 'log', '-1', '--format=%s', 'murm/r1~1'), 'murm: merge b')
+  assert.equal(git(workspace, 'log', '-1', '--format=%s', 'sous/r1'), 'fix')
+  assert.equal(git(workspace, 'log', '-1', '--format=%s', 'sous/r1~1'), 'sous: merge b')
   assert.equal(state.nodes.get('b')!.status, 'completed')
 })
 
@@ -216,9 +216,9 @@ test('an integrator that is blocked fails the node, its lead is told, and the in
   assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
 })
 
-test('murm resume aborts a merge left in progress without an integrator request and merges again', async () => {
-  const workspace = gitWorkspace('murm-merge-')
-  const runDir = join(workspace, '.murm', 'runs', 'r1')
+test('sous resume aborts a merge left in progress without an integrator request and merges again', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
   // Node w finished and was queued; the supervisor stopped in the middle of its merge.
   const created = createIntegration(workspace, 'r1', runDir)
   const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
@@ -233,18 +233,18 @@ test('murm resume aborts a merge left in progress without an integrator request 
   log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
   log.append({ type: 'merge.queued', node: 'w', branch: tree.branch })
   log.close()
-  const resumed = murm(['resume'], workspace, join(workspace, 'sessions'))
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
   assert.equal(await resumed.exit, 0, resumed.output())
   const events = readEvents(runDir)
   assert.equal(mergeDone(events, 'w')?.by, 'supervisor')
   assert.equal(events.filter((e) => e.type === 'integration.created').length, 1, 'the integration already existed')
-  assert.equal(git(integration, 'log', '-1', '--format=%s'), 'murm: merge w')
+  assert.equal(git(integration, 'log', '-1', '--format=%s'), 'sous: merge w')
   assert.equal(mergeInProgress(integration), false)
-  assert.match(resumed.output(), /^result: branch murm\/r1$/m)
+  assert.match(resumed.output(), /^result: branch sous\/r1$/m)
 })
 
 test('a workspace that is not a git repository fails the run with a clear reason', async () => {
-  const { outcome, state } = await runGraph([work('w', [{ result: done('w') }])], { workspace: mkdtempSync(join(tmpdir(), 'murm-plain-')) })
+  const { outcome, state } = await runGraph([work('w', [{ result: done('w') }])], { workspace: mkdtempSync(join(tmpdir(), 'sous-plain-')) })
   assert.equal(outcome, 'failed')
   assert.match(state.reason!, /^\/\S+ must be a git repository with at least one commit$/)
   assert.equal(state.nodes.get('w')!.turns.length, 0)

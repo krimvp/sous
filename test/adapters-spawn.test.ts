@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { spawnTurn } from '../src/adapters/common.ts'
 
-const tempDir = () => mkdtempSync(join(tmpdir(), 'murm-spawn-'))
+const tempDir = () => mkdtempSync(join(tmpdir(), 'sous-spawn-'))
 
 function alive(pid: number): boolean {
   try {

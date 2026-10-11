@@ -17,7 +17,7 @@ export function readEvents(runDir: string): Event[] {
 }
 
 /** Take the run's lock and open its log for appending. Throws if a live supervisor holds the lock, and, unless
- * `takeOver` (`murm resume`), if a stopped one left it. */
+ * `takeOver` (`sous resume`), if a stopped one left it. */
 export function openLog(runDir: string, onEvent?: (event: Event) => void, opts: { takeOver?: boolean } = {}): EventLog {
   acquireLock(runDir, opts.takeOver ?? false)
   const path = join(runDir, 'events.jsonl')
@@ -125,7 +125,7 @@ function readRaw(path: string): string | undefined {
 const held = new Map<string, string>()
 
 // The lock is created exclusively, so exactly one supervisor holds it. A lock left by a stopped supervisor is
-// taken over only by an explicit `murm resume`; `murm run` never does.
+// taken over only by an explicit `sous resume`; `sous run` never does.
 function acquireLock(runDir: string, takeOver: boolean): void {
   const path = join(runDir, 'lock')
   const mine = JSON.stringify({ pid: process.pid, startTime: procStartTime(process.pid) }) + '\n'
@@ -140,7 +140,7 @@ function acquireLock(runDir: string, takeOver: boolean): void {
     const raw = readRaw(path)
     const holder = parseLock(raw)
     if (holder && alive(holder)) throw new Error(`run ${runDir} is locked by a live supervisor (pid ${holder.pid})`)
-    if (!takeOver || attempt > 0) throw new Error(`run ${runDir} has a lock from a stopped supervisor; continue it with murm resume`)
+    if (!takeOver || attempt > 0) throw new Error(`run ${runDir} has a lock from a stopped supervisor; continue it with sous resume`)
     // Remove the stale lock only if it is still the one just read, then create ours exclusively.
     if (readRaw(path) === raw) rmSync(path, { force: true })
   }

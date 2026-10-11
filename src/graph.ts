@@ -1,4 +1,4 @@
-// Load and validate a graph file or an agents file for `murm run`, and lead children.
+// Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
 import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
 import { INTEGRATOR, PERSON, ROOT } from './types.ts'
@@ -20,7 +20,7 @@ export function loadGraph(path: string): GraphFile {
   return validateGraph(readJson(path, 'graph'))
 }
 
-/** Load an agents file for a goal run (`murm run --agents`): `agent`, `agents` and `models`, as in graph files. */
+/** Load an agents file for a goal run (`sous run --agents`): `agent`, `agents` and `models`, as in graph files. */
 export function loadDefinitions(path: string): Definitions {
   const raw = readJson(path, 'agents file')
   if (!isObject(raw)) throw new Error('agents file: must be a JSON object')

@@ -31,7 +31,7 @@ export interface SupervisorOptions {
   /** How long a turn may keep running after its end-of-turn marker before its group is stopped,
    * and how long a stopped group gets between SIGTERM and SIGKILL. */
   graceMs?: number
-  /** `murm resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
+  /** `sous resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
   resume?: boolean
   /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
   unavailable?: Unavailable
@@ -46,12 +46,12 @@ const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
 /** Times a supervisor stop may cut a node's turn short before the node fails. */
 const MAX_RECOVERIES = 3
-/** How often `<runDir>/commands/` is checked for `murm answer`, `murm approve` and `murm cancel`. */
+/** How often `<runDir>/commands/` is checked for `sous answer`, `sous approve` and `sous cancel`. */
 const POLL_MS = 200
 /** Sender of the integrator's requests. */
 const SUPERVISOR = 'supervisor'
 
-/** A command file written by `murm answer`, `murm approve` or `murm cancel`. */
+/** A command file written by `sous answer`, `sous approve` or `sous cancel`. */
 export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'approve' | 'cancel'; node: string }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
@@ -565,7 +565,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (onto === undefined) {
         if (!hasChanges(path, branch)) return void log.append({ type: 'merge.done', node: spec.id, commit, by: 'nothing' })
         onto = commit
-        const r = merge(path, branch, `murm: merge ${spec.id}`)
+        const r = merge(path, branch, `sous: merge ${spec.id}`)
         if (!r.ok) {
           log.append({ type: 'merge.conflict', node: spec.id, reason: `conflict in ${r.files.join(', ')}`, files: r.files, onto })
           return await integrate(spec, onto)
@@ -659,7 +659,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
 
-  // ---- Recovery (murm resume) -----------------------------------------------------------------
+  // ---- Recovery (sous resume) -----------------------------------------------------------------
 
   /** Close a turn the last supervisor left without `turn.ended`: record its result if its output has one; stop its
    * group if it still runs. A node left without a result is then resumed by `runWork`. */
@@ -774,7 +774,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
 
       for (const n of nodes) if (n.spec.kind === 'lead') routeLead(state, n)
-      // A ready gate asks the person for approval and waits for `murm approve` or `murm cancel`.
+      // A ready gate asks the person for approval and waits for `sous approve` or `sous cancel`.
       for (const n of nodes) {
         if (n.spec.kind === 'gate' && n.status === 'ready') log.append({ type: 'message', from: n.spec.id, to: PERSON, body: n.spec.brief ?? '', mode: 'queue' })
       }

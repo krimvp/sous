@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { openLog, readEvents } from '../src/log.ts'
 
-const tempRun = () => mkdtempSync(join(tmpdir(), 'murm-log-'))
+const tempRun = () => mkdtempSync(join(tmpdir(), 'sous-log-'))
 
 test('a truncated final line is ignored on read and replaced on the next append', () => {
   const runDir = tempRun()
@@ -25,7 +25,7 @@ test('a truncated final line is ignored on read and replaced on the next append'
   assert.deepEqual(lines.map((l) => JSON.parse(l).seq), [1, 2, 3])
 })
 
-test('refuses a lock held by a live supervisor; only a takeover (murm resume) replaces one left by a stopped one', async (t) => {
+test('refuses a lock held by a live supervisor; only a takeover (sous resume) replaces one left by a stopped one', async (t) => {
   const runDir = tempRun()
   const lockPath = join(runDir, 'lock')
   const live = spawn('sleep', ['30'])
@@ -39,7 +39,7 @@ test('refuses a lock held by a live supervisor; only a takeover (murm resume) re
 
   // Same pid, different start time: the pid was reused, so the supervisor that wrote it is gone.
   writeFileSync(lockPath, JSON.stringify({ pid: live.pid, startTime: '1' }))
-  assert.throws(() => openLog(runDir), /stopped supervisor; continue it with murm resume/)
+  assert.throws(() => openLog(runDir), /stopped supervisor; continue it with sous resume/)
   const log = openLog(runDir, undefined, { takeOver: true })
   assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).pid, process.pid)
   log.close()

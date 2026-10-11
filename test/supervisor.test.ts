@@ -20,7 +20,7 @@ const done = (summary: string) => ({ status: 'done' as const, summary })
 
 /** Runs `nodes` as a graph with the definitions `defs`. `started` lists the harness and model of every turn started. */
 async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = [], defs?: Definitions, maxDepth?: number) {
-  const workspace = gitWorkspace('murm-ws-')
+  const workspace = gitWorkspace('sous-ws-')
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
   const log = openLog(runDir)

@@ -47,7 +47,7 @@ async function until(done: () => boolean, ms = 10_000) {
   }
 }
 
-const tempRunDir = () => mkdtempSync(join(tmpdir(), 'murm-lead-'))
+const tempRunDir = () => mkdtempSync(join(tmpdir(), 'sous-lead-'))
 
 test('a delivery makes the lead spawn then complete, and its answer is reported once', async () => {
   const { faux, models, model } = fauxModels()
@@ -218,7 +218,7 @@ test('a delivery still being admitted when cancel resolves never runs', async ()
 
 test('an unknown provider or a missing credential fails the delivery with a clear error', () => {
   // A child process with an empty home directory, so the Pi login has no credentials.
-  const home = mkdtempSync(join(tmpdir(), 'murm-home-'))
+  const home = mkdtempSync(join(tmpdir(), 'sous-home-'))
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home }
   delete env.OLLAMA_API_KEY
   const res = spawnSync(process.execPath, [fixture, tempRunDir(), 'models'], { encoding: 'utf8', env })
