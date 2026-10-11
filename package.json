@@ -1,0 +1,18 @@
+{
+  "name": "murmuration",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local, dependency-free orchestration of agent trees: leads plan, workers do, code keeps it moving.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "bin": { "murm": "src/cli.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}
