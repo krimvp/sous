@@ -6,6 +6,8 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { agentNames, checkAgents } from './agents.ts'
+import type { Unavailable } from './agents.ts'
 import { loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
 import { eventMessage, fold, isFinal } from './state.ts'
@@ -29,6 +31,8 @@ const USAGE = `usage:
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
   createLeadRunner?: SupervisorOptions['createLeadRunner']
+  /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
+  hasLeadCredential: (provider: string) => Promise<boolean>
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -85,6 +89,7 @@ async function run(arg: string, workspace: string, deps: CliDeps): Promise<numbe
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), createdAt }, null, 2) + '\n')
   console.log(`run ${id} (${runDir})`)
 
+  const unavailable = await agents(graph, deps)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
   log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : {}) })
@@ -92,7 +97,7 @@ async function run(arg: string, workspace: string, deps: CliDeps): Promise<numbe
   log.close()
 
   const outcome = await runSupervisor({
-    workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
+    workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
   })
   if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
   return outcome === 'completed' ? 0 : 1
@@ -105,13 +110,24 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
+  const unavailable = await agents(state.graph, deps)
   printPending(state)
   const printEvent = printer(events)
   const outcome = await runSupervisor({
-    workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, resume: true,
+    workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
+    resume: true, unavailable,
   })
   if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
   return outcome === 'completed' ? 0 : 1
+}
+
+/** Check which agents can run, once per run start, and print it. */
+async function agents(graph: GraphFile | undefined, deps: CliDeps): Promise<Unavailable> {
+  const unavailable = await checkAgents(graph, deps.hasLeadCredential)
+  const names = agentNames(graph)
+  const missing = names.filter((n) => unavailable[n]).map((n) => `${n} (${unavailable[n]})`)
+  console.log(`agents: ${names.filter((n) => !unavailable[n]).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  return unavailable
 }
 
 /** Prints one line per event, every message to the person as a question to answer, and every gate's request.
@@ -141,8 +157,8 @@ function printEvent(e: Event): void {
   let text: string
   switch (e.type) {
     case 'run.created': text = `goal: ${e.goal}`; break
-    case 'node.added': text = `${e.node.id} (${e.node.kind}${e.node.harness ? `, ${e.node.harness}` : ''})`; break
-    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode} pid ${e.pid}`; break
+    case 'node.added': text = `${e.node.id} (${e.node.kind}${e.node.agent ? `, ${e.node.agent}` : ''})`; break
+    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}` : ''} pid ${e.pid}`; break
     case 'turn.session': text = `${e.node} turn ${e.turn} session ${e.sessionId}`; break
     case 'turn.interrupted': text = `${e.node} turn ${e.turn} ${e.signal}: ${e.reason}`; break
     case 'turn.ended':
@@ -157,6 +173,12 @@ function printEvent(e: Event): void {
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
     case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
+    case 'integration.created': text = `${e.branch} at ${e.path}`; break
+    case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
+    case 'merge.queued': text = `${e.node} ${e.branch}`; break
+    case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
+    case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
+    case 'merge.failed': text = `${e.node}: ${e.reason}`; break
     case 'run.completed': text = e.summary; break
     case 'run.failed': text = e.reason; break
   }
@@ -194,7 +216,8 @@ function status(workspace: string, runId?: string): number {
   const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
   const print = (n: NodeState, depth: number) => {
     const turns = n.turns.length ? ` turns ${n.turns.length}` : ''
-    console.log(`${'  '.repeat(depth)}${n.spec.id} ${n.status}${turns}${lastSummary(n)}`)
+    const agent = n.turns.findLast((t) => t.agent)?.agent ?? n.spec.agent
+    console.log(`${'  '.repeat(depth)}${n.spec.id} ${n.status}${agent ? ` on ${agent}` : ''}${turns}${lastSummary(n)}`)
     for (const c of children(n.spec.id)) print(c, depth + 1)
   }
   for (const n of children(undefined)) print(n, 1)
@@ -251,6 +274,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter }, { createLeadRunner }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner })
+  const [{ getAdapter }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential })
 }

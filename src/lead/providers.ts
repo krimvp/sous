@@ -47,6 +47,12 @@ function ollamaCloud(ids: string[]) {
   })
 }
 
+/** Whether the Pi login has a credential for lead provider `provider`. */
+export async function hasLeadCredential(provider: string): Promise<boolean> {
+  const models = loginModels()
+  return models.getProvider(provider) !== undefined && (await models.checkAuth(provider)) !== undefined
+}
+
 /** Resolve `provider/model` to a model the lead can use, or throw a clear error. */
 export async function resolveModel(models: MutableModels, ref: string): Promise<ModelRef> {
   const slash = ref.indexOf('/')

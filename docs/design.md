@@ -128,7 +128,7 @@ reopened lead continues where it stopped.
 - **Its only tools are the orchestration tools below**, offered through one extension. Each is
   `replay: "safe"`, keyed by the model's tool call ID, and **returns the original result on replay**: in
   the spike, a different replay result made the model stop early.
-- **Model:** the node's or graph's `model` as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
+- **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
   (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
   from the user's Pi login in `~/.pi/agent/auth.json`, read only: Murmuration never refreshes them (a
   refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
@@ -138,7 +138,7 @@ Its tools:
 
 | Tool | Effect |
 |---|---|
-| `spawn(children[])` | add child nodes under this node (kind, brief, acceptance, needs, harness) |
+| `spawn(children[])` | add child nodes under this node (kind, brief, acceptance, needs, agent, model) |
 | `send(node, body, mode)` | message a child or the parent; `mode` is `queue` or `interrupt` |
 | `note(text)` | add a note for this subtree |
 | `cancel(node)` | cancel a child subtree |
@@ -196,7 +196,7 @@ settings:
 | `cancel` targets | the lead's own children |
 | `complete` / `fail` | refused while any child is pending or running, or a message for the lead waits to be delivered |
 | Lead `command` | none: a lead's own acceptance is its judgment against its acceptance criteria; deterministic gates are `check` children |
-| Child defaults | harness `claude`; a child lead's model is its parent's |
+| Child defaults | a work child: the default worker agent (see Agents); a child lead: its parent's agent and model |
 | `needs` | earlier siblings only, as in graph files |
 
 **Workers under a lead.** A worker's `needs_input` or `blocked` result goes to its parent (a lead, or the
@@ -237,6 +237,9 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
+  Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
+  turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
+  children may name.
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
   between them, and never completes on its own. The integrator is the first one; later, agents outside the

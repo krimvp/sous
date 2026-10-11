@@ -21,7 +21,7 @@ const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'to
 function workspaceWith(nodes: NodeSpec[]) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
   const graph = join(workspace, 'graph.json')
-  writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', harness: 'claude', nodes }))
+  writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', agent: 'claude', nodes }))
   return { workspace, graph, sessions: join(workspace, 'sessions') }
 }
 

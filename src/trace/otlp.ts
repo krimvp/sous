@@ -101,7 +101,7 @@ export function toOtlp(run: LoadedRun): object {
       'langfuse.observation.input': t.prompt,
       'langfuse.observation.output': t.ended?.result ?? t.parsed.result,
       'murm.turn.mode': t.mode,
-      'murm.turn.harness': t.harness,
+      'murm.turn.agent': t.agent,
       'murm.turn.session_id': t.sessionId,
       'murm.turn.exit_code': t.ended?.exitCode,
     }, t.ended?.error ?? interrupted, t.ended?.error && !cancelled ? 'ERROR' : 'WARNING')

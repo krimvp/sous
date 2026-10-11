@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { openLog, readEvents } from '../src/log.ts'
-import type { EventBody } from '../src/types.ts'
+import type { EventBody, TurnSpec } from '../src/types.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
-import type { Event, LeadHost, NodeSpec } from '../src/types.ts'
+import type { Event, GraphFile, HarnessName, LeadHost, NodeSpec } from '../src/types.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import type { FakeLeadStep } from './fixtures/fake-lead.ts'
@@ -16,23 +16,32 @@ import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 
-async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = []) {
+/** Runs `nodes` as a graph that defines `agents`. `started` lists the harness and model of every turn started. */
+async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = [], agents?: GraphFile['agents']) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-ws-'))
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
   const log = openLog(runDir)
-  log.append({ type: 'run.created', goal: 'test goal', workspace })
+  log.append({ type: 'run.created', goal: 'test goal', workspace, ...(agents ? { graph: { goal: 'test goal', agents, nodes } } : {}) })
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
   for (const body of more) log.append(body)
   log.close()
   const sessions = join(workspace, 'sessions')
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => fakeAdapter(sessions), graceMs, ...extra })
+  const started: [HarnessName, string | undefined][] = []
+  const getAdapter = (runs: HarnessName) => {
+    const fake = fakeAdapter(sessions)
+    return { ...fake, start: (spec: TurnSpec) => (started.push([runs, spec.model]), fake.start(spec)) }
+  }
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter, graceMs, ...extra })
   const events = readEvents(runDir)
-  return { workspace, runDir, outcome, events, state: fold(events), sessions }
+  return { workspace, runDir, outcome, events, state: fold(events), sessions, started }
 }
 
 const work = (id: string, steps: FakeStep[], extra: Partial<NodeSpec> = {}): NodeSpec =>
-  ({ id, kind: 'work', harness: 'claude', brief: `Do ${id}.\n${fakePlan(steps)}`, ...extra })
+  ({ id, kind: 'work', agent: 'claude', brief: `Do ${id}.\n${fakePlan(steps)}`, ...extra })
+
+const promptOf = (sessions: string, node: { turns: { sessionId?: string }[] }, turn = 0): string =>
+  JSON.parse(readFileSync(join(sessions, `${node.turns[0].sessionId}.json`), 'utf8')).prompts[turn]
 
 test('a work node then a check node completes the run', async () => {
   const { workspace, outcome, events, state } = await runGraph([
@@ -110,11 +119,9 @@ test('a turn that keeps running after its result is stopped after the grace peri
   assert.equal(state.nodes.get('linger')?.turns[0].signal, 'SIGTERM')
 })
 
-test('writing nodes run one at a time; read-only nodes run alongside', async () => {
+test('work nodes run one at a time while they share the workspace', async () => {
   const slow = [{ sleepMs: 300, result: done('ok') }]
-  const { outcome, events } = await runGraph([
-    work('w1', slow), work('w2', slow), work('r1', slow, { readOnly: true }), work('r2', slow, { readOnly: true }),
-  ])
+  const { outcome, events } = await runGraph([work('w1', slow), work('w2', slow)])
   assert.equal(outcome, 'completed')
   const span = (node: string) => {
     const at = (type: string) => events.find((e) => e.type === type && 'node' in e && e.node === node)!.seq
@@ -122,8 +129,31 @@ test('writing nodes run one at a time; read-only nodes run alongside', async () 
   }
   const overlap = (a: string, b: string) => span(a)[0] < span(b)[1] && span(b)[0] < span(a)[1]
   assert.equal(overlap('w1', 'w2'), false)
-  assert.equal(overlap('r1', 'r2'), true)
-  assert.equal(overlap('w1', 'r1'), true)
+})
+
+test("a graph agent's instructions reach its worker's brief, it runs on its harness, and a node's model overrides the agent's", async () => {
+  const reviewer = { runs: 'codex' as const, model: 'gpt-5', instructions: 'Review only; change nothing.' }
+  const { outcome, state, sessions, started } = await runGraph([
+    work('a', [{ result: done('a') }], { agent: 'reviewer' }),
+    work('b', [{ result: done('b') }], { agent: 'reviewer', model: 'gpt-5-mini' }),
+    work('c', [{ result: done('c') }], { agent: 'claude' }),
+  ], undefined, {}, [], { reviewer })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(started, [['codex', 'gpt-5'], ['codex', 'gpt-5-mini'], ['claude', undefined]])
+  assert.deepEqual(['a', 'b', 'c'].map((id) => state.nodes.get(id)!.turns[0].agent), ['reviewer', 'reviewer', 'claude'])
+  assert.match(promptOf(sessions, state.nodes.get('a')!), /Your standing instructions:\nReview only; change nothing\.\n\nYour task \(node a\)/)
+  assert.doesNotMatch(promptOf(sessions, state.nodes.get('c')!), /standing instructions/)
+})
+
+test('a node whose agent is not available fails with the reason; a node without an agent takes the next available one', async () => {
+  const { outcome, state, started } = await runGraph([
+    work('a', [{ result: done('a') }], { agent: 'claude' }),
+    work('b', [{ result: done('b') }], { agent: undefined }),
+  ], undefined, { unavailable: { claude: 'claude not found' } })
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('a')!.reason, 'agent claude is not available (claude not found)')
+  assert.equal(state.nodes.get('a')!.turns.length, 0)
+  assert.deepEqual([state.nodes.get('b')!.status, state.nodes.get('b')!.turns[0].agent, started], ['completed', 'codex', [['codex', undefined]]])
 })
 
 const grandchildOf = (sessions: string) =>
@@ -173,7 +203,7 @@ test('a lead spawns two workers, gets both outcomes, completes, and the run comp
   ])
   assert.equal(outcome, 'completed')
   assert.equal(state.summary, 'a and b written')
-  assert.deepEqual([...state.nodes.values()].map((n) => [n.spec.id, n.spec.parent, n.spec.harness, n.status]), [
+  assert.deepEqual([...state.nodes.values()].map((n) => [n.spec.id, n.spec.parent, n.turns[0]?.agent, n.status]), [
     ['lead', undefined, undefined, 'completed'], ['a', 'lead', 'claude', 'completed'], ['b', 'lead', 'claude', 'completed'],
   ])
   const ended = (id: string) => events.find((e) => e.type === 'node.completed' && e.node === id)!.seq
@@ -187,6 +217,25 @@ test('a lead spawns two workers, gets both outcomes, completes, and the run comp
   assert.deepEqual(fakeLeadRecords(runDir).filter((r) => r.op !== 'act').map((r) => r.op), [
     'deliver', 'settled', 'deliver', 'settled', 'deliver', 'settled', 'close',
   ])
+})
+
+test('a lead spawns a child by agent name: a defined agent does it, an unknown agent is refused', async () => {
+  const { outcome, events, state, sessions, started } = await runGraph([lead([
+    { calls: [
+      { tool: 'spawn', children: [{ id: 'x', kind: 'work', brief: 'x', agent: 'gpt' }] },
+      { tool: 'spawn', children: [{ id: 'r', kind: 'work', brief: `Review.\n${fakePlan([{ result: done('reviewed') }])}`, agent: 'reviewer' }] },
+    ] },
+    { calls: [{ tool: 'complete', summary: 'reviewed' }] },
+  ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { reviewer: { runs: 'pi', instructions: 'Only review.' } })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(calls(events).map((c) => c.result), [
+    'refused: child x: unknown agent gpt (known: claude, codex, pi, lead, reviewer)',
+    'spawned r; their outcomes will be delivered to you',
+    'completed',
+  ])
+  assert.deepEqual([started, state.nodes.get('r')!.turns[0].agent], [[['pi', undefined]], 'reviewer'])
+  assert.match(promptOf(sessions, state.nodes.get('r')!), /Your standing instructions:\nOnly review\./)
+  assert.match(delivered(events)[0].text, /Agents a child may name: for work children claude, codex, pi, reviewer \(default claude\); for lead children lead/)
 })
 
 test('policy refuses a lead with a command, a fourth lead level, completing with a running child and sending to a non-child', async () => {

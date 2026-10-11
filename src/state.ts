@@ -1,5 +1,5 @@
 // Run state as a pure fold of the event log.
-import { DEFAULT_LEAD_MODEL, PERSON } from './types.ts'
+import { PERSON } from './types.ts'
 import type { ChildSpec, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
@@ -16,6 +16,7 @@ export interface TurnState {
   number: number
   mode: 'start' | 'resume'
   harness?: HarnessName
+  agent?: string
   pid: number
   startTime?: string
   /** Continues (or restarts) a turn that a supervisor stop cut short. */
@@ -89,12 +90,15 @@ export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' |
 
 export const callKey = (node: string, callId: string) => `${node}\n${callId}`
 
-/** The node a lead's child becomes: work children default to Claude, child leads inherit the lead's model. */
+/** The node a lead's child becomes. A child lead that names no agent gets its parent's agent and model; a work
+ * child that names none gets the default worker when it starts. */
 export function childNode(c: ChildSpec, lead: NodeSpec): NodeSpec {
   const node: NodeSpec = { id: c.id, kind: c.kind, parent: lead.id }
-  for (const key of ['brief', 'command', 'acceptance', 'needs'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
-  if (c.kind === 'work') Object.assign(node, { harness: c.harness ?? 'claude' }, c.model ? { model: c.model } : {})
-  if (c.kind === 'lead') node.model = c.model ?? lead.model ?? DEFAULT_LEAD_MODEL
+  for (const key of ['brief', 'command', 'acceptance', 'needs', 'agent', 'model'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
+  if (c.kind === 'lead' && c.agent === undefined) {
+    if (lead.agent !== undefined) node.agent = lead.agent
+    if (c.model === undefined && lead.model !== undefined) node.model = lead.model
+  }
   return node
 }
 
@@ -166,7 +170,7 @@ export function fold(events: readonly Event[]): RunState {
       case 'turn.started': {
         const node = state.nodes.get(e.node)
         node?.turns.push({
-          number: e.turn, mode: e.mode, harness: e.harness, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
+          number: e.turn, mode: e.mode, harness: e.harness, agent: e.agent, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
           outFile: e.outFile, errFile: e.errFile, ended: false,
         })
         if (node) node.inbox = []

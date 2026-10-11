@@ -4,27 +4,38 @@ import { validateGraph } from '../src/graph.ts'
 
 const work = (id: string, needs?: string[]) => ({ id, kind: 'work', brief: `do ${id}`, needs })
 
-test('applies the file harness and model to work nodes', () => {
+test('nodes and the graph name built-in or defined agents; an unknown or unfit agent is rejected', () => {
   const graph = validateGraph({
-    goal: 'g', harness: 'codex', model: 'm',
-    nodes: [work('a'), { ...work('b', ['a']), harness: 'pi' }, { id: 'c', kind: 'check', command: 'true', needs: ['b'] }],
+    goal: 'g', agent: 'reviewer', agents: { reviewer: { runs: 'codex', instructions: 'Be strict.' } },
+    nodes: [work('a'), { ...work('b', ['a']), agent: 'pi', model: 'm' }, { id: 'l', kind: 'lead', brief: 'lead', agent: 'lead' }],
   })
-  assert.deepEqual(graph.nodes.map((n) => [n.harness, n.model]), [['codex', 'm'], ['pi', 'm'], [undefined, undefined]])
+  assert.deepEqual(graph.nodes.map((n) => [n.agent, n.model]), [[undefined, undefined], ['pi', 'm'], ['lead', undefined]])
+  const rejects = (raw: object, error: RegExp) => assert.throws(() => validateGraph(raw), error)
+  rejects({ goal: 'g', agents: { r: { runs: 'pi' } }, nodes: [{ ...work('a'), agent: 'gpt' }] }, /node a: unknown agent gpt \(known: claude, codex, pi, lead, r\)/)
+  rejects({ goal: 'g', agent: 'nobody', nodes: [work('a')] }, /graph: unknown agent nobody/)
+  rejects({ goal: 'g', nodes: [{ ...work('a'), agent: 'lead' }] }, /node a: agent lead runs lead; a work node needs a worker agent/)
+  rejects({ goal: 'g', nodes: [{ id: 'l', kind: 'lead', brief: 'b', agent: 'pi' }] }, /node l: agent pi runs pi; a lead needs an agent that runs lead/)
+  rejects({ goal: 'g', nodes: [{ id: 't', kind: 'check', command: 'true', agent: 'pi' }] }, /node t: check nodes have no agent/)
+  rejects({ goal: 'g', agents: { x: { runs: 'gpt' } }, nodes: [work('a')] }, /agent x: runs must be one of claude, codex, pi, lead/)
+  rejects({ goal: 'g', model: 'm', nodes: [work('a')] }, /graph: unknown field model/)
+  rejects({ goal: 'g', nodes: [{ ...work('a'), harness: 'pi' }] }, /node a: unknown field harness/)
+  rejects({ goal: 'g', nodes: [{ ...work('a'), standing: true }] }, /node a: unknown field standing/)
+  rejects({ goal: 'g', nodes: [work('integrator')] }, /node integrator: id integrator is reserved/)
 })
 
 test('rejects a cycle in needs and names the nodes', () => {
-  const graph = { goal: 'g', harness: 'claude', nodes: [work('a', ['c']), work('b', ['a']), work('c', ['b'])] }
+  const graph = { goal: 'g', nodes: [work('a', ['c']), work('b', ['a']), work('c', ['b'])] }
   assert.throws(() => validateGraph(graph), /node a: needs form a cycle: a -> c -> b -> a/)
 })
 
 test('rejects needs on an unknown node', () => {
-  const graph = { goal: 'g', harness: 'claude', nodes: [work('a', ['missing'])] }
+  const graph = { goal: 'g', nodes: [work('a', ['missing'])] }
   assert.throws(() => validateGraph(graph), /node a: needs unknown node missing/)
 })
 
 test('rejects a check without a command and a work node without a brief', () => {
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 't', kind: 'check' }] }), /node t: check nodes need a command/)
-  assert.throws(() => validateGraph({ goal: 'g', harness: 'pi', nodes: [{ id: 'w', kind: 'work' }] }), /node w: work nodes need a brief/)
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'w', kind: 'work' }] }), /node w: work nodes need a brief/)
 })
 
 test('rejects a command on a lead: deterministic gates are check nodes', () => {
@@ -32,8 +43,8 @@ test('rejects a command on a lead: deterministic gates are check nodes', () => {
   assert.throws(() => validateGraph(graph), /node l: leads have no command; add a check node for a deterministic gate/)
 })
 
-test('a gate needs a brief for the person and takes no command or harness', () => {
-  const graph = validateGraph({ goal: 'g', harness: 'claude', nodes: [{ id: 'ok', kind: 'gate', brief: 'Ship it?' }] })
+test('a gate needs a brief for the person and takes no command or agent', () => {
+  const graph = validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate', brief: 'Ship it?' }] })
   assert.deepEqual(graph.nodes, [{ id: 'ok', kind: 'gate', brief: 'Ship it?' }])
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate' }] }), /node ok: gate nodes need a brief/)
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate', brief: 'b', command: 'true' }] }), /node ok: gates have no command/)

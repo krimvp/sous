@@ -8,7 +8,7 @@ import { readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
-import { murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
+import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 function setup(steps: FakeStep[]) {
@@ -16,7 +16,7 @@ function setup(steps: FakeStep[]) {
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write a greeting',
-    harness: 'claude',
+    agent: 'claude',
     nodes: [
       { id: 'write', kind: 'work', brief: `Write hello.txt.\n${fakePlan(steps)}` },
       { id: 'test', kind: 'check', command: 'grep -q hello hello.txt', needs: ['write'] },
@@ -38,7 +38,27 @@ test('murm run completes a work then check graph and murm status shows it', asyn
 
   const status = murm(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
-  assert.match(status.output(), /^run \S+ completed: write a greeting\n  write completed turns 1: wrote hello.txt\n  test completed/)
+  assert.match(status.output(), /^run \S+ completed: write a greeting\n  write completed on claude turns 1: wrote hello.txt\n  test completed/)
+})
+
+test('murm run checks the agents on PATH: a node without an agent falls back to codex; a node naming claude fails', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({
+    goal: 'write two files',
+    nodes: [
+      { id: 'any', kind: 'work', brief: `Write a.\n${fakePlan([{ write: { 'a.txt': 'a' }, result: { status: 'done', summary: 'wrote a' } }])}` },
+      { id: 'pinned', kind: 'work', agent: 'claude', brief: `Write b.\n${fakePlan([{ result: { status: 'done', summary: 'wrote b' } }])}` },
+    ],
+  }))
+  // Only codex and pi are on PATH: no claude, and no other directory.
+  const run = murm(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\)$/m)
+  const state = fold(readEvents(runDirOf(workspace)!))
+  assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
+  assert.equal(state.nodes.get('pinned')!.reason, 'agent claude is not available (claude not found)')
+  assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
 })
 
 test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild included, and leaves the run resumable', async () => {

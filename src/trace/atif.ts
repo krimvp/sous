@@ -1,13 +1,11 @@
 // ATIF-v1.8 export (Harbor RFC 0001): one document per run; each node is an embedded subagent trajectory.
 // ATIF rejects unknown keys, so everything Murmuration-specific goes in `extra`.
 
-import type { HarnessName, Usage } from '../types.ts'
+import type { Usage } from '../types.ts'
 import { loadRun, MURM_VERSION, usagesOf, viewRun } from './run.ts'
 import type { LoadedRun, NodeView, ParseTurn, TurnView } from './run.ts'
 
 export const ATIF_VERSION = 'ATIF-v1.8'
-
-const AGENT_NAMES: Record<HarnessName, string> = { claude: 'claude-code', codex: 'codex', pi: 'pi' }
 
 interface Step {
   step_id: number
@@ -77,7 +75,7 @@ function addTurn(add: (s: StepInput) => Step, t: TurnView): void {
     source: 'user',
     timestamp: t.startedAt,
     message: t.prompt,
-    extra: { turn: t.turn, mode: t.mode, harness: t.harness, session_id: t.sessionId },
+    extra: { turn: t.turn, mode: t.mode, agent: t.agent, session_id: t.sessionId },
   })
   let open: Step | undefined
   let last: Step | undefined
@@ -200,7 +198,7 @@ function nodeTrajectory(runId: string, node: NodeView): object {
   if (!steps.length) add({ source: 'system', timestamp: node.addedAt, message: `Node ${spec.id} did not run` })
 
   const turns = [...node.turns.values()]
-  const harness = turns[0]?.harness ?? spec.harness
+  const agent = turns[0]?.agent ?? spec.agent
   const leadModel = node.events.find((e) => e.type === 'lead.turn')?.model ?? spec.model
   return {
     schema_version: ATIF_VERSION,
@@ -208,9 +206,9 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     trajectory_id: `${runId}/${spec.id}`,
     agent: spec.kind === 'lead'
       ? { name: 'murmuration-lead', version: MURM_VERSION, model_name: leadModel }
-      : spec.kind === 'check' || !harness
+      : spec.kind === 'check' || !agent
         ? { name: 'murmuration', version: MURM_VERSION }
-        : { name: AGENT_NAMES[harness], version: 'unknown', model_name: turns[0]?.model },
+        : { name: agent, version: 'unknown', model_name: turns[0]?.model },
     steps,
     final_metrics: finalMetrics(subtreeUsages(node), steps.length),
     extra: {
@@ -221,7 +219,7 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       turns: turns.map((t) => ({
         turn: t.turn,
         mode: t.mode,
-        harness: t.harness,
+        agent: t.agent,
         session_id: t.sessionId,
         started_at: t.startedAt,
         ended_at: t.endedAt,

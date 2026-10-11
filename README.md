@@ -29,15 +29,18 @@ stopped, and an interrupted worker continues its session with a note to re-check
 interrupted more than 3 times fails.
 
 Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
-`pi` once to log in or refresh). Their workers default to Claude Code with its default model; a goal can
-ask for another harness, e.g. "use harness pi for every work child".
+`pi` once to log in or refresh). Their workers default to the first agent whose CLI is on your `PATH`: Claude
+Code, else Codex, else Pi, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
+every work child". Each run prints which agents are available.
 
 Or give it a fixed graph file:
 
 ```json
-{ "goal": "Add a greeting", "harness": "claude",
+{ "goal": "Add a greeting", "agent": "claude",
+  "agents": { "reviewer": { "runs": "codex", "instructions": "Review only; do not change files." } },
   "nodes": [
     { "id": "write", "kind": "work", "brief": "Create greeting.txt containing: hello" },
+    { "id": "review", "kind": "work", "agent": "reviewer", "needs": ["write"], "brief": "Review greeting.txt" },
     { "id": "verify", "kind": "check", "needs": ["write"], "command": "grep -qx hello greeting.txt" },
     { "id": "ship", "kind": "gate", "needs": ["verify"], "brief": "Keep greeting.txt?" }
   ] }
@@ -50,7 +53,10 @@ node src/cli.ts export atif           # writes .murm/runs/<id>/trace.atif.json
 node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 ```
 
-Workers run with full permissions in the workspace (see the design's harness facts).
+An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi` or `lead`, with an optional
+`model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`
+and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in the
+workspace (see the design's harness facts).
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker

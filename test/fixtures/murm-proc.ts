@@ -1,15 +1,27 @@
 // Runs `murm` (with the fake adapter and fake lead runner) as a real process, and waits on a run's event log.
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readEvents } from '../../src/log.ts'
 import type { Event } from '../../src/types.ts'
 
 const MURM = new URL('./murm-fake.ts', import.meta.url).pathname
 
-export function murm(args: string[], cwd: string, sessions: string) {
-  const child = spawn(process.execPath, [MURM, ...args], { cwd, env: { ...process.env, FAKE_SESSIONS: sessions } })
+/** A directory with stand-ins for the harness commands `names`, so the agents that run them count as available.
+ * They are never run: the fake adapter runs every worker. */
+export function fakeBin(names = ['claude', 'codex', 'pi']): string {
+  const dir = mkdtempSync(join(tmpdir(), 'murm-bin-'))
+  for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+  return dir
+}
+
+const BIN = fakeBin()
+
+/** `path` is the PATH murm sees; by default every harness command is on it. */
+export function murm(args: string[], cwd: string, sessions: string, path = `${BIN}${delimiter}${process.env.PATH}`) {
+  const child = spawn(process.execPath, [MURM, ...args], { cwd, env: { ...process.env, PATH: path, FAKE_SESSIONS: sessions } })
   let stdout = ''
   child.stdout.on('data', (d) => (stdout += d))
   child.stderr.on('data', (d) => (stdout += d))
