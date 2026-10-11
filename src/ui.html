@@ -316,7 +316,7 @@ $('runs').addEventListener('click', (e) => {
 })
 
 async function openRun(id, keepNode) {
-  if (id !== ui.runId) { ui.shut = new Set(); ui.foldedOnce = false }
+  if (id !== ui.runId) { ui.shut = new Set(); ui.foldedOnce = false; ui.run = null }
   ui.runId = id
   if (!keepNode) { ui.nodeId = null; ui.node = null; renderDetail() }
   writeHash()
@@ -367,7 +367,24 @@ function team(n) {
   }
 }
 
+/** Re-render `el` with `draw`, keeping keyboard focus on the same control: found again by its data attribute, and
+ * its place among controls with the same one (a node's id can appear in several links). */
+function redraw(el, draw) {
+  const f = el.contains(document.activeElement) ? document.activeElement : null
+  const attr = f && ['data-fold', 'data-copy', 'data-node', 'data-close', 'data-more', 'data-run'].find((a) => f.hasAttribute(a))
+  const sel = attr && `[${attr}="${CSS.escape(f.getAttribute(attr))}"]`
+  const nth = sel ? [...el.querySelectorAll(sel)].indexOf(f) : -1
+  draw()
+  if (sel) el.querySelectorAll(sel)[nth]?.focus({ preventScroll: true })
+}
+
 function renderRun() {
+  const y = $('run').scrollTop
+  redraw($('run'), drawRun)
+  $('run').scrollTop = y
+}
+
+function drawRun() {
   const r = ui.run
   const end = runEnd()
   const totals = r.nodes.reduce((a, n) => a + n.turns, 0)
@@ -492,7 +509,7 @@ function renderDetail(keep) {
   const el = $('detail')
   // Sections the reader opened, by their place in the panel, survive a live refresh.
   const opened = keep ? [...el.querySelectorAll('details')].map((d) => d.open) : []
-  const shown = keep ? [...el.querySelectorAll('[data-more]')].length : 0
+  const expanded = keep ? [...el.querySelectorAll('.long')].map((x) => !x.classList.contains('clamp')) : []
   const scroll = el.scrollTop
   $('app').classList.toggle('has-node', !!ui.nodeId)
   el.hidden = !ui.nodeId
@@ -511,7 +528,7 @@ function renderDetail(keep) {
     summary && tokTotal(summary.tokens) && `${num(tokTotal(summary.tokens))} tok${summary.tokens.costUsd !== undefined ? ` · ${cost(summary.tokens)}` : ''}`,
   ].filter(Boolean).map((x) => `<span>${x}</span>`).join('')
   const brief = s.brief ?? s.command
-  el.innerHTML = `<div class="detail-h"><div class="t"><h2>${esc(s.id)} ${status(d.status)}</h2><div class="sub">${sub}</div></div>
+  const html = `<div class="detail-h"><div class="t"><h2>${esc(s.id)} ${status(d.status)}</h2><div class="sub">${sub}</div></div>
       <button class="close" data-close aria-label="Close">✕</button></div>
     ${d.outcome ? `<div class="sec"><p class="outcome${d.status === 'failed' ? ' bad' : ''}" style="margin:0">${esc(d.outcome)}</p></div>` : ''}
     ${brief ? `<div class="sec"><h3 class="side-h">${s.brief ? 'Brief' : 'Command'}</h3>${long(brief, !s.brief)}
@@ -521,16 +538,17 @@ function renderDetail(keep) {
     </div>` : ''}
     ${d.notes.length ? `<div class="sec"><h3 class="side-h">Notes for the subtree</h3><ul class="notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h3 class="side-h">${s.kind === 'lead' ? 'Decisions' : s.kind === 'check' ? 'Runs' : 'Trajectory'}</h3><div class="steps">${trajectory(d, t0) || '<p class="muted">Nothing yet.</p>'}</div></div>`
+  redraw(el, () => (el.innerHTML = html))
   if (!keep) return
   el.querySelectorAll('details').forEach((x, i) => { if (opened[i]) x.open = true })
-  if (!shown) el.querySelectorAll('[data-more]').forEach((m) => { m.previousElementSibling.classList.remove('clamp'); m.remove() })
+  el.querySelectorAll('.long').forEach((x, i) => { if (expanded[i]) { x.classList.remove('clamp'); x.nextElementSibling?.remove() } })
   el.scrollTop = scroll
 }
 
 function long(text, mono) {
   const lines = String(text).split('\n').length
   const big = text.length > 600 || lines > 8
-  const inner = mono ? `<pre class="out">${esc(text)}</pre>` : `<div class="prose${big ? ' clamp' : ''}">${esc(text)}</div>${big ? '<button class="more" data-more>Show all</button>' : ''}`
+  const inner = mono ? `<pre class="out">${esc(text)}</pre>` : `<div class="prose${big ? ' long clamp' : ''}">${esc(text)}</div>${big ? '<button class="more" data-more>Show all</button>' : ''}`
   return inner
 }
 
@@ -605,18 +623,18 @@ function leadCall(e, t0) {
 function turnSteps(t, e, t0) {
   if (!t) return ''
   const head = `<div class="turn-h"><b>Turn ${t.turn}</b><span>${esc(t.mode)}${e.recovery ? ' · recovery' : ''}</span>${t.agent ? `<span>${esc(t.agent)}${t.model ? ` · ${esc(t.model)}` : ''}</span>` : ''}<span>${dur(ms(t.startedAt, t.endedAt))}</span>${t.usage ? `<span>${usage(t.usage)}</span>` : ''}</div>`
-  const prompt = step(t.startedAt, t0, 'in', fold(`<b>${t.mode === 'start' ? 'brief' : 'resumed with'}</b> <span class="muted">${esc(oneLine(t.prompt.text, 80))}</span>`, `<pre class="out">${esc(t.prompt.text)}${t.prompt.clipped ? `\n… ${t.prompt.clipped} more characters` : ''}</pre>`))
+  const prompt = step(t.startedAt, t0, 'in', fold(`<b>${t.mode === 'start' ? 'brief' : 'resumed with'}</b> <span class="muted">${esc(oneLine(t.prompt, 80))}</span>`, `<pre class="out">${esc(t.prompt)}</pre>`))
   const results = new Map(t.items.filter((i) => i.kind === 'tool_result').map((i) => [i.callId, i]))
   const items = t.items.map((i) => {
     const at = i.at ?? t.startedAt
     if (i.kind === 'message') {
       const reasoning = i.reasoning ? fold('<span class="muted">reasoning</span>', `<pre class="out">${esc(i.reasoning)}</pre>`) : ''
-      return step(at, t0, '', `<b>${esc(i.role)}</b>`, reasoning + txt(i.text) + more(i.clipped))
+      return step(at, t0, '', `<b>${esc(i.role)}</b>`, reasoning + txt(i.text))
     }
     if (i.kind === 'tool_call') {
       const r = results.get(i.id)
       const summary = `<span class="call-line"><span class="chip tool">${esc(i.name)}</span>${r?.isError ? '<span class="chip bad">error</span>' : ''}<span class="arg">${esc(oneLine(argSummary(i.arguments), 120))}</span></span>`
-      return step(at, t0, r?.isError ? 'call bad' : 'call', fold(summary, `<pre class="out">${esc(i.arguments)}${more(i.clipped, true)}</pre>${r ? `<pre class="out">${esc(r.content) || '<span class="muted">(no output)</span>'}${more(r.clipped, true)}</pre>` : ''}`))
+      return step(at, t0, r?.isError ? 'call bad' : 'call', fold(summary, `<pre class="out">${esc(i.arguments)}</pre>${r ? `<pre class="out">${esc(r.content) || '<span class="muted">(no output)</span>'}</pre>` : ''}`))
     }
     if (i.kind === 'tool_result' && !t.items.some((c) => c.kind === 'tool_call' && c.id === i.callId)) {
       return step(at, t0, '', '<b>tool result</b>', `<pre class="out">${esc(i.content)}</pre>`)
@@ -625,7 +643,6 @@ function turnSteps(t, e, t0) {
   }).join('')
   return head + prompt + items + (t.items.length ? '' : step(t.startedAt, t0, '', '<span class="muted">No trace for this turn.</span>'))
 }
-const more = (n, plain) => (n ? (plain ? `\n… ${n} more characters` : `<div class="muted">… ${n} more characters</div>`) : '')
 function argSummary(raw) {
   try {
     const a = JSON.parse(raw)
@@ -672,15 +689,7 @@ window.addEventListener('hashchange', () => {
   if (other || (h.node ?? null) !== ui.nodeId) h.node ? openNode(h.node) : closeNode()
 })
 // A running run's clocks and open bars move every second.
-setInterval(() => {
-  if (ui.run?.status !== 'running') return
-  const y = $('run').scrollTop
-  const f = document.activeElement?.closest?.('#run [data-fold], #run [data-copy], #run .link')
-  const key = f && (f.dataset.fold ? `[data-fold="${CSS.escape(f.dataset.fold)}"]` : f.dataset.copy ? `[data-copy="${CSS.escape(f.dataset.copy)}"]` : `.link[data-node="${CSS.escape(f.dataset.node)}"]`)
-  renderRun()
-  $('run').scrollTop = y
-  if (key) $('run').querySelector(key)?.focus()
-}, 1000)
+setInterval(() => { if (ui.run?.status === 'running') renderRun() }, 1000)
 
 ;(async () => {
   const h = readHash()

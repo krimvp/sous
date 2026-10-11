@@ -119,9 +119,15 @@ test('sous ui caps the long texts of a node it sends', async (t) => {
   const { ws, server, get } = await ui()
   t.after(() => server.close())
   const log = join(ws, '.sous', 'runs', RUN, 'events.jsonl')
-  appendFileSync(log, JSON.stringify({ seq: 30, at: '2026-10-11T11:00:23.000Z', type: 'check.ended', node: 'impl', command: 'node test.js', exitCode: 1, output: 'x'.repeat(50_000) }) + '\n')
+  appendFileSync(log, [
+    { seq: 30, at: '2026-10-11T11:00:23.000Z', type: 'check.ended', node: 'impl', command: 'node test.js', exitCode: 1, output: 'x'.repeat(50_000) },
+    { seq: 31, at: '2026-10-11T11:00:24.000Z', type: 'lead.call', node: 'lead', callId: 'call_9', ok: true, result: 'Noted.', call: { tool: 'note', text: 'y'.repeat(30_000) } },
+  ].map((e) => JSON.stringify(e) + '\n').join(''))
   const impl = await (await get('/api/node', { run: RUN, node: 'impl' })).json()
-  assert.equal(impl.events.at(-1).output.length, 20_000)
+  assert.equal(impl.events.at(-1).output, `${'x'.repeat(20_000)}\n… 30000 more characters`)
+  const lead = await (await get('/api/node', { run: RUN, node: 'lead' })).json()
+  assert.equal(lead.notes.at(-1), `${'y'.repeat(20_000)}\n… 10000 more characters`)
+  assert.equal(lead.events.at(-1).call.text, lead.notes.at(-1))
 })
 
 test('sous ui prints an address that serves the page', async (t) => {

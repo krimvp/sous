@@ -15,7 +15,7 @@ import type { Event, TraceItem, Usage } from './types.ts'
 
 const PAGE = new URL('./ui.html', import.meta.url)
 
-/** How often the stream looks for log changes, and the longest text of one trace item the page gets. */
+/** How often the stream looks for log changes, and the longest string the page gets. */
 const POLL_MS = 500
 const MAX_TEXT = 20_000
 
@@ -45,9 +45,9 @@ export async function startUi(workspace: string, parseTurn: ParseTurn, port = 0)
     const id = url.searchParams.get('run') ?? ''
     switch (url.pathname) {
       case '/': return send(res, 200, 'text/html; charset=utf-8', readFileSync(PAGE))
-      case '/api/runs': return json(res, { workspace, runs: listRuns(workspace).ids.reverse().map((r) => runSummary(runDir(r))) })
-      case '/api/run': return json(res, runDetail(runDir(id)))
-      case '/api/node': return json(res, nodeDetail(runDir(id), url.searchParams.get('node') ?? '', parseTurn))
+      case '/api/runs': return json(res, capped({ workspace, runs: listRuns(workspace).ids.reverse().map((r) => runSummary(runDir(r))) }))
+      case '/api/run': return json(res, capped(runDetail(runDir(id))))
+      case '/api/node': return json(res, capped(nodeDetail(runDir(id), url.searchParams.get('node') ?? '', parseTurn)))
       case '/api/stream': return stream(req, res)
     }
     throw new Error(`no such page ${url.pathname}`)
@@ -62,10 +62,14 @@ export async function startUi(workspace: string, parseTurn: ParseTurn, port = 0)
     streams.add(res)
     let last = ''
     const tick = () => {
-      const sig = JSON.stringify(Object.fromEntries(listRuns(workspace).ids.map((r) => {
+      const sig = JSON.stringify(Object.fromEntries(listRuns(workspace).ids.flatMap((r) => {
         const dir = join(workspace, '.sous', 'runs', r)
-        // A lock left by a killed supervisor does not count: the run shows as stopped.
-        return [r, [statSync(join(dir, 'events.jsonl')).size, lockHolder(dir) !== undefined]]
+        try {
+          // A lock left by a killed supervisor does not count: the run shows as stopped.
+          return [[r, [statSync(join(dir, 'events.jsonl')).size, lockHolder(dir) !== undefined]]]
+        } catch {
+          return [] // removed while being listed
+        }
       })))
       if (sig !== last) res.write(`data: ${sig}\n\n`)
       last = sig
@@ -243,30 +247,16 @@ function runDetail(runDir: string) {
   }
 }
 
-/** The texts an event carries that can be long: check output, deliveries, answers, messages and results. */
-function clipEvent(e: Event): Event {
-  const cut = (text: string) => clip(text).text
-  switch (e.type) {
-    case 'check.ended': return { ...e, output: cut(e.output) }
-    case 'lead.delivered': case 'lead.turn': return { ...e, text: cut(e.text) }
-    case 'message': return { ...e, body: cut(e.body) }
-    case 'turn.ended': return e.result ? { ...e, result: { ...e.result, summary: cut(e.result.summary) } } : e
-    default: return e
-  }
+/** Every string longer than MAX_TEXT, anywhere in `value`, cut there and marked with how much was left out. */
+function capped<T>(value: T): T {
+  if (typeof value === 'string') return (value.length > MAX_TEXT ? `${value.slice(0, MAX_TEXT)}\n… ${value.length - MAX_TEXT} more characters` : value) as T
+  if (Array.isArray(value)) return value.map(capped) as T
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, capped(v)])) as T
+  return value
 }
 
-const clip = (text: string) => (text.length > MAX_TEXT ? { text: text.slice(0, MAX_TEXT), clipped: text.length - MAX_TEXT } : { text })
-
-function clipItem(item: TraceItem) {
-  if (item.kind === 'message') return { ...item, ...clip(item.text), ...(item.reasoning === undefined ? {} : { reasoning: clip(item.reasoning).text }) }
-  if (item.kind === 'tool_result') {
-    const { text, clipped } = clip(item.content)
-    return { ...item, content: text, clipped }
-  }
-  const args = typeof item.arguments === 'string' ? item.arguments : JSON.stringify(item.arguments, null, 2)
-  const { text, clipped } = clip(args ?? '')
-  return { ...item, arguments: text, clipped }
-}
+/** A tool call's arguments as the text the page shows. */
+const argsText = (item: TraceItem) => item.kind === 'tool_call' && typeof item.arguments !== 'string' ? { ...item, arguments: JSON.stringify(item.arguments, null, 2) ?? '' } : item
 
 /** Everything about one node: its brief, its own events (a lead's decisions), and each worker turn with its parsed
  * trace. Only this node's turn files are read. */
@@ -281,13 +271,13 @@ function nodeDetail(runDir: string, id: string, parseTurn: ParseTurn) {
     status: state?.status ?? 'pending',
     outcome: node.outcome,
     notes: state?.notes ?? [],
-    events: node.events.map(clipEvent),
+    events: node.events,
     turns: [...node.turns.values()].map((t) => ({
       turn: t.turn,
       mode: t.mode,
       agent: t.agent,
       model: t.model,
-      prompt: clip(t.prompt),
+      prompt: t.prompt,
       sessionId: t.sessionId,
       startedAt: t.startedAt,
       endedAt: t.endedAt,
@@ -295,7 +285,7 @@ function nodeDetail(runDir: string, id: string, parseTurn: ParseTurn) {
       result: t.ended?.result ?? t.parsed.result,
       error: t.ended?.error,
       usage: t.usage,
-      items: t.parsed.items.map(clipItem),
+      items: t.parsed.items.map(argsText),
     })),
   }
 }

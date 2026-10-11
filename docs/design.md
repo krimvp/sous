@@ -555,8 +555,8 @@ and `cancel`.
 - **Same model as status and export.** A run's tree and node statuses come from `fold`, the one behind `sous status`;
   its timing, usage and per-node events from `viewRun`, the one behind `sous export`.
 - **Lazy.** The run list and a run's tree come from the log alone (`loadRun` told to parse no turn file); a node's turn
-  files are read and parsed with its adapter only when the node is opened, and each text the page gets is capped at
-  20,000 characters.
+  files are read and parsed with its adapter only when the node is opened, and every string the page gets is cut at
+  20,000 characters, marked with how many more there were.
 - **Live.** One server-sent event stream per page sends every run's log size and lock whenever one changes (polled
   every 500 ms); the page refetches the run, or the node, that changed. A finished run is a log that stopped growing,
   so live and finished runs share every view.
