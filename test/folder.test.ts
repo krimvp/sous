@@ -24,6 +24,7 @@ const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[], needs?: string[]) =>
   ({ id, kind: 'work' as const, brief: `Do ${id}.\n${fakePlan(steps)}`, ...(needs ? { needs } : {}) })
 /** A PATH with a claude stand-in and the tools checks use, but no git: nothing in folder mode may run git. */
+const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const NO_GIT = fakeBin(['claude'], ['sh', 'grep', 'mkdir', 'sleep'])
 const plainDir = (prefix: string) => mkdtempSync(join(tmpdir(), prefix))
 /** Every file under `dir`, relative, sorted. */
@@ -31,22 +32,26 @@ const tree = (dir: string): string[] => (readdirSync(dir, { recursive: true, wit
   .filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name).slice(dir.length + 1)).sort()
 const results = (fake: { op: string; result?: string }[]) => fake.flatMap((r) => (r.op === 'act' ? [r.result!] : []))
 
-test('folder mode without git: a lead looks first, workers and checks see workspace/ and results/ as the lead does, files are collected with a rename on a clash', async () => {
+test('folder mode without git: a splitter and the lead look first, workers and checks see workspace/ and results/ as they do, a worker tells its lead, files are collected with a rename on a clash', async () => {
   const workspace = plainDir('sous-folder-')
   const sessions = plainDir('sous-sessions-')
   writeFileSync(join(workspace, 'input.txt'), 'three facts\n')
   const children = [
-    work('a', [{ write: { 'summary.md': 'A\n', 'same.txt': 'same\n' }, sh: 'mkdir notes && echo n > notes/a.md && grep three workspace/input.txt > facts.txt', result: done('summarised') }]),
+    work('a', [{ write: { 'summary.md': 'A\n', 'same.txt': 'same\n' }, sh: `mkdir notes && echo n > notes/a.md && grep three workspace/input.txt > facts.txt && '${process.execPath}' '${CLI}' send lead 'summary.md is written'`, result: done('summarised') }]),
     work('b', [{ write: { 'summary.md': 'B\n', 'same.txt': 'same\n' }, sh: 'grep -x A results/summary.md > seen.txt', result: done('summarised again') }], ['a']),
     { id: 'c', kind: 'check' as const, command: 'grep -qx A results/summary.md && grep -qx B results/summary.b.md && grep -qx A results/seen.txt && grep -q three workspace/input.txt', needs: ['b'] },
   ]
   const lead: FakeLeadStep[] = [
     { calls: [{ tool: 'list_files' }, { tool: 'read_file', path: 'workspace/input.txt' }, { tool: 'spawn', children }] },
-    {}, {},
+    {}, {}, {},
     { calls: [{ tool: 'complete', summary: 'all summarised' }] },
   ]
+  // The splitter reads the inputs through its own workspace/ link and proposes the same children.
+  const splitter = fakePlan([{ sh: 'grep three workspace/input.txt > ../../splits/seen.txt', write: { '../../splits/lead.json': JSON.stringify({ parts: children }) }, result: done('two parts and a check') }])
   const graph = join(workspace, 'graph.json')
-  writeFileSync(graph, JSON.stringify({ goal: 'summarise', agent: 'claude', nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }] }))
+  writeFileSync(graph, JSON.stringify({
+    goal: 'summarise', agent: 'claude', agents: { splitter: { runs: 'claude', instructions: splitter } }, nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }],
+  }))
   const run = sous(['run', graph], workspace, sessions, NO_GIT)
   assert.equal(await run.exit, 0, run.output())
 
@@ -78,7 +83,15 @@ test('folder mode without git: a lead looks first, workers and checks see worksp
   const told = (requestId: string) => events.find((e): e is Event & { type: 'lead.delivered' } => e.type === 'lead.delivered' && e.requestId === requestId)!.text
   const outcomeB = told(`evt-${state.nodes.get('b')!.endSeq}`)
   assert.equal(outcomeB, 'Child b completed: summarised again\nFiles: same.txt, seen.txt, summary.b.md\nsummary.md was saved as summary.b.md: the results already had a different summary.md.')
-  assert.match(told('lead:brief'), /workspace\/ holds the inputs, results\/ the\nfiles your children produced so far\. These names mean the same for your tools, your work children and your checks/)
+  assert.equal(readFileSync(join(runDir, 'splits', 'seen.txt'), 'utf8'), 'three facts\n')
+  assert.deepEqual(events.flatMap((e) => (e.type === 'split.proposed' ? [e.summary] : [])), ['two parts and a check'])
+  const splitterNode = state.nodes.get('splitter')!
+  const splitterPrompt = JSON.parse(readFileSync(join(sessions, `${splitterNode.turns[0].sessionId}.json`), 'utf8')).prompts[0]
+  assert.match(splitterPrompt, new RegExp(`Your folder ${join(runDir, 'work', 'splitter')} has workspace/ and results/`))
+  assert.doesNotMatch(splitterPrompt, /worktree|commit/)
+  assert.match(told('lead:brief'), /The run's splitter proposed this split of your task: two parts and a check/)
+  assert.deepEqual(events.flatMap((e) => (e.type === 'message' && e.sent ? [[e.from, e.to, e.body]] : [])), [['a', 'lead', 'summary.md is written']])
+  assert.match(told('lead:brief'), /workspace\/ holds the inputs, results\/ the files your children produced so far\. These names mean the same\sfor your tools, work children and checks/)
 
   // The worker ran in its own folder and was told where its inputs and the results are.
   const a = state.nodes.get('a')!
@@ -208,7 +221,7 @@ test('git mode: a lead reads the workspace as committed plus merged work, and a 
   assert.deepEqual(r.slice(0, 2), ['README.md (5 bytes)', 'test\n'])
   assert.equal(r[3], '21\n', 'merged work is readable')
   const delivered = events.flatMap((e) => (e.type === 'lead.delivered' ? [e.text] : []))
-  assert.match(delivered[0], /work children are agents \(for code, research, writing or analysis\), each in its own git\nworktree/)
+  assert.match(delivered[0], /work children are agents \(for code, research, writing or analysis\), each in its own git worktree/)
   assert.match(delivered[0], /paths are relative to the workspace, which includes the work merged so far/)
   assert.equal(delivered[1], `Child w completed: wrote\nFiles: ${Object.keys(files).slice(0, 20).join(', ')} and 2 more`)
 })

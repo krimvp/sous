@@ -164,8 +164,9 @@ supervisor's event log stays the source of truth for the tree; pi-durable holds 
 
 Agents address nodes, not processes, and the supervisor is the only router.
 
-- **Workers have no send tool.** Their only outgoing message is the turn result. Incoming messages arrive
-  through `resume`.
+- **Workers send sideways and up, never down or across.** A worker's turn result is its answer to its lead; while it
+  works it may also `send` to a sibling or to its own lead (see Worker messages). Incoming messages arrive through
+  `resume`.
 - **Leads may message their children and their parent.** Anything crossing branches goes up to the nearest
   shared ancestor and back down.
 - **Delivery:** append a `message` event, add it to the recipient's inbox, then wake the recipient: start a
@@ -176,6 +177,56 @@ Comitia is not used: the supervisor is the only writer and already wakes everyon
 things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
 later, when an agent the supervisor did not launch needs to take part.
 
+### Worker messages
+
+A worker that learns something a sibling or its lead must know while it works (an interface it settled, a file it
+moved, a change of plan) tells them with `send`, without stopping, and reads what others tell it with `receive`.
+
+- **Two ways in, one way through.** Claude and Codex workers have `send` and `receive` tools from sous's MCP server
+  (`src/mcp.ts`, stdio JSON-RPC on Node built-ins), which their harness starts for the turn; every worker can also run
+  `sous send <to> 'text'`, whose full command its brief gives (Pi workers use only this). Both check the message and
+  write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
+  a `message` with `sent: true`. It stays the only writer.
+- **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`
+  (`TurnSpec.env`), which both ways read. This is attribution, not authentication: workers run as the person.
+- **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
+  parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
+  lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
+  only a lead stops a worker.
+- **Receiving mid-turn.** `receive` (the tool, or `sous receive [seconds]`) returns the messages waiting for the worker
+  (from its lead, its siblings or `supervisor`), waiting up to 60 seconds for one if asked, so a worker can wait within
+  its turn for what a sibling must tell it. It writes a command `{type: "receive", node, turn, upTo}`, applied as
+  `inbox.read`. Messages read in a turn count as read once that turn ends with a result, and are not delivered
+  again; a turn cut short (interrupted, stopped, or ended without a result) gets them again when it resumes, since the
+  model may never have seen them. Only the node's current turn reads (`SOUS_TURN`): a receive from a process left over
+  from an earlier turn takes nothing, and an urgent message already read does not interrupt the turn. A second
+  `receive` before the supervisor applies the first skips them too (it reads pending commands). When a turn ends, the
+  supervisor applies the worker's pending commands before looking at its inbox, so a worker that read its messages
+  and finished is not resumed with them.
+- **Delivery** of what a worker does not `receive` follows the usual rules: the recipient reads it when its current
+  turn ends, and a worker's `done`
+  counts only with an empty inbox, so a sibling cannot finish without having read it; a waiting worker resumes with
+  it; a pending one gets it in its brief. The sender's lead gets every message: what it is told ("Child a tells you
+  while it works (no answer needed)") and a copy of what its children tell each other. A message refused when the
+  supervisor applies it (the run moved on) comes back to its sender from `supervisor`, unless the sender is already
+  waiting to merge (telling it would take it out of the merge queue). A sibling lead gets a worker's message too, as
+  something it cannot answer (its `send` reaches only its own children and parent).
+- **Only through sous.** Workers load no MCP server but sous's, and as little of the person's own setup as each
+  harness allows, while the project's instructions still apply; their brief tells them to talk to the run's
+  other agents only with `send` and `receive`. Per harness (checked with `claude -p` init events and answers, and
+  `codex debug prompt-input`):
+
+  | Harness | MCP | The person's own setup |
+  |---|---|---|
+  | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges), sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended (none in a folder-mode node's folder) |
+
+  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
+  a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
+  shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
+  determined one from reaching another service; that needs sandboxed workers.
+
 ## Leads
 
 The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
@@ -184,7 +235,8 @@ events in `src/types.ts`.
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
-Agents). A lead's first delivery is its brief, with request ID `<node>:brief`.
+Agents). A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
+waits for the lead's proposed split and carries it (see Splitting).
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
 before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
@@ -225,7 +277,8 @@ reminders without progress the lead fails.
 
 **The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
-`<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event.
+`<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event
+(`sous approve` also releases a lead whose proposed split waits for the person; see Splitting).
 The supervisor stays the only writer of the log.
 
 **Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
@@ -243,6 +296,69 @@ checks: …", and so do the lead's outcome for its parent, `run.completed` and `
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
+## Roles
+
+A **role** is a job an agent does for every lead of a subtree, rather than a node of its own. `ROLES` in
+`src/types.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
+
+- **Assigning.** A lead node in a graph file may set `roles: { "<role>": "<agent>" }`, naming any agent of the graph
+  or a built-in. A lead may set `roles` on a lead child it spawns, naming only agents the person defined (in the
+  graph or `--agents` file), so the strategies stay the person's. Either way the agent must run a CLI harness, is
+  not the integrator, and has a name of letters, digits, `_` and `-` (it names a node and a git branch).
+- **Resolving.** A lead's agent for a role is the nearest `roles` entry from the lead up through its ancestors, else
+  the run's agent named after the role (an agent named `splitter`), if it defines one. A sub-lead keeps its lead's
+  agent unless it sets its own, so a subtree can have a different strategy, harness or model.
+- **Running.** Each agent in a role is one standing node: `<role>` for the agent named after the role, else
+  `<role>.<agent>` (both reserved as node IDs). It keeps one session for the run, and different agents in a role work
+  in parallel, outside the limit of 4 work nodes at a time.
+- **Telling leads.** When the person defined agents, a lead's brief says which agent is its splitter and which
+  agents it may give a lead child, and a splitter may propose `roles` for the lead parts it proposes.
+
+## Splitting
+
+A lead both plans (splits its task into children) and coordinates (reacts to their outcomes). A run may give the
+planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex` or
+`pi`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
+part per module", "tests first") and its model may differ from the leads': a strong splitter with cheap leads.
+Without a splitter, leads split on their own, as before.
+
+- **When.** A lead that becomes ready (its `needs` complete), top-level or not, with a splitter gets `split.requested`
+  (naming the splitter agent) instead of its brief. A splitter takes its requests one at a time, in that order;
+  different splitters work in parallel.
+- **A splitter** is a standing node (see Roles): created on its first request, resumed in the same session for later
+  ones, never completing, not counted toward the run's completion. Each request is a `message` from `supervisor`
+  with what the lead will know: its task, acceptance criteria and notes, the agents and models its children may use,
+  its depth, the IDs already taken, and the file to write.
+- **It reads the code.** It works in its own worktree `worktrees/<its node>/` (branch `sous/<run>.<its node>`), reset to
+  the head of the integration branch before each request (`git reset --hard`, `git clean -fd`). It sees the work
+  merged so far, and nothing it writes reaches the run: it is told to change nothing, and the reset makes that safe
+  without per-agent tool limits. In folder mode it works in its own folder `work/<its node>/`, whose links `workspace`
+  and `results` show the inputs and the current results (see Folder mode); its folder is never collected, and nothing
+  runs git.
+- **The proposal** is `{"parts": [ChildSpec, …]}`, written to `<runDir>/splits/<lead>.json`, then a `done` result
+  whose summary describes the split. The supervisor checks it exactly as it checks the lead's `spawn` (kinds,
+  briefs, IDs, `needs`, agents, models, depth, children per lead); an invalid proposal goes back to the splitter
+  once, with the reason. A valid one is recorded as `split.proposed` (parts and summary). Otherwise `split.failed`
+  records why: no valid proposal after the retry, the splitter `blocked` or `needs_input`, its agent not available,
+  or (git mode) the workspace a git repository without a commit.
+- **Advisory.** The lead's brief ends with the proposal as JSON ("spawn these children as they are, adjust them,
+  or split differently") or with why there is none. The lead acts through its normal `spawn` calls, under every
+  usual limit; nothing is spawned for it. Proposals for sibling leads are each checked when made, so their IDs may
+  collide; the later `spawn` is refused and that lead adjusts.
+- **Approval.** With `sous run --approve-splits` (`run.created.approveSplits`; an error when the run defines no agent
+  that could split: no `splitter`, no `roles`, no worker agent a lead could give the role), a
+  proposed split goes to the person as a message from its lead, and the lead is `waiting` until the person
+  answers: `sous approve <lead>` sends "The person approved the proposed split.", `sous answer <lead> "…"` sends
+  changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
+  failed split needs no approval.
+- **Recovery** is the integrator's: a splitter turn a supervisor stop cut short resumes its session with a recovery
+  note that repeats the split's request (the cut turn may have stopped before the splitter read it); a turn that ended
+  before the stop is settled from its result and its file without running again. Cancelling a lead stops the
+  splitter turn working on its split.
+- **Traces.** `split.requested`, `split.proposed` (with its parts) and `split.failed` are system steps in the lead's
+  ATIF trajectory, before its brief, and a `split` span under the lead in Langfuse, so a run shows what was proposed
+  beside what the lead spawned. The splitter is its own trajectory under the root.
+
 ## Agents
 
 An **agent** is what does work; a harness is only how an agent runs. An agent has a name, a runtime (`claude`,
@@ -256,12 +372,12 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
   Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
-  children may name, those leads defined so far included, with each one's runtime when it differs from its name.
+  children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
   `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the runtime: `runs` must be a runtime
   the run lists models for (see Model limits), and `model` one of them, by default the first. The agent has exactly
   the instructions the lead gives; nothing is inherited. `name` is a valid id that no built-in, defined or
-  lead-defined agent has, and not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically
+  lead-defined agent has, and not `integrator` or `splitter`. The accepted `lead.call` spawn defines it in the fold, atomically
   with its child, and it exists for the rest of the run: any later spawn, by any lead, may name it. Kind rules are
   unchanged: a lead child needs `runs: 'lead'`, a work child another runtime, and the runtime must be available.
   Leads may still name any existing agent as it is. Status, ATIF and OTLP show the agent by its name.
@@ -279,7 +395,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   graph file is an error (put agents in the graph file).
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
-  between them, and never completes on its own. The integrator is the first one; later, agents outside the
+  between them, and never completes on its own. The integrator and the splitter are the first ones; later, agents outside the
   run (for example over Comitia) can take this role.
 
 ## Merging
@@ -292,7 +408,7 @@ In git mode every `work` node runs in its own git worktree, so work nodes run in
 workspace must be a git repository with at least one commit; when it is not, the run fails with that reason before the
 first work or check node starts.
 
-1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
+1. **Integration branch.** Before the first work or check node starts (or the first split), the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`
    (`integration.created`). `.sous/` is added to the repository's `.git/info/exclude`. The person's own
    checkout is never touched.
@@ -343,13 +459,15 @@ usual; queued merges continue in order.
 
 For non-code work and machines without git. Nothing runs git.
 
-1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node and each `check` node gets a
+1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node, each `check` node and each splitter gets a
    folder of its own, `.sous/runs/<run>/work/<node>/`, as its working directory, holding two links: `workspace` (to
    the workspace, the inputs) and `results` (to the output folder). So `workspace/` and `results/` mean the same to a
    lead's read tools, its workers and its checks; a check of a result reads, say, `results/report.md`. A worker's
    brief says both are read only and to write its own files at the top of its folder. Its acceptance check runs in
    its folder too. A link that cannot be created (a system without symbolic links) fails the node; there is no
-   fallback.
+   fallback. Worker messages work as in git mode: `send` and `receive` find the run through the turn's environment,
+   not its directory, and a node waiting to be collected takes no worker messages (a lead's or the person's message
+   withdraws it, see below).
 2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
    (not `.git`, `.sous`, `node_modules` or symbolic links, so not the two links) are copied into the output folder by relative path. A file
    that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
@@ -489,10 +607,11 @@ run or an older one.
     turn-<k>.err       raw stderr
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
-  worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node
+  worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
   output/              folder mode: the results, where collected files land
-  work/<node-id>/      folder mode: a work or check node's own folder, with links workspace and results
+  work/<node-id>/      folder mode: a work, check or splitter node's own folder, with links workspace and results
   .collect-<uuid>      folder mode: a file being collected, briefly, before it is renamed into output/
+  splits/<lead-id>.json the splitter's proposal for a lead
   trace.atif.json      written by sous export atif
 ```
 
@@ -512,7 +631,9 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 | **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
-| **v5** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
+| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
+| **v6** (done) | Worker messages: `send` to a sibling or the lead and `receive` within a turn, through sous's MCP server or `sous send`/`receive`; workers load no other MCP server and little of the person's own setup | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
+| **v7** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -553,7 +674,32 @@ Pi with the lead's instructions in its prompt, the work merged, the check passed
 accepted the ATIF file. A lead choosing a non-default listed model, and `--max-depth`, are covered by
 fake-runner tests only.
 
-v5 was verified on 2026-10-11 with a real run in a directory outside any git repository (lead on
+v5 was verified on 2026-10-11 with two real runs (leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi). In the
+first, a splitter on Claude (`haiku`) with the strategy "one work part per file, then one check" read a two-module
+repository and proposed two work parts and a check whose briefs followed the files' style (ESM, no semicolons); with
+`--approve-splits` the run waited until `sous approve lead`, the lead spawned the proposal as it was, both parts
+merged and the check passed. Harbor's validator accepted the exported ATIF file apart from its schema version (the
+installed Harbor knows ATIF up to v1.7). In the second, a splitter on Codex proposed two lead parts for the top-level
+lead; that lead spawned them, added a note and a check of its own, and each sub-lead then received its own split from
+the same splitter session (turns 2 and 3 resumed it) and completed. In the first run the splitter also ran `mkdir -p`
+one directory too high, leaving an empty `.sous/runs/splits/`, which `sous status` and `sous approve` then took for the
+latest run; only directories with an event log count as runs since, and the request says the proposal's directory
+exists. A splitter turn cut short by a supervisor stop, an invalid proposal and the fallbacks are covered by
+fake-harness tests only. Roles were verified in a third real run: a graph lead with `roles: {"splitter": "planner"}`
+(Codex) got two sub-lead parts from it, the splitter itself giving the web part `roles: {"splitter": "web-planner"}`
+(Claude, `haiku`); the lead spawned them so, the web sub-lead's split came from `web-planner` while the api sub-lead
+inherited `planner`, the two splitters ran at the same time, and the run completed with both helpers merged.
+
+v6 was verified on 2026-10-11 with a real run (lead on `ollama-cloud/deepseek-v4.1-flash`): `fmt` on Claude (`haiku`)
+told its sibling `app` on Codex the function it chose, then a correction (CommonJS to ESM), with the MCP `send` tool;
+Claude's init listed `sous` as its only MCP server. `app` reported to its lead twice with `sous send`; the lead got
+both and copies of `fmt`'s messages, the run completed and `node app.js` printed the expected name. Single turns
+showed Codex calling the MCP `send` tool and Pi (with `--no-mcp`) running the brief's `sous send` command. Two
+findings: `app` first read the person's global Comitia skill, since harnesses still load the person's own
+instructions and skills; and it read `events.jsonl` to learn its messages before its turn ended, since a worker
+receives messages only between turns.
+
+v7 was verified on 2026-10-11 with a real run in a directory outside any git repository (lead on
 `ollama-cloud/deepseek-v4.1-flash`, workers on Pi): the lead listed and read the two input files before it spawned two
 parallel summary children, a third child that needed them, and a check; each child's file was collected into the output
 folder and named in its outcome, the check passed there, the lead read the results before completing, and the exported
@@ -563,3 +709,12 @@ covered by fake-harness tests only.
 ## Open questions
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
+- Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.
+- Codex workers still read the person's global `~/.codex/AGENTS.md`, and Claude workers the `CLAUDE.md` files above
+  the worktree; leaving them out needs a Codex option or a separate `CODEX_HOME` that shares the login safely, and
+  worktrees outside the workspace.
+- Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
+  `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
+  smallest step is a bridge process that mirrors chosen events to Comitia and turns Comitia messages into command
+  files, keeping the supervisor the only writer. Next would be a runtime whose turns are Comitia requests with a
+  deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.

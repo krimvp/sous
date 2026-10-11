@@ -23,6 +23,8 @@ export interface NodeSpec {
   agent?: string
   /** Overrides the agent's model for this node. */
   model?: string
+  /** Leads: the agents that fill roles for this lead and its subtree (see Roles). */
+  roles?: Roles
   /** A standing node is an independent agent of the run (the integrator): it takes requests through its
    * inbox, goes idle between them, and never completes on its own. Internal; not allowed in graph files. */
   standing?: boolean
@@ -55,6 +57,20 @@ export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
 
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
+
+/** Roles: agents that serve every lead of a subtree instead of doing a node. A lead's agent for a role is the nearest
+ * `roles` entry from the lead up through its ancestors, else the run's agent named after the role, if it defines one.
+ * Each agent in a role runs as a standing node (see `roleNode`). `splitter`: proposes how each lead splits its task
+ * before the lead receives its brief. */
+export const ROLES = ['splitter'] as const
+export type Role = (typeof ROLES)[number]
+export type Roles = Partial<Record<Role, string>>
+
+export const SPLITTER: Role = 'splitter'
+
+/** The standing node of `agent` in `role`: the role's name for the agent named after it, else `<role>.<agent>`. IDs
+ * equal to a role, or starting with `<role>.`, are reserved. */
+export const roleNode = (role: Role, agent: string) => (agent === role ? role : `${role}.${agent}`)
 
 /** The runtimes leads may define agents on, and the models they may choose there (the first is the default): for a
  * new agent, or as a `ChildSpec.model` override of a named agent. A runtime without a list gets no agent defined and
@@ -139,6 +155,11 @@ export interface TurnSpec {
   model?: string
   /** Required for resume; for start, adapters that accept a preset session ID use it if given. */
   sessionId?: string
+  /** Set for a worker of the tree: `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`, its identity for `sous send` and
+   * `sous receive`. Adapters add it to
+   * the agent's environment and, where the harness takes MCP servers, give it sous's server (src/mcp.ts) with it.
+   * Every adapter loads no other MCP server, so what a worker says to others goes through sous. */
+  env?: Record<string, string>
 }
 
 export interface RunningTurn {
@@ -172,6 +193,8 @@ export interface ChildSpec {
   needs?: string[]
   /** Agent name, as for nodes, or a new agent defined for this child. */
   agent?: string | NewAgent
+  /** Lead children: agents for roles in its subtree, each one the run's definitions (graph or agents file) define. */
+  roles?: Roles
   /** Overrides the model of the agent the child names (a string `agent`), from the run's `models` for that agent's
    * runtime. Not allowed without a named agent; a new agent carries its own model. */
   model?: string
@@ -245,8 +268,9 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 export type EventBody =
   /** `maxDepth`: how deep leads may nest in this run (`sous run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
    * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`.
+   * `approveSplits`: the person approves each split the splitter proposes before its lead receives it.
    * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; mode?: RunMode }
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
@@ -258,7 +282,12 @@ export type EventBody =
   /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */
   | { type: 'node.completed'; node: string; summary: string; command?: string }
   | { type: 'node.failed'; node: string; reason: string }
-  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string }
+  /** `sent`: a worker's `send` to a sibling or its lead while it works, which expects no answer; its lead gets a copy
+   * of one to a sibling. */
+  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string; sent?: true }
+  /** Worker `node` read its messages up to seq `upTo` during its turn `turn` (`receive`). They count as read once that
+   * turn ends with a result; a turn cut short gets them again when it resumes. Ignored once a later turn started. */
+  | { type: 'inbox.read'; node: string; turn: number; upTo: number; command?: string }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
@@ -292,6 +321,12 @@ export type EventBody =
   | { type: 'merge.done'; node: string; commit?: string; by: 'supervisor' | 'integrator' | 'nothing'; files?: string[]; renamed?: Record<string, string> }
   /** The integrator could not merge it; the node fails and its parent is told. */
   | { type: 'merge.failed'; node: string; reason: string }
+  /** Lead `node` is ready and has a splitter, `agent`: it waits for a proposed split before its brief. */
+  | { type: 'split.requested'; node: string; agent: string }
+  /** The splitter's proposal for lead `node`, valid as a spawn when it was made; the lead's brief carries it. */
+  | { type: 'split.proposed'; node: string; parts: ChildSpec[]; summary: string }
+  /** No valid proposal for lead `node`; it splits its task on its own. */
+  | { type: 'split.failed'; node: string; reason: string }
   | { type: 'run.completed'; summary: string }
   | { type: 'run.failed'; reason: string }
 

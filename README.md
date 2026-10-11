@@ -19,17 +19,25 @@ merged into one result branch, with conflicts resolved by an integrator agent; o
 workers' files are collected into an output folder instead. Leads may look at files before they split, and may
 define new agents on the
 runtimes and models you allow. If the run stops or crashes, `sous resume` continues it without repeating
-finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and `gate`
-nodes also run. Read [docs/design.md](docs/design.md).
+finished turns. `gate` nodes wait for your approval. A splitter agent can propose how every lead splits its
+task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Read [docs/design.md](docs/design.md).
 
 ```bash
 node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"
 node src/cli.ts run --max-depth 4 "…"     # let leads nest 4 deep instead of 3
 node src/cli.ts answer lead "Use Grace."   # from another terminal: answer a question the run printed
 node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
-node src/cli.ts approve <gate>             # from another terminal: approve a gate the run printed
+node src/cli.ts approve <gate>             # from another terminal: approve a gate (or a proposed split) the run printed
 node src/cli.ts resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
+
+While they work, workers may tell a sibling or their lead what the others must know (an interface they settled, a file
+they moved) with a `send` tool (sous's own MCP server, for Claude and Codex) or `sous send <to> 'text'`, and read what
+they are told, or wait for it, with `receive` / `sous receive [seconds]`. Their lead sees every message. Workers load
+no other MCP server and as little of your own setup as each harness allows: no user skills, plugins or hooks, and for
+Claude none of your user settings (so your default model, `env`, permission rules and hooks do not apply to workers).
+The project's instructions still apply; Codex still reads your global `AGENTS.md`, and Claude the `CLAUDE.md` files
+above the worktree. So what workers tell each other stays in the run's log.
 
 `sous resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
 stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
@@ -82,6 +90,15 @@ children may name, but only on a runtime the run lists `models` for, with one of
 first): `"models": { "claude": ["haiku"], "pi": ["ollama-cloud/glm-5.2"] }` in a graph file. The same lists bound
 the `model` a lead sets on a child that names its agent. A goal run takes the same
 `agent`, `agents` and `models` from a file: `node src/cli.ts run --agents agents.json "…"`.
+
+A run may hand splitting to a **splitter**: define an agent named `splitter` on `claude`, `codex` or `pi`, with your
+splitting strategy as its `instructions`, e.g. `"splitter": { "runs": "claude", "model": "opus", "instructions":
+"One part per module, tests first." }`. Before each lead (sub-leads included) gets its brief, the splitter reads the
+code merged so far in a throwaway worktree (in folder mode, the inputs and results through its own folder's links) and proposes the lead's children; the lead receives the proposal and
+spawns it, adjusts it or ignores it. With `run --approve-splits`, each proposal waits for you: `sous approve <lead>`
+or `sous answer <lead> "<changes>"`. A subtree can have its own splitter: give a lead `"roles": { "splitter":
+"<agent>" }` in a graph file (a lead may do the same for a child lead, naming an agent you defined); its sub-leads
+inherit it.
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker

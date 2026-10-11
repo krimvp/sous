@@ -138,6 +138,8 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     if (e.type === 'turn.started') {
       const turn = node.turns.get(e.turn)
       if (turn) addTurn(add, turn)
+    } else if (e.type === 'inbox.read') {
+      add({ source: 'system', timestamp: e.at, message: `Messages read during the turn, up to event ${e.upTo}`, extra: { up_to: e.upTo } })
     } else if (e.type === 'turn.interrupted') {
       add({ source: 'system', timestamp: e.at, message: `Turn ${e.turn} interrupted (${e.signal}): ${e.reason}` })
     } else if (e.type === 'check.ended' && spec.kind === 'check') {
@@ -170,6 +172,12 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       add({ source: 'system', timestamp: e.at, message, extra: { commit: e.commit, by: e.by, files: e.files, renamed: e.renamed } })
     } else if (e.type === 'merge.failed') {
       add({ source: 'system', timestamp: e.at, message: `Merge failed: ${e.reason}` })
+    } else if (e.type === 'split.requested') {
+      add({ source: 'system', timestamp: e.at, message: `Split requested from splitter ${e.agent}` })
+    } else if (e.type === 'split.proposed') {
+      add({ source: 'system', timestamp: e.at, message: `Split proposed by the splitter: ${e.summary}`, extra: { parts: e.parts } })
+    } else if (e.type === 'split.failed') {
+      add({ source: 'system', timestamp: e.at, message: `No split proposed: ${e.reason}` })
     } else if (e.type === 'node.failed') {
       add({ source: 'system', timestamp: e.at, message: `Node failed: ${e.reason}` })
     } else if (e.type === 'node.cancelled') {

@@ -4,13 +4,18 @@
 import { randomUUID } from 'node:crypto'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, spawnTurn, textOf, toTurnResult } from './common.ts'
+import { jsonLines, sousServer, spawnTurn, textOf, toTurnResult } from './common.ts'
 
 function run(spec: TurnSpec, session: string[], sessionId: string) {
+  const server = sousServer(spec)
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose',
     ...session,
     '--json-schema', JSON.stringify(TURN_RESULT_SCHEMA),
+    // No MCP server but sous's, and none of the person's own settings, CLAUDE.md, skills or plugins: what a worker tells
+    // others goes through sous. The project's settings and CLAUDE.md still apply.
+    '--strict-mcp-config', '--setting-sources', 'project',
+    ...(server ? ['--mcp-config', JSON.stringify({ mcpServers: { sous: { type: 'stdio', ...server } } })] : []),
     // Workers run with full permissions in their working directory (an open design question).
     '--permission-mode', 'bypassPermissions',
     ...(spec.model ? ['--model', spec.model] : []),

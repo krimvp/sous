@@ -4,6 +4,7 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
 import { RUNTIMES } from '../agents.ts'
+import { ROLES } from '../types.ts'
 import type { LeadCall, LeadHost, LeadRead } from '../types.ts'
 
 const strict = { additionalProperties: false }
@@ -27,6 +28,9 @@ const Child = Type.Object({
     NewAgent,
   ], { description: 'An agent name, or a new agent defined for this child' })),
   model: Type.Optional(Type.String({ description: "Overrides the model of the agent the child names; only a model your brief lists for that agent's runtime" })),
+  roles: Type.Optional(Type.Object(Object.fromEntries(ROLES.map((role) => [role, Type.Optional(Type.String({ description: `The ${role} of the child's subtree: an agent your brief lists for roles` }))])), {
+    ...strict, description: 'Lead children: agents for roles in the child\'s subtree; without it the child keeps yours',
+  })),
 }, strict)
 
 const schemas = {

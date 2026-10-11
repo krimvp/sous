@@ -2,6 +2,8 @@
 // JSON object in a ```json fence at the end of the final message, and parse reads the last such fence.
 
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
 import { jsonLines, spawnTurn, textOf, toTurnResult } from './common.ts'
 
@@ -12,8 +14,15 @@ const RESULT_INSTRUCTION = [
 ].join('\n')
 
 function run(spec: TurnSpec, sessionId: string) {
-  // Pi creates the session when the ID is new and continues it otherwise. Default tools.
-  const args = ['-p', '--mode', 'json', '--session-id', sessionId, ...(spec.model ? ['--model', spec.model] : [])]
+  // Pi creates the session when the ID is new and continues it otherwise. Default tools, no MCP: a worker tells others
+  // through `sous send`. None of the person's skills, prompt templates or context files: only the project's own
+  // AGENTS.md and CLAUDE.md, at the top of the worktree.
+  const project = ['AGENTS.md', 'CLAUDE.md'].map((f) => join(spec.cwd, f)).filter((f) => existsSync(f))
+  const args = [
+    '-p', '--mode', 'json', '--session-id', sessionId, '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-context-files',
+    ...project.flatMap((f) => ['--append-system-prompt', f]),
+    ...(spec.model ? ['--model', spec.model] : []),
+  ]
   const prompt = `${spec.prompt}\n\n${RESULT_INSTRUCTION}`
   return { ...spawnTurn('pi', args, { ...spec, prompt }), sessionId: Promise.resolve(sessionId) }
 }

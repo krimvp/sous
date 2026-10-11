@@ -175,6 +175,13 @@ export function toOtlp(run: LoadedRun): object {
         const problem = e.type === 'merge.conflict' || e.type === 'merge.failed' ? e.reason : undefined
         span(`merge/${spec.id}/${seq}`, nodeSpan, type, 'span', at, at,
           Object.fromEntries(Object.entries(details).map(([key, value]) => [`sous.merge.${key}`, value])), problem, type === 'merge.failed' ? 'ERROR' : 'WARNING')
+      } else if (e.type === 'split.proposed' || e.type === 'split.failed') {
+        const requested = node.events.findLast((r) => r.type === 'split.requested' && r.seq < e.seq)
+        span(`split/${spec.id}/${e.seq}`, nodeSpan, 'split', 'span', requested?.at ?? e.at, e.at, {
+          'langfuse.observation.output': e.type === 'split.proposed' ? e.parts : undefined,
+          'sous.split.summary': e.type === 'split.proposed' ? e.summary : undefined,
+          'sous.split.agent': requested?.type === 'split.requested' ? requested.agent : undefined,
+        }, e.type === 'split.failed' ? e.reason : undefined, 'WARNING')
       } else if (e.type === 'lead.delivered') {
         span(`chain/${spec.id}/${e.requestId}`, nodeSpan, `delivery ${e.requestId}`, 'chain', e.at, e.at, {
           'langfuse.observation.input': e.text,
