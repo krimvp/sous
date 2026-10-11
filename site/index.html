@@ -7,9 +7,9 @@
 <title>Murmuration</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
 <style>
-/* Layout: a single screen; the flock fills the background, one column of text sits on it. */
+/* Layout: the flock fills the background; one column: name and command first, then install, how it works, what you can do. */
 :root {
   --sky: #eef1f3; --paper: #ffffff; --ink: #141b21; --muted: #56626d; --rule: #d3dae0;
   --sheen: #2b7a6a; --bird: rgba(20, 27, 33, 0.72);
@@ -22,16 +22,24 @@
 }
 :root[data-theme="dark"] { --sky: #0d1216; --paper: #141b21; --ink: #e6ebef; --muted: #9aa6b0; --rule: #26313a; --sheen: #5fbfa9; --bird: rgba(214, 224, 232, 0.6); color-scheme: dark; }
 * { box-sizing: border-box; }
-html, body { height: 100%; }
 body { background: var(--sky); color: var(--ink); font: 17px/1.6 var(--font-body); }
 #flock { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-main { position: relative; min-height: 100%; max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: clamp(48px, 12vh, 120px) 48px; display: grid; gap: 26px; align-content: center; }
+main { position: relative; max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: clamp(48px, 12vh, 120px) 64px; display: grid; gap: 56px; }
+header, section { display: grid; gap: 18px; }
 h1 { font: 800 clamp(3rem, 12vw, 7rem)/1 var(--font-display); letter-spacing: -0.035em; margin: 0; }
+h2 { font: 600 1.35rem/1.2 var(--font-display); margin: 0; }
 .tag { font: 400 clamp(1.25rem, 3vw, 1.65rem)/1.35 var(--font-display); max-width: 28ch; margin: 0; }
-pre { margin: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 0.95rem/1.5 var(--font-mono); }
+p { margin: 0; }
+.muted { color: var(--muted); }
+pre { margin: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); }
 pre .p { color: var(--sheen); user-select: none; }
-ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--muted); max-width: 60ch; }
-ul li::before { content: "—"; color: var(--sheen); margin-right: 10px; }
+pre .c { color: var(--muted); }
+code { font: 0.9em var(--font-mono); background: color-mix(in srgb, var(--rule) 55%, transparent); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; max-width: 64ch; }
+ul.dash li::before { content: "—"; color: var(--sheen); margin-right: 10px; }
+.ops { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 8px 18px; align-items: baseline; }
+.ops code { justify-self: start; }
+@media (max-width: 560px) { .ops { grid-template-columns: 1fr; gap: 2px; } .ops span { margin-bottom: 8px; } }
 a { color: var(--sheen); }
 a:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
 .link { font-weight: 500; }
@@ -41,15 +49,45 @@ a:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
 
 <canvas id="flock" aria-hidden="true"></canvas>
 <main>
-  <h1>Murmuration</h1>
-  <p class="tag">Give it a goal. A tree of agents builds it, merges it and checks it.</p>
-  <pre><span class="p">$ </span>murm run "Add a --precision option to the CLI, with tests"</pre>
-  <ul>
-    <li>Lead agents split the goal into work.</li>
-    <li>Claude Code, Codex and Pi do it, each in its own git worktree.</li>
-    <li>Every branch is merged and checked; conflicts go to an agent.</li>
-    <li>It runs on your machine and resumes after a crash.</li>
-  </ul>
+  <header>
+    <h1>Murmuration</h1>
+    <p class="tag">Give it a goal. A tree of agents builds it, merges it and checks it.</p>
+    <pre><span class="p">$ </span>murm run "Add a --precision option to the CLI, with tests"</pre>
+  </header>
+
+  <section>
+    <h2>Install</h2>
+    <pre><span class="p">$ </span>npm install -g @krimvp/murmuration</pre>
+    <p class="muted">Needs Node 22.19 or later, git, and at least one agent CLI you are logged into: Claude Code, Codex or Pi. Lead agents use your Pi login (Ollama Cloud or ChatGPT). Run <code>murm</code> inside the git repository the agents should work in.</p>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <ul class="dash">
+      <li>A lead agent splits your goal into children: workers, checks, approval gates, or sub-leads that split further.</li>
+      <li>Workers run on Claude Code, Codex or Pi, each in its own git worktree.</li>
+      <li>Finished work is merged one branch at a time; checks you or a lead define run on the merged result. A merge conflict goes to an agent that resolves it.</li>
+      <li>Plain code runs all of it and records every step, so a stopped run resumes where it left off.</li>
+      <li>The result lands on branch <code>murm/&lt;run&gt;</code>. Your own branch is untouched until you merge it.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>What you can do</h2>
+    <div class="ops">
+      <code>murm run "goal"</code><span>let a lead decide the plan</span>
+      <code>murm run graph.json</code><span>fixed steps, gates and leads you define in a file</span>
+      <code>--agents agents.json</code><span>for goal runs: name your own agents (harness, model, instructions) and limit the models leads may pick; graph files carry the same definitions</span>
+      <code>--max-depth 4</code><span>let leads nest deeper than the default 3</span>
+      <code>murm status</code><span>see the live tree and any questions for you</span>
+      <code>murm answer &lt;node&gt; "…"</code><span>reply to a question, or steer a lead mid-run</span>
+      <code>murm approve &lt;gate&gt;</code><span>pass an approval gate</span>
+      <code>murm cancel &lt;node&gt;</code><span>stop a node and everything under it, or reject a gate</span>
+      <code>murm resume</code><span>continue after Ctrl-C or a crash</span>
+      <code>murm export atif</code><span>export the run as an ATIF trajectory (<code>export otlp</code> sends it to Langfuse)</span>
+    </div>
+  </section>
+
   <p><a class="link" href="https://github.com/krimvp/murmuration">github.com/krimvp/murmuration</a></p>
 </main>
 <script>
