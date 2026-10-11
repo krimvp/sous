@@ -4,7 +4,7 @@ Give it a task, or a set of tasks, and it runs them to completion on your machin
 Lead agents plan and split the work; workers (Claude Code, Codex, Pi or your own agent) do it; plain code
 keeps everything moving, delivers messages between levels, and recovers after a crash.
 
-- **Local only.** One supervisor process per run, state in `runs/<id>/` as plain files.
+- **Local only.** One supervisor process per run, state in `.murm/runs/<id>/` as plain files.
 - **No runtime dependencies.** Node 22.18 or later runs the TypeScript sources directly.
 - **Any worker.** Workers sit behind a small adapter interface and run in turns: a message waits in an
   inbox until the next turn, or interrupts the current one.

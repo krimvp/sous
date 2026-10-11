@@ -38,7 +38,7 @@ engine can be tested without a lead.
 
 | Term | Meaning |
 |---|---|
-| **Run** | One invocation of `murm run`: a goal, a tree of nodes, an event log in `runs/<run-id>/`. |
+| **Run** | One invocation of `murm run`: a goal, a tree of nodes, an event log in `<workspace>/.murm/runs/<run-id>/`. |
 | **Node** | One unit of work in the tree. Has a kind, a brief, acceptance criteria, a parent and a budget. |
 | **Turn** | One execution of a node: a worker process from start to exit, or one lead call. Numbered per node. |
 | **Inbox** | Messages addressed to a node that have not yet been delivered to a turn. |
@@ -79,15 +79,15 @@ parent completes only through its own acceptance check, never just because every
 ```
 murm CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) ──▶ worker processes
                │   ▲                                                        │
-               │   └──────────── turn output files (runs/<id>/nodes/<n>/) ◀──┘
+               │   └──────────── turn output files (.murm/runs/<id>/nodes/) ◀┘
                ├──▶ lead runner (LLM + orchestration tools; tool calls become events)
-               ├──▶ runs/<id>/events.jsonl  (the only state)
+               ├──▶ .murm/runs/<id>/events.jsonl  (the only state)
                └──▶ trace exporters (ATIF file, OTLP/HTTP to Langfuse)
 ```
 
 ### Supervisor
 
-One process per run, holding `runs/<id>/lock` (pid and start time). Its loop:
+One process per run, holding `.murm/runs/<id>/lock` (pid and start time). Its loop:
 
 1. Fold the event log into state.
 2. For each ready node with no running turn: start a turn (new brief, or resume with the inbox).
@@ -229,7 +229,7 @@ run or an older one.
 ## Storage layout
 
 ```
-runs/<run-id>/
+<workspace>/.murm/runs/<run-id>/
   run.json             goal, settings, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
