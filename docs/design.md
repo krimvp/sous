@@ -172,7 +172,8 @@ events in `src/types.ts`.
 
 **Starting.** `murm run <graph.json | "goal">`: an argument naming an existing file is a graph file (v0
 behaviour, top-level nodes may now also be `lead`); anything else is a goal, which becomes one top-level
-`lead` node with id `lead` and the goal as its brief. A lead's first delivery is its brief, with request ID
+`lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
+Agents). A lead's first delivery is its brief, with request ID
 `<node>:brief`.
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
@@ -197,6 +198,7 @@ settings:
 | `complete` / `fail` | refused while any child is pending or running, or a message for the lead waits to be delivered |
 | Lead `command` | none: a lead's own acceptance is its judgment against its acceptance criteria; deterministic gates are `check` children |
 | Child defaults | a work child: the default worker agent (see Agents); a child lead: its parent's agent and model |
+| Child agents and models | a known agent, or one derived for the child; a `model` override only from the run's `models` for the agent's runtime (see Agents) |
 | `needs` | earlier siblings only, as in graph files |
 
 **Workers under a lead.** A worker's `needs_input` or `blocked` result goes to its parent (a lead, or the
@@ -239,7 +241,26 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
   Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
-  children may name.
+  children may name, those derived so far included, with each one's runtime when it differs from its name.
+- **Derived agents.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
+  `{ from, name, model?, instructions? }` (`DerivedAgent`). `from` is a known agent (built-in, defined, or derived
+  earlier in the run); the new agent runs on `from`'s runtime, on `model` or `from`'s model, with `from`'s
+  instructions followed by the new ones. `name` is a valid id that no built-in, defined or derived agent has, and
+  not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically with its child, and it exists
+  for the rest of the run: any later spawn, by any lead, may name it. The usual rules hold: a lead child needs an
+  agent that runs `lead`, a work child one that does not, and the base's runtime must be available. Status, ATIF and
+  OTLP show the derived agent by its name.
+- **Model limits.** A graph file or agents file may set `models: { claude?, codex?, pi?, lead? }`, lists of
+  models by runtime (`provider/model` for `pi` and `lead`, checked at load). They limit only models a lead
+  chooses: a child's `model` override, and a derived agent's `model`. Such a model must be in the list for the
+  runtime of the agent it applies to (for a work child that names no agent, the default worker's); a runtime
+  without a list gets no lead-chosen model, and the spawn is refused naming the allowed models or saying none are
+  allowed. Agent definitions and node models the person writes are not limited. A lead's brief lists the models it
+  may choose.
+- **Agents for goal runs.** `murm run "goal" --agents <file>` reads a JSON file with optional `agent`, `agents`
+  and `models`, under the same rules as a graph file (unknown keys are rejected). `run.created.definitions` records
+  it, so resume and traces see it; a graph run's definitions stay in `run.created.graph`, and `--agents` with a
+  graph file is an error (put agents in the graph file).
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
   between them, and never completes on its own. The integrator is the first one; later, agents outside the

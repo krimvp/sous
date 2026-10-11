@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { agentFor, childAgents, integratorAgent } from './agents.ts'
+import { agentFor, agentSpec, childAgents, defaultWorker, derive, integratorAgent, modelError } from './agents.ts'
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
@@ -16,10 +16,10 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { ancestors, callKey, childrenOf, fold, isFinal } from './state.ts'
+import { ancestors, callKey, childNode, childrenOf, fold, isFinal } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON } from './types.ts'
-import type { CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
+import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
 
 export interface SupervisorOptions {
   workspace: string
@@ -100,7 +100,7 @@ async function stopGroup(pid: number, graceMs: number): Promise<void> {
 const notesFor = (state: RunState, id: string) => ancestors(state, id).flatMap((a) => a.notes)
 
 /** Why lead `node` may not make `call` now, if it may not. */
-function refusal(state: RunState, node: string, call: LeadCall): string | undefined {
+function refusal(state: RunState, node: string, call: LeadCall, unavailable: Unavailable): string | undefined {
   const lead = state.nodes.get(node)
   if (lead?.spec.kind !== 'lead') return `${node} is not a lead`
   if (isFinal(lead)) return `${node} is already ${lead.status}`
@@ -115,10 +115,15 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
         return `a lead may have at most ${MAX_CHILDREN} children over its lifetime; ${node} has ${children.length}`
       }
       const siblings = children.map((c) => c.spec.id)
+      // The run's agents with those derived by earlier children of this call, as the fold will have them.
+      const agents = { ...state.agents, agents: { ...state.agents.agents } }
       for (const c of call.children) {
-        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, state.graph)
+        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, agents)
           ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > state.maxDepth ? `leads may nest at most ${state.maxDepth} deep` : undefined)
         if (why) return `child ${String(c?.id)}: ${why}`
+        if (typeof c.agent === 'object') agents.agents[c.agent.name] = derive(agents, c.agent)
+        const model = chosenModelError(agents, c, lead.spec, unavailable)
+        if (model) return `child ${c.id}: ${model}`
         siblings.push(c.id)
       }
       return undefined
@@ -147,6 +152,15 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
     default:
       return `unknown tool ${String((call as { tool?: unknown })?.tool)}`
   }
+}
+
+/** Why the model a valid child `c` of `lead` chooses for its agent is not allowed, if it is not. A work child that
+ * names no agent is checked against the default worker. */
+function chosenModelError(agents: RunState['agents'], c: ChildSpec, lead: NodeSpec, unavailable: Unavailable): string | undefined {
+  if (c.model === undefined || (c.kind !== 'work' && c.kind !== 'lead')) return undefined
+  const name = childNode(c, lead).agent ?? (c.kind === 'lead' ? 'lead' : defaultWorker(agents, unavailable))
+  const runs = name === undefined ? undefined : agentSpec(agents, name)?.runs
+  return runs === undefined ? undefined : modelError(agents, runs, c.model)
 }
 
 function accepted(call: LeadCall, parent: string): string {
@@ -200,7 +214,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   /** The agent of a node, or why it has none: a work node keeps the agent of its earlier turns. */
   const agentOf = (state: RunState, node: NodeState): Agent | string => {
     try {
-      return agentFor(state.graph, { ...node.spec, agent: node.spec.agent ?? node.turns.findLast((t) => t.agent)?.agent }, unavailable)
+      return agentFor(state.agents, { ...node.spec, agent: node.spec.agent ?? node.turns.findLast((t) => t.agent)?.agent }, unavailable)
     } catch (err) {
       return (err as Error).message
     }
@@ -238,7 +252,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       const state = current()
       const recorded = state.calls.get(callKey(node, callId))
       if (recorded !== undefined) return recorded
-      const why = refusal(state, node, call)
+      const why = refusal(state, node, call, unavailable)
       const result = why ? `refused: ${why}` : accepted(call, state.nodes.get(node)!.spec.parent ?? PERSON)
       log.append({ type: 'lead.call', node, callId, call, ok: !why, result })
       wakeUp()
@@ -290,7 +304,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (typeof agent === 'string') return abandon(state, id, agent)
     if (lead.status === 'ready') {
       const depth = { at: ancestors(state, id).length + 1, max: state.maxDepth }
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.graph, unavailable), depth, agent.instructions)
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depth, agent.instructions)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
@@ -603,7 +617,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const { path, branch } = integrationTree()
     const { branch: nodeBranch, conflict } = nodeNow(id).merge!
     if (!current().nodes.has(INTEGRATOR)) {
-      const agent = integratorAgent(current().graph, unavailable)
+      const agent = integratorAgent(current().agents, unavailable)
       if (!agent) return mergeFailed(id, 'no agent is available for the integrator', onto)
       log.append({ type: 'node.added', node: { id: INTEGRATOR, kind: 'work', standing: true, agent, brief: INTEGRATOR_BRIEF }, by: SUPERVISOR })
     }

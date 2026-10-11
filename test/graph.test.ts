@@ -23,6 +23,16 @@ test('nodes and the graph name built-in or defined agents; an unknown or unfit a
   rejects({ goal: 'g', nodes: [work('integrator')] }, /node integrator: id integrator is reserved/)
 })
 
+test('models lists are checked at load: strings, and provider/model names for pi and lead', () => {
+  const models = { claude: ['haiku'], codex: ['gpt-5.5'], pi: ['ollama-cloud/glm-5.2'], lead: ['ollama-cloud/deepseek-v4.1-flash'] }
+  assert.deepEqual(validateGraph({ goal: 'g', models, nodes: [work('a')] }).models, models)
+  const rejects = (models: object, error: RegExp) => assert.throws(() => validateGraph({ goal: 'g', models, nodes: [work('a')] }), error)
+  rejects({ pi: ['glm-5.2'] }, /graph: models\.pi must be an array of provider\/model names/)
+  rejects({ lead: 'ollama-cloud/x' }, /graph: models\.lead must be an array of provider\/model names/)
+  rejects({ claude: [3] }, /graph: models\.claude must be an array of model names/)
+  rejects({ gpt: ['x'] }, /graph: models: unknown field gpt/)
+})
+
 test('rejects a cycle in needs and names the nodes', () => {
   const graph = { goal: 'g', nodes: [work('a', ['c']), work('b', ['a']), work('c', ['b'])] }
   assert.throws(() => validateGraph(graph), /node a: needs form a cycle: a -> c -> b -> a/)

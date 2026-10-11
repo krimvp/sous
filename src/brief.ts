@@ -1,7 +1,7 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
 import type { childAgents } from './agents.ts'
 import type { InboxMessage, NodeState } from './state.ts'
-import type { NodeSpec } from './types.ts'
+import type { ModelLimits, NodeSpec } from './types.ts'
 
 const RESULT = [
   'When you finish, end your turn with the structured result:',
@@ -64,8 +64,20 @@ export function resultReminder(): string {
 
 // ---- Leads -------------------------------------------------------------------------------------
 
-/** A lead's first delivery, with its agent's standing instructions and the agents its children may name. */
+const RUNTIMES = ['claude', 'codex', 'pi', 'lead'] as const
+
+/** The models a lead may choose, by runtime. */
+function models(limits: ModelLimits): string {
+  const allowed = RUNTIMES.filter((r) => limits[r]?.length).map((r) => `for ${r} agents ${limits[r]!.join(', ')}`)
+  return allowed.length
+    ? `Models you may choose (a child's model, or a new agent's model): ${allowed.join('; ')}; for other agents none.`
+    : 'You may not choose models: leave model unset on children and new agents.'
+}
+
+/** A lead's first delivery, with its agent's standing instructions, the agents its children may name (with their
+ * runtime when it differs from their name) and the models it may choose. */
 export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string): string {
+  const names = (list: string[]) => list.map((n) => (agents.runs[n] === n ? n : `${n} (runs ${agents.runs[n]})`)).join(', ')
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
   parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
@@ -79,10 +91,15 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents:
     'facts every child should know with note; ask your parent with escalate. Finish with complete or fail once',
     'no child is still working. End each turn with a short answer: the next message wakes you.',
   ].join('\n'), [
-    `Agents a child may name: for work children ${agents.work.join(', ') || 'none'}` +
+    `Agents a child may name: for work children ${names(agents.work) || 'none'}` +
       (agents.defaultWork ? ` (default ${agents.defaultWork})` : ''),
-    `for lead children ${agents.lead.join(', ') || 'none'} (default: your own agent).`,
-  ].join('; '), depth.at < depth.max
+    `for lead children ${names(agents.lead) || 'none'} (default: your own agent).`,
+  ].join('; '), [
+    'A work or lead child may instead define a new agent with agent {from, name, instructions?, model?}: it runs like',
+    'agent from, with from\'s instructions followed by yours, on your model or from\'s. Once spawned, any later child',
+    'in the run may name it.',
+    models(agents.models),
+  ].join(' '), depth.at < depth.max
     ? `You are a lead at depth ${depth.at}; leads may nest ${depth.max} deep, so your lead children are at depth ${depth.at + 1}.`
     : `You are a lead at depth ${depth.at}, the deepest allowed: spawn no lead children.`)
   return parts.join('\n\n') + '\n'

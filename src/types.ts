@@ -56,13 +56,23 @@ export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
 
-/** A graph file for `murm run`. Top-level nodes are children of the implicit root. */
-export interface GraphFile {
-  goal: string
+/** Models leads may choose, by the runtime of the agent the model applies to: a `ChildSpec.model` override, or a
+ * derived agent's `model`. A runtime without a list gets no model chosen by a lead. Models the person sets (agent
+ * definitions, node models) are not limited. Lists for `pi` and `lead` hold `provider/model` names. */
+export type ModelLimits = Partial<Record<AgentRuntime, string[]>>
+
+/** The agent definitions of a run: from its graph file, or from `murm run --agents <file>` for a goal run. */
+export interface Definitions {
   /** Default agent for work nodes that do not name one. */
   agent?: string
-  /** Agents this graph defines, by name. A name may shadow a built-in. */
+  /** Agents defined by name. A name may shadow a built-in. */
   agents?: Record<string, AgentSpec>
+  models?: ModelLimits
+}
+
+/** A graph file for `murm run`. Top-level nodes are children of the implicit root. */
+export interface GraphFile extends Definitions {
+  goal: string
   nodes: NodeSpec[]
 }
 
@@ -159,9 +169,20 @@ export interface ChildSpec {
   acceptance?: string[]
   /** Earlier siblings (children of the same lead) that must complete first. */
   needs?: string[]
-  /** Agent name, as for nodes. */
-  agent?: string
+  /** Agent name, as for nodes, or a new agent derived for this child. */
+  agent?: string | DerivedAgent
+  /** Overrides the agent's model; must be allowed by the run's `models` for the agent's runtime. */
   model?: string
+}
+
+/** A new agent a lead defines when it spawns a child. It runs like `from` (a known agent) on `model` (allowed by the
+ * run's `models`) or `from`'s model, with `from`'s instructions followed by `instructions`. Once the spawn is
+ * accepted, `name` (new in the run) is an agent every later spawn in the run may name. */
+export interface DerivedAgent {
+  from: string
+  name: string
+  model?: string
+  instructions?: string
 }
 
 /** One orchestration tool call made by a lead. These are a lead's only tools. */
@@ -207,8 +228,9 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 // ---- Event log -------------------------------------------------------------------------------
 
 export type EventBody =
-  /** `maxDepth`: how deep leads may nest in this run (`murm run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; maxDepth?: number }
+  /** `maxDepth`: how deep leads may nest in this run (`murm run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
+   * `definitions`: a goal run's agents file (`murm run --agents`); a graph run's definitions are in its `graph`. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */

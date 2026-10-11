@@ -3,8 +3,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { agentSpec } from '../agents.ts'
-import { childNode } from '../state.ts'
-import type { Event, GraphFile, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
+import { childNode, fold } from '../state.ts'
+import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
 export type EventOf<T extends Event['type']> = Extract<Event, { type: T }>
@@ -46,7 +46,7 @@ function spawned(e: Event, specOf: (id: string) => NodeSpec | undefined): NodeSp
 }
 
 /** The harness a turn ran on: recorded on the turn, else the runtime of its agent. */
-function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, graph: GraphFile | undefined): HarnessName | undefined {
+function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, graph: Definitions): HarnessName | undefined {
   if (e.harness) return e.harness
   const name = e.agent ?? spec?.agent
   const runs = name === undefined ? undefined : agentSpec(graph, name)?.runs
@@ -55,7 +55,7 @@ function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, graph
 
 export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
   const events = readEvents(resolve(runDir, 'events.jsonl'))
-  const graph = events.find((e) => e.type === 'run.created')?.graph
+  const graph = fold(events).agents
   const specs = new Map<string, NodeSpec>()
   const turns: Record<string, ParsedTurn> = {}
   for (const e of events) {
@@ -114,7 +114,8 @@ export interface RunView {
   runId: string
   goal: string
   workspace?: string
-  graph?: GraphFile
+  /** The run's agent definitions, with the agents leads derived. */
+  agents: Definitions
   createdAt: string
   endedAt: string
   end?: EventOf<'run.completed'> | EventOf<'run.failed'>
@@ -144,7 +145,7 @@ export function viewRun(run: LoadedRun): RunView {
     runId: run.runId,
     goal: created?.goal ?? '',
     workspace: created?.workspace,
-    graph: created?.graph,
+    agents: fold(run.events).agents,
     createdAt: created?.at ?? run.events[0]?.at ?? lastAt,
     endedAt: lastAt,
     nodes: [],
@@ -208,7 +209,7 @@ export function viewRun(run: LoadedRun): RunView {
           turn: e.turn,
           mode: e.mode,
           agent: e.agent ?? node.spec.agent ?? e.harness,
-          model: parsed.model ?? node.spec.model ?? (e.agent ? agentSpec(view.graph, e.agent)?.model : undefined),
+          model: parsed.model ?? node.spec.model ?? (e.agent ? agentSpec(view.agents, e.agent)?.model : undefined),
           prompt: e.prompt ?? (parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`),
           sessionId: parsed.sessionId,
           startedAt: e.at,

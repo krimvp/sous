@@ -6,6 +6,12 @@ import type { Extension } from '@earendil-works/pi-durable'
 import type { LeadCall, LeadHost } from '../types.ts'
 
 const strict = { additionalProperties: false }
+const Derived = Type.Object({
+  from: Type.String({ description: 'The agent the new one is based on: it keeps its runtime, model and instructions' }),
+  name: Type.String({ description: 'A new agent name, unused in the run; later children may name it' }),
+  model: Type.Optional(Type.String({ description: 'A model your brief allows for the runtime of from; default: the model of from' })),
+  instructions: Type.Optional(Type.String({ description: 'Standing instructions added after those of from' })),
+}, strict)
 const Child = Type.Object({
   id: Type.String({ description: 'Unique id for the child in the whole run, e.g. "api-tests"' }),
   kind: StringEnum(['work', 'check', 'lead', 'gate'] as const, {
@@ -15,8 +21,11 @@ const Child = Type.Object({
   command: Type.Optional(Type.String({ description: 'Shell command; exit code 0 passes (check)' })),
   acceptance: Type.Optional(Type.Array(Type.String(), { description: 'Criteria the result must meet' })),
   needs: Type.Optional(Type.Array(Type.String(), { description: 'Ids of earlier siblings that must complete first' })),
-  agent: Type.Optional(Type.String({ description: 'Agent that does a work or lead child, from the agents your brief lists; default: the first available worker for work, your own agent for leads' })),
-  model: Type.Optional(Type.String({ description: "Overrides the agent's model: the harness's model name for work, provider/model for a lead" })),
+  agent: Type.Optional(Type.Union([
+    Type.String({ description: 'Agent that does a work or lead child, from the agents your brief lists; default: the first available worker for work, your own agent for leads' }),
+    Derived,
+  ], { description: 'An agent name, or a new agent defined for this child' })),
+  model: Type.Optional(Type.String({ description: "Overrides the agent's model; only a model your brief allows for the agent's runtime" })),
 }, strict)
 
 const schemas = {
