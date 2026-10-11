@@ -198,7 +198,7 @@ settings:
 | `complete` / `fail` | refused while any child is pending or running, or a message for the lead waits to be delivered |
 | Lead `command` | none: a lead's own acceptance is its judgment against its acceptance criteria; deterministic gates are `check` children |
 | Child defaults | a work child: the default worker agent (see Agents); a child lead: its parent's agent and model |
-| Child agents and models | a known agent, or one derived for the child; a `model` override only from the run's `models` for the agent's runtime (see Agents) |
+| Child agents and models | a known agent, or a new one on a runtime the run lists `models` for; a `model` override only with a named agent and from the run's `models` for its runtime (see Agents) |
 | `needs` | earlier siblings only, as in graph files |
 
 **Workers under a lead.** A worker's `needs_input` or `blocked` result goes to its parent (a lead, or the
@@ -241,22 +241,23 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
   Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
-  children may name, those derived so far included, with each one's runtime when it differs from its name.
-- **Derived agents.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
-  `{ from, name, model?, instructions? }` (`DerivedAgent`). `from` is a known agent (built-in, defined, or derived
-  earlier in the run); the new agent runs on `from`'s runtime, on `model` or `from`'s model, with `from`'s
-  instructions followed by the new ones. `name` is a valid id that no built-in, defined or derived agent has, and
-  not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically with its child, and it exists
-  for the rest of the run: any later spawn, by any lead, may name it. The usual rules hold: a lead child needs an
-  agent that runs `lead`, a work child one that does not, and the base's runtime must be available. Status, ATIF and
-  OTLP show the derived agent by its name.
+  children may name, those leads defined so far included, with each one's runtime when it differs from its name.
+- **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
+  `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the harness: `runs` must be a runtime
+  the run lists models for (see Model limits), and `model` one of them, by default the first. The agent has exactly
+  the instructions the lead gives; nothing is inherited. `name` is a valid id that no built-in, defined or
+  lead-defined agent has, and not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically
+  with its child, and it exists for the rest of the run: any later spawn, by any lead, may name it. Kind rules are
+  unchanged: a lead child needs `runs: 'lead'`, a work child another runtime, and the runtime must be available.
+  Leads may still name any existing agent as it is. Status, ATIF and OTLP show the agent by its name.
 - **Model limits.** A graph file or agents file may set `models: { claude?, codex?, pi?, lead? }`, lists of
-  models by runtime (`provider/model` for `pi` and `lead`, checked at load). They limit only models a lead
-  chooses: a child's `model` override, and a derived agent's `model`. Such a model must be in the list for the
-  runtime of the agent it applies to (for a work child that names no agent, the default worker's); a runtime
-  without a list gets no lead-chosen model, and the spawn is refused naming the allowed models or saying none are
-  allowed. Agent definitions and node models the person writes are not limited. A lead's brief lists the models it
-  may choose.
+  models by runtime (`provider/model` for `pi` and `lead`, checked at load). They bound what leads choose: the
+  runtimes they may define agents on and those agents' models, and a child's `model` override. An override needs
+  a child that names its agent (a string); it must be listed for that agent's runtime. A child with no agent, or
+  one that defines an agent (whose model is in its definition), may not set `model`, so a resumed run never moves
+  a chosen model to another runtime. Refusals name the allowed models, or say none are allowed. Agent definitions
+  and node models the person writes are not limited. A lead's brief lists the runtimes it may define agents on,
+  with their models.
 - **Agents for goal runs.** `murm run "goal" --agents <file>` reads a JSON file with optional `agent`, `agents`
   and `models`, under the same rules as a graph file (unknown keys are rejected). `run.created.definitions` records
   it, so resume and traces see it; a graph run's definitions stay in `run.created.graph`, and `--agents` with a

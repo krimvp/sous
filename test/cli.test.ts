@@ -185,7 +185,7 @@ test('murm run --agents gives a goal run its agents and models, recorded in run.
   const created = events[0]
   assert.deepEqual(created.type === 'run.created' && [created.definitions, created.graph], [definitions, undefined])
   const brief0 = events.find((e) => e.type === 'lead.delivered')!
-  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', /for work children claude, codex, pi, hr \(runs claude\)[\s\S]*for claude agents haiku/)
+  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', /for work children claude, codex, pi, hr \(runs claude\)[\s\S]*on these runtimes: claude \(models haiku\)/)
   const hire = fold(events).nodes.get('hire')!
   assert.equal(hire.turns[0].agent, 'hr')
   const prompt = JSON.parse(readFileSync(join(sessions, `${hire.turns[0].sessionId}.json`), 'utf8')).prompts[0]

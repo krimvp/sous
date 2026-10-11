@@ -56,9 +56,10 @@ export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
 
-/** Models leads may choose, by the runtime of the agent the model applies to: a `ChildSpec.model` override, or a
- * derived agent's `model`. A runtime without a list gets no model chosen by a lead. Models the person sets (agent
- * definitions, node models) are not limited. Lists for `pi` and `lead` hold `provider/model` names. */
+/** The runtimes leads may define agents on, and the models they may choose there (the first is the default): for a
+ * new agent, or as a `ChildSpec.model` override of a named agent. A runtime without a list gets no agent defined and
+ * no model chosen by a lead. Models the person sets (agent definitions, node models) are not limited. Lists for `pi`
+ * and `lead` hold `provider/model` names. */
 export type ModelLimits = Partial<Record<AgentRuntime, string[]>>
 
 /** The agent definitions of a run: from its graph file, or from `murm run --agents <file>` for a goal run. */
@@ -169,18 +170,19 @@ export interface ChildSpec {
   acceptance?: string[]
   /** Earlier siblings (children of the same lead) that must complete first. */
   needs?: string[]
-  /** Agent name, as for nodes, or a new agent derived for this child. */
-  agent?: string | DerivedAgent
-  /** Overrides the agent's model; must be allowed by the run's `models` for the agent's runtime. */
+  /** Agent name, as for nodes, or a new agent defined for this child. */
+  agent?: string | NewAgent
+  /** Overrides the model of the agent the child names (a string `agent`), from the run's `models` for that agent's
+   * runtime. Not allowed without a named agent; a new agent carries its own model. */
   model?: string
 }
 
-/** A new agent a lead defines when it spawns a child. It runs like `from` (a known agent) on `model` (allowed by the
- * run's `models`) or `from`'s model, with `from`'s instructions followed by `instructions`. Once the spawn is
- * accepted, `name` (new in the run) is an agent every later spawn in the run may name. */
-export interface DerivedAgent {
-  from: string
+/** A new agent a lead defines when it spawns a child: it runs on `runs`, a runtime with a list in the run's `models`,
+ * on `model` from that list (default: its first entry), with exactly `instructions`. Once the spawn is accepted,
+ * `name` (new in the run) is an agent every later spawn in the run may name. */
+export interface NewAgent {
   name: string
+  runs: AgentRuntime
   model?: string
   instructions?: string
 }

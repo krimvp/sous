@@ -114,7 +114,7 @@ export interface RunView {
   runId: string
   goal: string
   workspace?: string
-  /** The run's agent definitions, with the agents leads derived. */
+  /** The run's agent definitions, with the agents leads defined. */
   agents: Definitions
   createdAt: string
   endedAt: string

@@ -1,10 +1,10 @@
 // Agents: who does a node. Names resolve against the run's definitions (its graph's or agents file's, and those
-// leads derived), then the built-ins. Defaults come
+// leads defined), then the built-ins. Defaults come
 // from availability, which the CLI checks once when a run starts or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, WORKER_AGENT_PREFERENCE } from './types.ts'
-import type { AgentRuntime, AgentSpec, Definitions, DerivedAgent, HarnessName, NodeSpec } from './types.ts'
+import type { AgentRuntime, AgentSpec, Definitions, NewAgent, HarnessName, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
 export interface Agent {
@@ -40,13 +40,17 @@ export function agentNames(graph: Agents): string[] {
   return [...new Set([...Object.keys(BUILTIN_AGENTS), ...Object.keys(graph?.agents ?? {})])]
 }
 
-/** The agent `d` derives from its base: the base's runtime, the new model or the base's, and the base's instructions
- * followed by the new ones. The caller has checked that the base exists. */
-export function derive(graph: Agents, d: DerivedAgent): AgentSpec {
-  const base = agentSpec(graph, d.from)!
-  const model = d.model ?? base.model
-  const instructions = [base.instructions?.trim(), d.instructions?.trim()].filter(Boolean).join('\n\n')
-  return { runs: base.runs, ...(model === undefined ? {} : { model }), ...(instructions ? { instructions } : {}) }
+/** The agent a lead defines with `d`: on `d.runs`, with `d.model` or the first model the run lists for that runtime,
+ * and only `d`'s instructions. The caller has checked that the runtime has a list. */
+export function defineAgent(graph: Defaults, d: NewAgent): AgentSpec {
+  const model = d.model ?? graph!.models![d.runs]![0]
+  return { runs: d.runs, model, ...(d.instructions?.trim() ? { instructions: d.instructions } : {}) }
+}
+
+/** A copy of `agents` as a dictionary without a prototype, so that every valid id, `__proto__` included, is an
+ * ordinary key. */
+export function registry(agents?: Record<string, AgentSpec>): Record<string, AgentSpec> {
+  return Object.assign(Object.create(null), agents)
 }
 
 /** Why a lead may not choose `model` for an agent that runs `runs`, if it may not. */

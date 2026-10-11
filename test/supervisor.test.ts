@@ -230,45 +230,65 @@ test('a lead spawns a child by agent name: a defined agent does it, an unknown a
   assert.match(delivered(events)[0].text, /Agents a child may name: for work children claude, codex, pi, reviewer \(runs pi\) \(default claude\); for lead children lead/)
 })
 
-test('a lead derives hr from claude: its worker gets both instruction sets, a later spawn names it, a duplicate is refused', async () => {
+test('a lead defines hr on claude: its workers get its instructions and the default model, a later spawn names it', async () => {
   const task = (id: string) => `Do ${id}.\n${fakePlan([{ result: done(id) }])}`
   const { outcome, events, state, sessions, started, runDir } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'a', kind: 'work', brief: task('a'), agent: { from: 'claude', name: 'hr', instructions: 'Ask about people.' } }] },
-      { tool: 'spawn', children: [{ id: 'dup', kind: 'work', brief: 'x', agent: { from: 'pi', name: 'hr' } }] },
+      { tool: 'spawn', children: [{ id: 'a', kind: 'work', brief: task('a'), agent: { name: 'hr', runs: 'claude', instructions: 'Ask about people.' } }] },
+      { tool: 'spawn', children: [{ id: 'dup', kind: 'work', brief: 'x', agent: { name: 'hr', runs: 'claude' } }] },
+      { tool: 'spawn', children: [{ id: 'p', kind: 'work', brief: 'x', agent: { name: 'piper', runs: 'pi' } }] },
       { tool: 'spawn', children: [{ id: 'b', kind: 'work', brief: task('b'), agent: 'hr' }] },
     ] },
     {},
     { calls: [{ tool: 'complete', summary: 'done' }] },
-  ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { agents: { claude: { runs: 'claude', instructions: 'Base rules.' } } })
+  ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { claude: ['haiku', 'sonnet'] } })
   assert.equal(outcome, 'completed')
   assert.deepEqual(calls(events).map((c) => c.result), [
     'spawned a; their outcomes will be delivered to you',
-    'refused: child dup: agent hr already exists: name it, or derive one with a new name',
+    'refused: child dup: agent hr already exists: name it, or define one with a new name',
+    'refused: child p: leads may not define agents on pi: the run lists no pi models',
     'spawned b; their outcomes will be delivered to you',
     'completed',
   ])
-  assert.deepEqual(started, [['claude', undefined], ['claude', undefined]])
+  assert.deepEqual(started, [['claude', 'haiku'], ['claude', 'haiku']])
   for (const id of ['a', 'b']) {
     assert.equal(state.nodes.get(id)!.turns[0].agent, 'hr')
-    assert.match(promptOf(sessions, state.nodes.get(id)!), /Your standing instructions:\nBase rules\.\n\nAsk about people\.\n\nYour task/)
+    assert.match(promptOf(sessions, state.nodes.get(id)!), /Your standing instructions:\nAsk about people\.\n\nYour task/)
   }
-  // The trace names the derived agent and stays valid ATIF.
+  // The trace names the lead's agent and stays valid ATIF.
   const doc = JSON.parse(exportAtif(runDir, (_h, raw) => fakeAdapter(sessions).parse(raw)))
   assert.deepEqual(checkAtif(doc), [])
   const top = doc.subagent_trajectories[0]
   assert.deepEqual(top.subagent_trajectories.map((t: { agent: { name: string } }) => t.agent.name), ['hr', 'hr'])
 })
 
-test('models leads choose are limited by runtime: a derived model or a child model outside the list is refused', async () => {
+test('a lead may define an agent named __proto__ and name it later', async () => {
+  const task = (id: string) => `Do ${id}.\n${fakePlan([{ result: done(id) }])}`
+  const { outcome, state, sessions } = await runGraph([lead([
+    { calls: [
+      { tool: 'spawn', children: [{ id: 'a', kind: 'work', brief: task('a'), agent: { name: '__proto__', runs: 'claude', instructions: 'Odd name.' } }] },
+      { tool: 'spawn', children: [{ id: 'b', kind: 'work', brief: task('b'), agent: '__proto__' }] },
+    ] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { claude: ['haiku'] } })
+  assert.equal(outcome, 'completed')
+  for (const id of ['a', 'b']) {
+    assert.equal(state.nodes.get(id)!.turns[0].agent, '__proto__')
+    assert.match(promptOf(sessions, state.nodes.get(id)!), /Your standing instructions:\nOdd name\./)
+  }
+})
+
+test('models leads choose are limited by runtime, and a child model needs a named agent', async () => {
   const task = (id: string) => `Do ${id}.\n${fakePlan([{ result: done(id) }])}`
   const { outcome, events, state, started } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'x', kind: 'work', brief: 'x', agent: { from: 'claude', name: 'fast', model: 'opus' } }] },
+      { tool: 'spawn', children: [{ id: 'x', kind: 'work', brief: 'x', agent: { name: 'fast', runs: 'claude', model: 'opus' } }] },
       { tool: 'spawn', children: [{ id: 'y', kind: 'work', brief: 'y', agent: 'pi', model: 'ollama-cloud/glm-5.2' }] },
-      { tool: 'spawn', children: [{ id: 'z', kind: 'work', brief: 'z', model: 'opus' }] },
+      { tool: 'spawn', children: [{ id: 'z', kind: 'work', brief: 'z', model: 'haiku' }] },
+      { tool: 'spawn', children: [{ id: 'w', kind: 'work', brief: 'w', agent: { name: 'fast', runs: 'claude' }, model: 'haiku' }] },
       { tool: 'spawn', children: [
-        { id: 'a', kind: 'work', brief: task('a'), agent: { from: 'claude', name: 'fast', model: 'haiku' } },
+        { id: 'a', kind: 'work', brief: task('a'), agent: { name: 'fast', runs: 'claude', model: 'haiku' } },
         { id: 'b', kind: 'work', brief: task('b'), agent: 'claude', model: 'haiku' },
       ] },
     ] },
@@ -279,29 +299,30 @@ test('models leads choose are limited by runtime: a derived model or a child mod
   assert.deepEqual(calls(events).filter((c) => !c.ok).map((c) => c.result), [
     'refused: child x: model opus is not allowed for claude agents (allowed: haiku)',
     'refused: child y: leads may not choose a model for pi agents (none allowed)',
-    'refused: child z: model opus is not allowed for claude agents (allowed: haiku)',
+    'refused: child z: a model needs a named agent: name the agent it applies to',
+    'refused: child w: set the model of a new agent in it, as agent.model',
   ])
   assert.deepEqual(started.sort(), [['claude', 'haiku'], ['claude', 'haiku']])
   assert.equal(state.nodes.get('a')!.turns[0].agent, 'fast')
-  assert.match(delivered(events)[0].text,
-    /Models you may choose \(a child's model, or a new agent's model\): for claude agents haiku; for other agents none\./)
+  assert.match(delivered(events)[0].text, /You may define a new agent for a work or lead child with agent \{name, runs, model\?, instructions\?\}, on these runtimes: claude \(models haiku\)\./)
 })
 
-test('a lead child may run on an agent derived from a lead agent; a worker agent cannot be derived for a lead child', async () => {
+test('a lead child may run on an agent a lead defines on lead; a worker runtime cannot do a lead child', async () => {
   const sub = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
-  const { outcome, events, state } = await runLead([
+  const { outcome, events, state, runDir } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { from: 'claude', name: 'boss' } }] },
-      { tool: 'spawn', children: [{ id: 'sub', kind: 'lead', brief: sub, agent: { from: 'lead', name: 'planner', instructions: 'Plan in two steps.' } }] },
+      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { name: 'boss', runs: 'claude' } }] },
+      { tool: 'spawn', children: [{ id: 'sub', kind: 'lead', brief: sub, agent: { name: 'planner', runs: 'lead', instructions: 'Plan in two steps.' } }] },
     ] },
     { calls: [{ tool: 'complete', summary: 'done' }] },
-  ])
+  ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { claude: ['haiku'], lead: ['other/planner-model'] } })
   assert.equal(outcome, 'completed')
-  assert.equal(calls(events)[0].result, 'refused: child bad: agent claude runs claude; a lead needs an agent that runs lead')
+  assert.equal(calls(events)[0].result, 'refused: child bad: a lead needs an agent that runs lead')
   assert.equal(state.nodes.get('sub')!.summary, 'planned')
   const brief = delivered(events, 'sub')[0].text
   assert.match(brief, /Your standing instructions:\nPlan in two steps\./)
   assert.match(brief, /for lead children lead, planner \(runs lead\)/)
+  assert.deepEqual(fakeLeadRecords(runDir).find((r) => r.op === 'deliver' && r.node === 'sub'), { op: 'deliver', node: 'sub', requestId: 'sub:brief', mode: 'queue', model: 'other/planner-model' })
 })
 
 test('policy refuses a lead with a command, a fourth lead level, completing with a running child and sending to a non-child', async () => {
@@ -315,7 +336,7 @@ test('policy refuses a lead with a command, a fourth lead level, completing with
   ])
   const { outcome, events, state } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'l2', kind: 'lead', brief: `Second level.\n${mid}`, model: 'other/model' }] },
+      { tool: 'spawn', children: [{ id: 'l2', kind: 'lead', brief: `Second level.\n${mid}`, agent: 'lead', model: 'other/model' }] },
       { tool: 'spawn', children: [{ id: 'gate', kind: 'lead', brief: 'Gate.', command: 'true' }] },
       { tool: 'complete', summary: 'too early' },
     ] },

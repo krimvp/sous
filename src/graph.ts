@@ -9,7 +9,7 @@ const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const DEFINITION_KEYS = ['agent', 'agents', 'models']
 const GRAPH_KEYS = ['goal', 'nodes', ...DEFINITION_KEYS]
 const AGENT_KEYS = ['runs', 'model', 'instructions']
-const DERIVED_KEYS = ['from', 'name', 'model', 'instructions']
+const NEW_AGENT_KEYS = ['name', 'runs', 'model', 'instructions']
 // Pi and lead models are named `provider/model`.
 const PROVIDER_MODEL = /^[^/\s]+\/\S+$/
 const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'agent', 'model']
@@ -132,7 +132,7 @@ export function agentError(graph: Pick<Definitions, 'agents'> | undefined, kind:
 }
 
 /** Why a lead's child spec is invalid, if it is. `siblings` are the IDs it may name in `needs`; `graph` holds the run's
- * agents, those derived so far included. */
+ * agents, those leads defined so far included, and its model lists. */
 export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], graph?: Definitions): string | undefined {
   if (!isObject(c)) return 'must be an object'
   if (typeof c.id !== 'string' || !ID.test(c.id) || RESERVED.includes(c.id)) return `id must match ${ID} and not be ${RESERVED.join(', ')}`
@@ -141,26 +141,39 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; spawn a check child for a deterministic gate'
   if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
   if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
-  const agent = isObject(c.agent) ? derivedError(graph, c.kind, c.agent) : agentError(graph, c.kind, c.agent)
+  const agent = isObject(c.agent) ? newAgentError(graph, c.kind, c.agent) : agentError(graph, c.kind, c.agent)
   if (agent) return agent
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
+  const model = childModelError(graph, c)
+  if (model) return model
   if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
   if (c.needs !== undefined && !(Array.isArray(c.needs) && c.needs.every((n) => siblings.includes(n)))) return 'needs may name only earlier siblings'
   return undefined
 }
 
-/** Why a child of `kind` may not derive the agent `d`, if it may not. */
-function derivedError(graph: Definitions | undefined, kind: string, d: Record<string, any>): string | undefined {
+/** Why a child of `kind` may not define the agent `d`, if it may not. */
+function newAgentError(graph: Definitions | undefined, kind: string, d: Record<string, any>): string | undefined {
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
-  const extra = Object.keys(d).filter((k) => !DERIVED_KEYS.includes(k))
+  const extra = Object.keys(d).filter((k) => !NEW_AGENT_KEYS.includes(k))
   if (extra.length) return `agent: unknown field ${extra.join(', ')}`
-  for (const key of ['from', 'name'] as const) if (typeof d[key] !== 'string') return `agent.${key} must be a string`
+  if (typeof d.name !== 'string' || !ID.test(d.name) || d.name === INTEGRATOR) return `agent.name must match ${ID} and not be ${INTEGRATOR}`
+  if (agentSpec(graph, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
+  if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
+  if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'
+  if (kind !== 'lead' && d.runs === 'lead') return `a ${kind} node needs an agent that does not run lead`
   for (const key of ['model', 'instructions'] as const) if (d[key] !== undefined && typeof d[key] !== 'string') return `agent.${key} must be a string`
-  if (!ID.test(d.name) || d.name === INTEGRATOR) return `agent.name must match ${ID} and not be ${INTEGRATOR}`
-  if (agentSpec(graph, d.name)) return `agent ${d.name} already exists: name it, or derive one with a new name`
-  const base = agentError(graph, kind, d.from)
-  if (base) return base
-  return d.model === undefined ? undefined : modelError(graph, agentSpec(graph, d.from)!.runs, d.model)
+  if (!graph?.models?.[d.runs as AgentRuntime]?.length) return `leads may not define agents on ${d.runs}: the run lists no ${d.runs} models`
+  return d.model === undefined ? undefined : modelError(graph, d.runs, d.model)
+}
+
+/** Why a child may not choose `model`, if it may not: only for an agent it names, from the run's list for that agent's
+ * runtime. A new agent carries its own model. */
+function childModelError(graph: Definitions | undefined, c: ChildSpec): string | undefined {
+  if (c.model === undefined) return undefined
+  if (c.kind === 'check' || c.kind === 'gate') return `${c.kind} nodes have no model`
+  if (isObject(c.agent)) return 'set the model of a new agent in it, as agent.model'
+  if (c.agent === undefined) return 'a model needs a named agent: name the agent it applies to'
+  return modelError(graph, agentSpec(graph, c.agent)!.runs, c.model)
 }
 
 function isText(value: unknown): boolean {

@@ -1,5 +1,5 @@
 // Run state as a pure fold of the event log.
-import { derive } from './agents.ts'
+import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
 import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
@@ -89,7 +89,7 @@ export interface RunState {
   maxDepth: number
   workspace: string
   graph?: GraphFile
-  /** The run's agent definitions (its graph's, or its agents file's), with every agent derived by leads so far. */
+  /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
   status: 'running' | 'completed' | 'failed'
   summary?: string
@@ -108,7 +108,7 @@ export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' |
 
 export const callKey = (node: string, callId: string) => `${node}\n${callId}`
 
-/** The node a lead's child becomes; a child that derives an agent names it. A child lead that names no agent gets its
+/** The node a lead's child becomes; a child that defines an agent names it. A child lead that names no agent gets its
  * parent's agent and model; a work child that names none gets the default worker when it starts. */
 export function childNode(c: ChildSpec, lead: NodeSpec): NodeSpec {
   const node: NodeSpec = { id: c.id, kind: c.kind, parent: lead.id }
@@ -185,7 +185,7 @@ export function fold(events: readonly Event[]): RunState {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
         Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH })
-        state.agents = { agent, agents: { ...agents }, models }
+        state.agents = { agent, agents: registry(agents), models }
         break
       }
       case 'node.added':
@@ -256,7 +256,7 @@ export function fold(events: readonly Event[]): RunState {
         const call = e.call
         if (call.tool === 'spawn') {
           for (const c of call.children) {
-            if (typeof c.agent === 'object') state.agents.agents![c.agent.name] = derive(state.agents, c.agent)
+            if (typeof c.agent === 'object') state.agents.agents![c.agent.name] = defineAgent(state.agents, c.agent)
             add(childNode(c, lead.spec))
           }
         }

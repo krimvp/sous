@@ -6,11 +6,11 @@ import type { Extension } from '@earendil-works/pi-durable'
 import type { LeadCall, LeadHost } from '../types.ts'
 
 const strict = { additionalProperties: false }
-const Derived = Type.Object({
-  from: Type.String({ description: 'The agent the new one is based on: it keeps its runtime, model and instructions' }),
+const NewAgent = Type.Object({
   name: Type.String({ description: 'A new agent name, unused in the run; later children may name it' }),
-  model: Type.Optional(Type.String({ description: 'A model your brief allows for the runtime of from; default: the model of from' })),
-  instructions: Type.Optional(Type.String({ description: 'Standing instructions added after those of from' })),
+  runs: StringEnum(['claude', 'codex', 'pi', 'lead'] as const, { description: 'A runtime your brief lets you define agents on' }),
+  model: Type.Optional(Type.String({ description: 'A model your brief lists for that runtime; default: the first listed' })),
+  instructions: Type.Optional(Type.String({ description: 'Standing instructions added to every brief the agent receives' })),
 }, strict)
 const Child = Type.Object({
   id: Type.String({ description: 'Unique id for the child in the whole run, e.g. "api-tests"' }),
@@ -23,9 +23,9 @@ const Child = Type.Object({
   needs: Type.Optional(Type.Array(Type.String(), { description: 'Ids of earlier siblings that must complete first' })),
   agent: Type.Optional(Type.Union([
     Type.String({ description: 'Agent that does a work or lead child, from the agents your brief lists; default: the first available worker for work, your own agent for leads' }),
-    Derived,
+    NewAgent,
   ], { description: 'An agent name, or a new agent defined for this child' })),
-  model: Type.Optional(Type.String({ description: "Overrides the agent's model; only a model your brief allows for the agent's runtime" })),
+  model: Type.Optional(Type.String({ description: "Overrides the model of the agent the child names; only a model your brief lists for that agent's runtime" })),
 }, strict)
 
 const schemas = {
