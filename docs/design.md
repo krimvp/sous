@@ -194,7 +194,8 @@ settings:
 | Children per lead, over its lifetime | at most 12 |
 | `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
 | `cancel` targets | the lead's own children |
-| `complete` / `fail` | refused while any child is pending or running |
+| `complete` / `fail` | refused while any child is pending or running, or a message for the lead waits to be delivered |
+| Lead `command` | none: a lead's own acceptance is its judgment against its acceptance criteria; deterministic gates are `check` children |
 | Child defaults | harness `claude`; a child lead's model is its parent's |
 | `needs` | earlier siblings only, as in graph files |
 

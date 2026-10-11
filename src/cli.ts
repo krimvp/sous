@@ -1,27 +1,31 @@
 #!/usr/bin/env node
-// murm: run a graph file, show a run's status.
+// murm: run a graph file or a goal, show a run's status, answer and cancel nodes of a running run.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
-import { fold } from './state.ts'
+import { eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
-import type { SupervisorOptions } from './supervisor.ts'
+import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
-import type { Event, HarnessName, ParsedTurn } from './types.ts'
+import { PERSON } from './types.ts'
+import type { Event, GraphFile, HarnessName, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
-  murm run <graph.json> [--workspace <dir>]
+  murm run <graph.json | "goal"> [--workspace <dir>]
   murm status [run-id] [--workspace <dir>]
+  murm answer <node> "text" [--workspace <dir>]
+  murm cancel <node> [--workspace <dir>]
   murm export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
+  createLeadRunner?: SupervisorOptions['createLeadRunner']
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -43,6 +47,12 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'status':
         if (args.length > 1) break
         return status(workspace, args[0])
+      case 'answer':
+        if (args.length !== 2 || !args[1].trim()) break
+        return sendCommand(workspace, { type: 'answer', node: args[0], text: args[1] })
+      case 'cancel':
+        if (args.length !== 1) break
+        return sendCommand(workspace, { type: 'cancel', node: args[0] })
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
@@ -55,24 +65,42 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   return 2
 }
 
-async function run(graphPath: string, workspace: string, deps: CliDeps): Promise<number> {
-  const graph = loadGraph(graphPath)
+/** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`. */
+async function run(arg: string, workspace: string, deps: CliDeps): Promise<number> {
+  const isGraph = existsSync(arg) && statSync(arg).isFile()
+  if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
+  const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.murm', 'runs', id)
   mkdirSync(runDir, { recursive: true })
   const createdAt = new Date().toISOString()
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, graph: resolve(graphPath), createdAt }, null, 2) + '\n')
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), createdAt }, null, 2) + '\n')
   console.log(`run ${id} (${runDir})`)
 
+  const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, graph })
-  for (const node of graph.nodes) log.append({ type: 'node.added', node, by: 'graph' })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : {}) })
+  for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: deps.getAdapter, onEvent: printEvent })
+  const outcome = await runSupervisor({
+    workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
+  })
   if (outcome === 'interrupted') console.log(`stopped; run ${id} can be resumed later`)
   return outcome === 'completed' ? 0 : 1
+}
+
+/** Prints one line per event, and every message to the person as a question to answer. */
+function printer(): (e: Event) => void {
+  const parents = new Map<string, string | undefined>()
+  return (e) => {
+    if (e.type === 'node.added') parents.set(e.node.id, e.node.parent)
+    if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) parents.set(c.id, e.node)
+    printEvent(e)
+    const m = eventMessage(e, (id) => parents.get(id))
+    if (m?.to === PERSON) console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: murm answer ${m.from} "<answer>"\n`)
+  }
 }
 
 function printEvent(e: Event): void {
@@ -136,6 +164,25 @@ function status(workspace: string, runId?: string): number {
     for (const c of children(n.spec.id)) print(c, depth + 1)
   }
   for (const n of children(undefined)) print(n, 1)
+  const questions = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
+  if (questions.length) console.log('questions for you (murm answer <node> "<answer>"):')
+  for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
+  return 0
+}
+
+/** Hand a person's answer or cancel to the run's supervisor through a command file. */
+function sendCommand(workspace: string, cmd: PersonCommand): number {
+  const { id, runDir } = findRun(workspace)
+  const node = fold(readEvents(runDir)).nodes.get(cmd.node)
+  if (!node) throw new Error(`run ${id} has no node ${cmd.node}`)
+  if (isFinal(node)) throw new Error(`node ${cmd.node} is already ${node.status}`)
+  if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
+  const dir = join(runDir, 'commands')
+  const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${file}.tmp`, JSON.stringify(cmd) + '\n')
+  renameSync(`${file}.tmp`, `${file}.json`)
+  console.log(`${cmd.type} for ${cmd.node} sent to run ${id}`)
   return 0
 }
 
