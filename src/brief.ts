@@ -21,26 +21,29 @@ const messages = (inbox: InboxMessage[]) => inbox.map((m) => `Message from ${m.f
 
 const standing = (instructions?: string) => (instructions?.trim() ? [`Your standing instructions:\n${instructions.trim()}`] : [])
 
-/** The command a worker runs to send a message, when its harness has no MCP tool for it. */
+/** The command a worker runs to send or receive messages, when its harness has no MCP tool for it. */
 const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
-const SEND_COMMAND = `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./cli.ts', import.meta.url)))} send`
+const SOUS_COMMAND = `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./cli.ts', import.meta.url)))}`
 
-/** Whom a worker may message while it works, and how. */
-function contactsSection(contacts: { lead?: string; siblings: string[]; max: number }): string[] {
+/** Whom a worker may message while it works, how, and how it reads what others tell it. */
+function contactsSection(contacts: { lead?: string; siblings: string[]; max: number; maxWait: number }): string[] {
   if (!contacts.lead && !contacts.siblings.length) return []
   const whom = [contacts.lead && `your lead ${contacts.lead}`, contacts.siblings.length && `your siblings ${contacts.siblings.join(', ')}`]
   return [[
     `When you learn something ${contacts.lead ? 'your lead or ' : ''}a sibling must know while you work (an interface you settled, a file you`,
-    `moved, a change of plan), tell them: with the send tool if you have it, else run ${SEND_COMMAND} <to> '<text>'`,
+    `moved, a change of plan), tell them: with the send tool if you have it, else run ${SOUS_COMMAND} send <to> '<text>'`,
     '(single quotes, so the shell leaves the text alone).',
-    `You may send to ${whom.filter(Boolean).join(' and ')}${contacts.lead ? '; your lead sees every message' : ''}. At most ${contacts.max}`,
-    'messages; they are read when the recipient\'s turn ends, so do not wait for an answer. Messages to you arrive the same way.',
+    `You may send to ${whom.filter(Boolean).join(' and ')}${contacts.lead ? '; your lead sees every message' : ''}. At most ${contacts.max} messages.`,
+    `Read what others tell you with the receive tool, else run ${SOUS_COMMAND} receive [seconds]: it returns the messages`,
+    `waiting for you and can wait up to ${contacts.maxWait} seconds for one, so when a sibling must tell you something before you`,
+    'can go on, wait for it there instead of guessing. Messages you do not read reach you when your turn ends.',
+    'Talk to the other agents of this run only this way, not through other tools or services.',
   ].join(' ')]
 }
 
 /** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes, any messages already
  * waiting, and whom it may message while it works. */
-export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number }): string {
+export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number; maxWait: number }): string {
   const parts = [
     `You are one worker on a larger goal.\n\nGoal: ${goal}`,
     ...standing(instructions),

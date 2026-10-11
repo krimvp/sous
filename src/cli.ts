@@ -10,7 +10,7 @@ import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './a
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents, writeCommand } from './log.ts'
-import { workerSend } from './send.ts'
+import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
@@ -28,6 +28,7 @@ const USAGE = `usage:
   sous approve <node> [--workspace <dir>]
   sous cancel <node> [--workspace <dir>]
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
+  sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {
@@ -40,17 +41,18 @@ export interface CliDeps {
 /** Run the CLI; returns the process exit code. */
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   // A worker's message is text, not options: `sous send b "--force is required now"`.
-  if (argv[0] === 'send') {
-    if (argv.length !== 3) {
+  if (argv[0] === 'send' || argv[0] === 'receive') {
+    const seconds = argv[0] === 'receive' && argv[1] !== undefined && /^\d+(\.\d+)?$/.test(argv[1]) ? Number(argv[1]) : argv[1] === undefined ? 0 : NaN
+    if (argv[0] === 'send' ? argv.length !== 3 : argv.length > 2 || !(seconds >= 0 && seconds <= MAX_WAIT_SECONDS)) {
       console.error(USAGE)
       return 2
     }
-    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
-    if (!runDir || !node) {
-      console.error('sous: sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set')
+    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
+    if (!runDir || !node || !turn) {
+      console.error(`sous: sous ${argv[0]} is for a worker inside a run: SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN are not set`)
       return 1
     }
-    const r = workerSend(runDir, node, argv[1], argv[2])
+    const r = argv[0] === 'send' ? workerSend(runDir, node, argv[1], argv[2]) : await workerReceive(runDir, node, Number(turn), seconds)
     ;(r.ok ? console.log : console.error)(r.text)
     return r.ok ? 0 : 1
   }
@@ -219,6 +221,7 @@ function printEvent(e: Event): void {
     case 'node.failed': text = `${e.node}: ${e.reason}`; break
     case 'message': text = `${e.from} -> ${e.to} (${e.mode})`; break
     case 'lead.delivered': text = `${e.node} <- ${e.requestId} (${e.mode})`; break
+    case 'inbox.read': text = `${e.node} read its messages up to evt-${e.upTo}`; break
     case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break

@@ -62,7 +62,7 @@ test('the prompt arrives on stdin and output reaches outFile after the starting 
   await until(() => readFileSync(spec.errFile, 'utf8') === 'oops\n')
 })
 
-test('workers load no MCP server but sous\'s: Claude and Codex get it with the worker\'s identity, Pi gets no MCP', async () => {
+test('workers load no MCP server but sous\'s and none of the person\'s own instructions; the project\'s stay', async () => {
   const bin = tempDir()
   const rec = join(bin, 'rec.jsonl')
   // Stand-ins that record their arguments and the identity in their environment; a Codex stand-in also lists the
@@ -79,6 +79,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
   try {
     const { claude, codex, pi } = await import('../src/adapters/index.ts').then((m) => ({ claude: m.getAdapter('claude'), codex: m.getAdapter('codex'), pi: m.getAdapter('pi') }))
     const cwd = tempDir()
+    writeFileSync(join(cwd, 'AGENTS.md'), '# Project rules\n')
     const spec = (turn: number, env?: Record<string, string>) =>
       ({ nodeId: 'a', turn, cwd, prompt: 'p', outFile: join(cwd, `${turn}.jsonl`), errFile: join(cwd, `${turn}.err`), ...(env ? { env } : {}) })
     const env = { SOUS_RUN_DIR: '/run', SOUS_NODE: 'a' }
@@ -93,16 +94,20 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     const server = { command: process.execPath, args: [new URL('../src/mcp.ts', import.meta.url).pathname], env }
     const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1]
     assert.ok(withSous.argv.includes('--strict-mcp-config'))
+    assert.equal(after(withSous.argv, '--setting-sources'), 'project')
     assert.deepEqual(JSON.parse(after(withSous.argv, '--mcp-config')), { mcpServers: { sous: { type: 'stdio', ...server } } })
     assert.equal(withSous.node, 'a')
     assert.ok(standing.argv.includes('--strict-mcp-config') && !standing.argv.includes('--mcp-config'), 'a standing node gets no MCP server')
     const overrides = cx.argv.flatMap((a: string, i: number) => (cx.argv[i - 1] === '-c' ? [a] : []))
-    assert.deepEqual(overrides.filter((o: string) => o.startsWith('features')), ['features.apps=false', 'features.plugins=false'])
+    assert.deepEqual(overrides.filter((o: string) => o.startsWith('features') || o.startsWith('skills')),
+      ['features.hooks=false', 'skills.include_instructions=false', 'features.apps=false', 'features.plugins=false'])
+    assert.ok(cx.argv.includes('--ignore-rules'))
     assert.deepEqual(overrides.filter((o: string) => o.startsWith('mcp_servers')), [
       'mcp_servers.comitia.enabled=false', 'mcp_servers.docs.enabled=false',
-      `mcp_servers.sous={command=${JSON.stringify(server.command)},args=[${JSON.stringify(server.args[0])}],env={SOUS_RUN_DIR="/run",SOUS_NODE="a"}}`,
+      `mcp_servers.sous={command=${JSON.stringify(server.command)},args=[${JSON.stringify(server.args[0])}],env={SOUS_RUN_DIR="/run",SOUS_NODE="a"},tool_timeout_sec=90}`,
     ])
-    assert.ok(p.argv.includes('--no-mcp'))
+    for (const flag of ['--no-mcp', '--no-skills', '--no-prompt-templates', '--no-context-files']) assert.ok(p.argv.includes(flag), flag)
+    assert.equal(after(p.argv, '--append-system-prompt'), join(cwd, 'AGENTS.md'))
     assert.equal(p.node, 'a')
   } finally {
     process.env.PATH = path

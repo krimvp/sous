@@ -22,6 +22,7 @@ const MCP = new URL('../src/mcp.ts', import.meta.url).pathname
 const done = (summary: string) => ({ status: 'done' as const, summary })
 /** The shell command a fake worker runs to send, quoted as the brief tells a real one. */
 const send = (to: string, text: string) => `'${process.execPath}' '${CLI}' send ${to} '${text}'`
+const receive = (seconds: number) => `'${process.execPath}' '${CLI}' receive ${seconds}`
 const task = (id: string, steps: FakeStep[]): ChildSpec => ({ id, kind: 'work', brief: `Do ${id}.\n${fakePlan(steps)}` })
 
 /** Runs one lead playing `steps` in a git workspace; `onEvent` also gets the run directory. */
@@ -104,6 +105,25 @@ test('the supervisor holds a worker to 5 messages even when it writes more befor
   assert.match(prompts('a')[1], /Your message to lead was not delivered: a already sent the 5 messages a worker may send/)
 })
 
+test('a worker waits within its turn for what its sibling tells it, and is not resumed with it again', async () => {
+  const finish: FakeLeadStep = { calls: [{ tool: 'complete', summary: 'all done' }] }
+  const { outcome, events, state } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      task('a', [{ sh: `sleep 1 && ${send('b', 'Use greet(name).')}`, result: done('a done') }]),
+      // b exits right after reading: the supervisor must take its receive before deciding whether to resume it.
+      task('b', [{ sh: `${receive(20)} > got.txt`, result: done('b got it') }]),
+    ] }] },
+    ...Array.from({ length: 8 }, () => finish),
+  ])
+  assert.equal(outcome, 'completed')
+  assert.equal(readFileSync(join(state.workspace, '.sous', 'runs', 'r1', 'integration', 'got.txt'), 'utf8'), 'Message from a:\nUse greet(name).\n')
+  assert.equal(state.nodes.get('b')!.turns.length, 1, 'b was not resumed with the message it read')
+  const read = events.find((e) => e.type === 'inbox.read')
+  const sent = events.find((e) => e.type === 'message' && e.sent)
+  assert.deepEqual(read?.type === 'inbox.read' && [read.node, read.upTo], ['b', sent!.seq])
+  assert.ok(delivered(events).includes('Child a told its sibling b (a copy for you; no answer needed):\nUse greet(name).'))
+})
+
 // ---- `sous send` and the MCP server against a run's log ------------------------------------------
 
 /** A run with lead L (children a, b, check k, and b2 waiting to merge) and lead M (child c). */
@@ -118,6 +138,7 @@ function runWithTree(more: EventBody[] = []): string {
     add({ id, kind, parent, ...(kind === 'check' ? { command: 'true' } : { brief: id }) })
   }
   log.append({ type: 'merge.queued', node: 'b2', branch: 'x' })
+  log.append({ type: 'turn.started', node: 'a', turn: 1, mode: 'start', pid: 999_999_999, outFile: '/dev/null', errFile: '/dev/null' })
   for (const body of more) log.append(body)
   log.close()
   return runDir
@@ -128,8 +149,8 @@ const commands = (runDir: string) =>
 
 test('sous send checks whom a worker may tell, and hands a message to the supervisor as a command', () => {
   const runDir = runWithTree()
-  const sous = (to: string, text: string, env: Record<string, string> = { SOUS_RUN_DIR: runDir, SOUS_NODE: 'a' }) => {
-    const r = spawnSync(process.execPath, [CLI, 'send', to, text], { encoding: 'utf8', env: { ...process.env, SOUS_RUN_DIR: '', SOUS_NODE: '', ...env } })
+  const sous = (to: string, text: string, env: Record<string, string> = { SOUS_RUN_DIR: runDir, SOUS_NODE: 'a', SOUS_TURN: '1' }) => {
+    const r = spawnSync(process.execPath, [CLI, 'send', to, text], { encoding: 'utf8', env: { ...process.env, SOUS_RUN_DIR: '', SOUS_NODE: '', SOUS_TURN: '', ...env } })
     return [r.status, (r.stdout + r.stderr).trim()]
   }
   assert.deepEqual(sous('c', 'hi'), [1, 'not sent: c is not your lead or a sibling; you may send to L, b'])
@@ -137,20 +158,57 @@ test('sous send checks whom a worker may tell, and hands a message to the superv
   assert.deepEqual(sous('k', 'hi'), [1, 'not sent: k is a check and takes no messages'])
   assert.deepEqual(sous('b2', 'hi'), [1, 'not sent: b2 is done and waits to merge; tell your lead if its work must change'])
   assert.deepEqual(sous('b', ' '), [1, 'not sent: the message must be non-empty text'])
-  assert.deepEqual(sous('b', 'hi', { SOUS_RUN_DIR: runDir, SOUS_NODE: 'L' }), [1, 'not sent: L is not a worker of the tree, so it cannot send'])
-  assert.deepEqual(sous('b', 'hi', {}), [1, 'sous: sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set'])
+  assert.deepEqual(sous('b', 'hi', { SOUS_RUN_DIR: runDir, SOUS_NODE: 'L', SOUS_TURN: '1' }), [1, 'not sent: L is not a worker of the tree, so it cannot send'])
+  assert.deepEqual(sous('b', 'hi', {}), [1, 'sous: sous send is for a worker inside a run: SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN are not set'])
   assert.deepEqual(sous('b', 'The API is greet(name).'), [0, 'sent to b; it reads it when its current turn ends, and nobody answers within yours'])
   assert.deepEqual(sous('b', '--force is required now'), [0, 'sent to b; it reads it when its current turn ends, and nobody answers within yours'])
   assert.deepEqual(commands(runDir).map((c) => c.text).sort(), ['--force is required now', 'The API is greet(name).'])
 
   const sent = (n: number): EventBody[] => Array.from({ length: n }, () => ({ type: 'message', from: 'a', to: 'L', body: 'x', mode: 'queue', sent: true }))
   const full = runWithTree(sent(5))
-  assert.deepEqual(sous('L', 'one more', { SOUS_RUN_DIR: full, SOUS_NODE: 'a' }), [1, 'not sent: a already sent the 5 messages a worker may send'])
+  assert.deepEqual(sous('L', 'one more', { SOUS_RUN_DIR: full, SOUS_NODE: 'a', SOUS_TURN: '1' }), [1, 'not sent: a already sent the 5 messages a worker may send'])
+})
+
+test('sous receive returns what waits for a worker once, waits for a message when asked, and is for workers only', () => {
+  const runDir = runWithTree([{ type: 'message', from: 'L', to: 'a', body: 'Keep the old API.', mode: 'queue' }])
+  const sous = (args: string[], node = 'a', turn = '1') => {
+    const r = spawnSync(process.execPath, [CLI, 'receive', ...args], { encoding: 'utf8', env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } })
+    return [r.status, (r.stdout + r.stderr).trim()]
+  }
+  assert.deepEqual(sous([]), [0, 'Message from L:\nKeep the old API.'])
+  const seq = fold(readEvents(runDir)).nodes.get('a')!.inbox[0].seq
+  assert.deepEqual(commands(runDir), [{ type: 'receive', node: 'a', turn: 1, upTo: seq }])
+  // Taken, though the supervisor has not applied it yet.
+  assert.deepEqual(sous([]), [0, 'No messages.'])
+  const started = Date.now()
+  assert.deepEqual(sous(['1']), [0, 'No messages.'])
+  assert.ok(Date.now() - started >= 900, 'it waited for a message')
+  assert.deepEqual(sous([], 'L'), [1, 'cannot receive: L is not a worker of the tree'])
+  assert.deepEqual(sous([], 'a', '2'), [0, 'No messages.'], 'a turn not recorded yet waits')
+  assert.deepEqual(sous([], 'a', '0'), [1, 'cannot receive: turn 0 of a is over'])
+  for (const bad of ['-5', '61', '0x10', 'soon']) assert.equal(sous([bad])[0], 2, bad)
+})
+
+test('a receive from a turn that is over takes nothing, and messages read in a turn cut short come back', async () => {
+  const { outcome, events, prompts } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      task('a', [{ sh: `sleep 1 && ${send('b', 'Use greet(name).')}`, result: done('a done') }]),
+      // b reads the message, then its turn ends without a result: it resumes with the message again.
+      task('b', [{ sh: `${receive(20)} > got.txt` }, { result: done('b saw it twice') }]),
+    ] }] },
+    ...Array.from({ length: 8 }, (): FakeLeadStep => ({ calls: [{ tool: 'complete', summary: 'all done' }] })),
+  ], (e, runDir) => {
+    // A process left over from b's first turn tries to take messages during its second.
+    if (e.type === 'turn.started' && e.node === 'b' && e.turn === 2) writeCommand(runDir, { type: 'receive', node: 'b', turn: 1, upTo: 10_000 })
+  })
+  assert.equal(outcome, 'completed')
+  assert.match(prompts('b')[1], /^Message from a:\nUse greet\(name\)\./)
+  assert.deepEqual(events.flatMap((e) => (e.type === 'inbox.read' ? [e.turn] : [])), [1])
 })
 
 test("sous's MCP server offers send to a worker's lead and siblings, and writes the same command", async () => {
   const runDir = runWithTree()
-  const server = spawn(process.execPath, [MCP], { env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: 'a' }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const server = spawn(process.execPath, [MCP], { env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: 'a', SOUS_TURN: '1' }, stdio: ['pipe', 'pipe', 'inherit'] })
   const lines = createInterface({ input: server.stdout })[Symbol.asyncIterator]()
   const call = async (id: number, method: string, params?: object) => {
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
@@ -161,13 +219,16 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.deepEqual(init.result.capabilities, { tools: {} })
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n') // no reply
     const { tools } = (await call(2, 'tools/list')).result
-    assert.deepEqual(tools.map((t: { name: string }) => t.name), ['send'])
+    assert.deepEqual(tools.map((t: { name: string }) => t.name), ['send', 'receive'])
     assert.match(tools[0].description, /^Tell your lead L or your siblings b something they must know while you work/)
     assert.deepEqual((await call(3, 'tools/call', { name: 'send', arguments: { to: 'c', body: 'hi' } })).result, {
       content: [{ type: 'text', text: 'not sent: c is not your lead or a sibling; you may send to L, b' }], isError: true,
     })
     assert.equal((await call(4, 'tools/call', { name: 'send', arguments: { to: 'L', body: 'Interface settled.' } })).result.isError, false)
     assert.deepEqual(commands(runDir), [{ type: 'send', from: 'a', to: 'L', text: 'Interface settled.' }])
+    assert.deepEqual((await call(7, 'tools/call', { name: 'receive', arguments: { wait_seconds: 0 } })).result, {
+      content: [{ type: 'text', text: 'No messages.' }], isError: false,
+    })
     assert.equal((await call(5, 'resources/list')).error.code, -32601)
     server.stdin.write('null\n')
     assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })
@@ -178,8 +239,8 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
 })
 
 test('the MCP server refuses to start without a worker identity', () => {
-  const r = spawnSync(process.execPath, [MCP], { encoding: 'utf8', env: { ...process.env, SOUS_RUN_DIR: '', SOUS_NODE: '' }, input: '' })
+  const r = spawnSync(process.execPath, [MCP], { encoding: 'utf8', env: { ...process.env, SOUS_RUN_DIR: '', SOUS_NODE: '', SOUS_TURN: '' }, input: '' })
   assert.equal(r.status, 2)
-  assert.match(r.stderr, /SOUS_RUN_DIR and SOUS_NODE must be set/)
+  assert.match(r.stderr, /SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN must be set/)
 })
 
