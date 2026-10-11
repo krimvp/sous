@@ -194,7 +194,7 @@ settings:
 | Children per lead, over its lifetime | at most 12 |
 | `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
 | `cancel` targets | the lead's own children |
-| `complete` / `fail` | refused while any child is pending or running; `complete` also needs at least one completed child or an explicit reason in the summary |
+| `complete` / `fail` | refused while any child is pending or running |
 | Child defaults | harness `claude`; a child lead's model is its parent's |
 | `needs` | earlier siblings only, as in graph files |
 
