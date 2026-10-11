@@ -14,8 +14,9 @@ const IDENTITY = {
 export interface Worktree {
   branch: string
   path: string
-  /** The commit the branch started from. */
-  base: string
+  /** The commit the branch started from; only when this call created the branch. On resume the
+   * `integration.created` / `worktree.created` event holds it. */
+  base?: string
 }
 
 export type MergeResult = { ok: true; commit: string } | { ok: false; files: string[] }
@@ -27,13 +28,13 @@ function run(cwd: string, args: string[]) {
     env: { ...process.env, ...IDENTITY },
   })
   if (r.error) throw new Error(`git ${args.join(' ')} in ${cwd}: ${r.error.message}`)
-  return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr.trim() }
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr.trim() }
 }
 
 function git(cwd: string, args: string[]): string {
   const r = run(cwd, args)
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${r.stderr || r.stdout}`)
-  return r.stdout
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${r.stderr || r.stdout.trim()}`)
+  return r.stdout.trim()
 }
 
 /** The workspace must be a git repository with at least one commit. Excludes `.murm/` from git. */
@@ -60,7 +61,8 @@ export function createNodeWorktree(workspace: string, runId: string, runDir: str
   return ensureWorktree(workspace, `murm/${runId}.${node}`, join(runDir, 'worktrees', node), fromCommit)
 }
 
-/** Creates the branch and its worktree, or returns them when they already exist (resume). */
+/** Creates the branch and its worktree, or returns them when they already exist (resume); an existing
+ * branch is checked out again if its worktree was lost, and `start` is then not used. */
 function ensureWorktree(workspace: string, branch: string, path: string, start: string): Worktree {
   path = resolve(path)
   if (run(workspace, ['check-ref-format', `refs/heads/${branch}`]).status !== 0) {
@@ -75,12 +77,14 @@ function ensureWorktree(workspace: string, branch: string, path: string, start: 
     if (!existsSync(path) || realpathSync(at) !== realpathSync(path)) {
       throw new Error(`branch ${branch} is checked out at ${at}, not ${path}`)
     }
-  } else if (run(workspace, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]).status === 0) {
-    git(workspace, ['worktree', 'add', path, branch])
-  } else {
-    git(workspace, ['worktree', 'add', '-b', branch, path, start])
+    return { branch, path }
   }
-  const base = git(workspace, ['merge-base', start, branch])
+  if (run(workspace, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]).status === 0) {
+    git(workspace, ['worktree', 'add', path, branch])
+    return { branch, path }
+  }
+  const base = git(workspace, ['rev-parse', '--verify', `${start}^{commit}`])
+  git(workspace, ['worktree', 'add', '-b', branch, path, base])
   return { branch, path, base }
 }
 
@@ -99,15 +103,15 @@ export function hasChanges(integrationPath: string, branch: string): boolean {
 }
 
 /** `git merge --no-ff` of `branch` into the integration worktree. On a conflict the merge stays in
- * progress for the integrator, and the conflicted files are returned. */
+ * progress for the integrator, and the conflicted files are returned. Any other failure aborts the
+ * merge (if git left one in progress) and throws git's error. */
 export function merge(integrationPath: string, branch: string, message: string): MergeResult {
   const r = run(integrationPath, ['merge', '--no-ff', '--no-verify', '-m', message, branch])
   if (r.status === 0) return { ok: true, commit: head(integrationPath) }
-  if (!mergeInProgress(integrationPath)) {
-    throw new Error(`git merge --no-ff ${branch} failed in ${integrationPath}: ${r.stderr || r.stdout}`)
-  }
-  const files = git(integrationPath, ['diff', '--name-only', '--diff-filter=U'])
-  return { ok: false, files: files ? files.split('\n') : [] }
+  const files = run(integrationPath, ['diff', '--name-only', '-z', '--diff-filter=U']).stdout.split('\0').filter(Boolean)
+  if (files.length > 0) return { ok: false, files }
+  if (mergeInProgress(integrationPath)) abortMerge(integrationPath)
+  throw new Error(`git merge --no-ff ${branch} failed in ${integrationPath}: ${r.stderr || r.stdout.trim()}`)
 }
 
 export function mergeInProgress(path: string): boolean {

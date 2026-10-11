@@ -48,8 +48,13 @@ test('integration and node worktrees are created once, and found again on resume
   assert.deepEqual(node, { branch: 'murm/r1.build', path: join(runDir, 'worktrees', 'build'), base: start })
   assert.equal(readFileSync(join(node.path, 'a.txt'), 'utf8'), 'one\n')
 
-  assert.deepEqual(createIntegration(workspace, 'r1', runDir), integration)
-  assert.deepEqual(createNodeWorktree(workspace, 'r1', runDir, 'build', start), node)
+  // On resume the branches exist: no base is reported (the events hold it), whatever HEAD is now.
+  const { base: _i, ...existingIntegration } = integration
+  const { base: _n, ...existingNode } = node
+  sh(workspace, 'checkout', '-q', '--orphan', 'elsewhere')
+  sh(workspace, '-c', 'user.name=Person', '-c', 'user.email=p@example.com', 'commit', '-q', '-m', 'unrelated')
+  assert.deepEqual(createIntegration(workspace, 'r1', runDir), existingIntegration)
+  assert.deepEqual(createNodeWorktree(workspace, 'r1', runDir, 'build', head(workspace)), existingNode)
   assert.equal(sh(workspace, 'status', '--porcelain'), '')
 
   // A node worktree whose directory was lost is checked out again on its existing branch.
@@ -57,7 +62,7 @@ test('integration and node worktrees are created once, and found again on resume
   commitAll(node.path, 'b')
   const tip = head(node.path)
   rmSync(node.path, { recursive: true })
-  assert.deepEqual(createNodeWorktree(workspace, 'r1', runDir, 'build', start), node)
+  assert.deepEqual(createNodeWorktree(workspace, 'r1', runDir, 'build', start), existingNode)
   assert.equal(head(node.path), tip)
 
   assert.throws(() => createNodeWorktree(workspace, 'r1', runDir, 'a..b', start), /check-ref-format/)
@@ -114,16 +119,34 @@ test('a conflict returns its files and leaves the merge in progress; abort resto
   for (const id of ['x', 'y']) {
     const node = createNodeWorktree(workspace, 'r1', runDir, id, base)
     writeFileSync(join(node.path, 'a.txt'), `${id}\n`)
+    writeFileSync(join(node.path, 'café.txt'), `${id}\n`)
     writeFileSync(join(node.path, `${id}.txt`), `${id}\n`)
     commitAll(node.path, id)
   }
   assert.equal(merge(integration.path, 'murm/r1.x', 'merge x').ok, true)
   const before = head(integration.path)
 
-  assert.deepEqual(merge(integration.path, 'murm/r1.y', 'merge y'), { ok: false, files: ['a.txt'] })
+  assert.deepEqual(merge(integration.path, 'murm/r1.y', 'merge y'), { ok: false, files: ['a.txt', 'café.txt'] })
   assert.equal(mergeInProgress(integration.path), true)
 
   abortMerge(integration.path)
+  assert.equal(mergeInProgress(integration.path), false)
+  assert.equal(head(integration.path), before)
+  assert.equal(sh(integration.path, 'status', '--porcelain'), '')
+})
+
+test('a merge that fails without a conflict throws git\'s error and is aborted', () => {
+  const { workspace, runDir } = repo()
+  ensureRepo(workspace)
+  const integration = createIntegration(workspace, 'r1', runDir)
+  const before = head(integration.path)
+  const node = createNodeWorktree(workspace, 'r1', runDir, 'n', before)
+  writeFileSync(join(node.path, 'b.txt'), 'b\n')
+  commitAll(node.path, 'b')
+  const hook = join(workspace, '.git', 'hooks', 'prepare-commit-msg')
+  writeFileSync(hook, '#!/bin/sh\necho hook says no >&2\nexit 1\n', { mode: 0o755 })
+
+  assert.throws(() => merge(integration.path, node.branch, 'merge n'), /git merge --no-ff murm\/r1\.n failed.*/)
   assert.equal(mergeInProgress(integration.path), false)
   assert.equal(head(integration.path), before)
   assert.equal(sh(integration.path, 'status', '--porcelain'), '')
