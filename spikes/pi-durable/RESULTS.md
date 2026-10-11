@@ -15,8 +15,13 @@ the same `requestId` and waits.
 
 | Model | Runs | Result |
 |---|---|---|
-| faux (scripted) | 2 | pass: `a`, `b`, `c` each spawned once |
-| `openai-codex/gpt-5.5` | 1 + 3 after the fix below | 4 of 4 pass; 1 earlier fail, explained below |
+| faux (scripted) | 3 | pass: `a`, `b`, `c` each spawned once |
+| `openai-codex/gpt-5.5` | 1 + 4 after the fix below | 5 of 5 pass; 1 earlier fail, explained below |
+
+`run.sh` asserts each step and exits non-zero on failure: the first process was SIGKILLed with exactly 2
+spawns done, the resume exited 0 with the run `done`, it made 2 spawn calls (the replay of `b` and the new
+`c`), the goal was submitted once, and no child or call ID appears twice. (The last real run and the faux
+runs used this asserting version; earlier runs printed the same facts without asserting them.)
 
 In every passing run the interrupted spawn of `b` was replayed once, recognised by its call ID, and the lead
 continued to `c`. The resubmitted goal reused the existing submission (the goal appears once in storage).
