@@ -1,0 +1,40 @@
+// A scripted stand-in for a harness CLI. Reads the prompt on stdin and plays one step of the plan
+// found on a `FAKE_PLAN: {...}` line of the first prompt; the session file remembers the plan and
+// every prompt received, so a resumed session continues where it left off.
+import { spawn } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
+
+export interface FakeStep {
+  /** Files to write, relative to the working directory. */
+  write?: Record<string, string>
+  /** Start a grandchild `sleep` and write its pid to <session file>.grandchild. */
+  spawnSleeper?: boolean
+  /** Sleep before printing the result. */
+  sleepMs?: number
+  result?: { status: 'done' | 'blocked' | 'needs_input'; summary: string; question?: string }
+  /** Keep running after printing the result. */
+  lingerMs?: number
+}
+
+const sessionFile = process.argv[2]
+const prompt = readFileSync(0, 'utf8')
+const session: { plan: FakeStep[]; prompts: string[] } = existsSync(sessionFile)
+  ? JSON.parse(readFileSync(sessionFile, 'utf8'))
+  : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [] }
+const step = session.plan[session.prompts.length] ?? {}
+session.prompts.push(prompt)
+writeFileSync(sessionFile, JSON.stringify(session))
+
+const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
+emit({ type: 'session', id: basename(sessionFile, '.json') })
+for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)
+if (step.spawnSleeper) {
+  const sleeper = spawn('sleep', ['60'], { stdio: 'ignore' })
+  writeFileSync(sessionFile + '.grandchild', String(sleeper.pid))
+}
+if (step.sleepMs) await sleep(step.sleepMs)
+if (step.result) emit({ type: 'result', result: step.result })
+if (step.lingerMs) await sleep(step.lingerMs)
+process.exit(0)
