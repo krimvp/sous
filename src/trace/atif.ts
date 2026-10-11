@@ -160,6 +160,8 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       add({ source: 'system', timestamp: e.at, message: `Worktree created: branch ${e.branch} from ${e.base}`, extra: { path: e.path } })
     } else if (e.type === 'merge.queued') {
       add({ source: 'system', timestamp: e.at, message: `Merge queued: branch ${e.branch}` })
+    } else if (e.type === 'merge.withdrawn') {
+      add({ source: 'system', timestamp: e.at, message: 'Merge withdrawn: messages arrived before the merge, so the worker resumes with them' })
     } else if (e.type === 'merge.conflict') {
       add({ source: 'system', timestamp: e.at, message: `Merge conflict, sent to the integrator: ${e.reason}`, extra: { files: e.files, onto: e.onto } })
     } else if (e.type === 'merge.done') {

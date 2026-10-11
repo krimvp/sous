@@ -12,7 +12,7 @@ import {
 } from './brief.ts'
 import {
   abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
-  resetTo,
+  resetTo, withConflictMarkers,
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
@@ -557,6 +557,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (mergeInProgress(path)) abortMerge(path)
       let commit = head(path)
       onto = mergedOnto(path, branch) // the merge finished before the stop
+      // Messages that arrived while it waited come first: it leaves the queue and its worker resumes with them.
+      if (onto === undefined && n.inbox.length) return void log.append({ type: 'merge.withdrawn', node: spec.id })
       if (onto === undefined) {
         if (!hasChanges(path, branch)) return void log.append({ type: 'merge.done', node: spec.id, commit, by: 'nothing' })
         onto = commit
@@ -599,12 +601,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const integrate = async (spec: NodeSpec, onto: string) => {
     const id = spec.id
     const { path, branch } = integrationTree()
+    const { branch: nodeBranch, conflict } = nodeNow(id).merge!
     if (!current().nodes.has(INTEGRATOR)) {
       const agent = integratorAgent(current().graph, unavailable)
       if (!agent) return mergeFailed(id, 'no agent is available for the integrator', onto)
       log.append({ type: 'node.added', node: { id: INTEGRATOR, kind: 'work', standing: true, agent, brief: INTEGRATOR_BRIEF }, by: SUPERVISOR })
     }
-    const since = nodeNow(id).merge!.conflict!.seq
+    const since = conflict!.seq
     const requests = () => log.events.filter((e) => e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === INTEGRATOR).length
     const request = (body: string) => log.append({ type: 'message', from: SUPERVISOR, to: INTEGRATOR, body, mode: 'queue' })
     if (!requests()) request(requestFor(current(), id))
@@ -637,7 +640,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       let why = !result ? 'your last turn ended without the required structured result'
         : mergeInProgress(path) ? 'the merge is still in progress: resolve every conflict and commit the merge'
         : hasUncommitted(path) ? 'changes to tracked files are not committed'
+        : hasChanges(path, nodeBranch) ? `branch ${nodeBranch} is not merged`
         : undefined
+      const marked = why ? [] : withConflictMarkers(path, conflict!.files)
+      if (marked.length) why = `conflict markers remain in ${marked.join(', ')}`
       if (!why && spec.command) {
         const c = await check(id, spec.command, path)
         if (stopping) return

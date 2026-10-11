@@ -145,3 +145,10 @@ export function resetTo(path: string, commit: string): void {
   git(path, ['reset', '-q', '--hard', commit])
   git(path, ['clean', '-q', '-fd'])
 }
+
+const MARKER = /^(<{7} |\|{7} |={7}$|>{7} )/m
+
+/** Which of `files` (relative to the worktree) still hold conflict marker lines. A deleted file has none. */
+export function withConflictMarkers(path: string, files: string[]): string[] {
+  return files.filter((file) => existsSync(join(path, file)) && MARKER.test(readFileSync(join(path, file), 'utf8')))
+}

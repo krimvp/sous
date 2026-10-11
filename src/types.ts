@@ -234,6 +234,8 @@ export type EventBody =
   | { type: 'worktree.created'; node: string; branch: string; path: string; base: string }
   /** A finished node's branch joined the merge queue. */
   | { type: 'merge.queued'; node: string; branch: string }
+  /** A queued node got messages before its merge started: it leaves the queue, and its worker resumes with them. */
+  | { type: 'merge.withdrawn'; node: string }
   /** The merge needs the integrator: it conflicted (`files`, left in progress in the integration worktree), or the
    * node's check failed after a clean merge (the merge commit stays). `onto`: the integration commit before the
    * merge, where a failed merge leaves the branch. */

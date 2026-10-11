@@ -263,7 +263,11 @@ fails with that reason before the first work or check node starts.
    supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
-   again in the integration worktree; if it passes, `merge.done` by `supervisor`.
+   again in the integration worktree; if it passes, `merge.done` by `supervisor`. A message to a queued node
+   waits until its turn to merge; if its inbox is not empty then, it leaves the queue (`merge.withdrawn`) and
+   its worker resumes its session in its own worktree with the messages, and it queues again when done. Once
+   its merge has started, a message waits; after `merge.done` the node is completed, and messages to it are
+   refused like those to any finished node.
 4. **The integrator.** A conflict, or a failing check after a clean merge, goes to the integrator
    (`merge.conflict`, with the commit the merge started from). On a conflict the merge is left in progress in
    the integration worktree; after a failing check the merge commit stays and the integrator fixes on top.
@@ -273,8 +277,9 @@ fails with that reason before the first work or check node starts.
    session for later requests. Each request is a message in its inbox naming the node, its branch, the
    conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
    It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
-   verified: no merge in progress, no uncommitted change to tracked files, and the node's check passes in the
-   integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
+   verified: no merge in progress, no uncommitted change to tracked files, the node's branch is an ancestor of
+   the integration branch, no conflict marker lines left in the files that conflicted, and the node's check
+   passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
    is reset to where the merge started, the node fails and its parent is told. The integrator never completes,
    does not count toward the run's completion, and shows in `murm status` (`idle` between requests).
@@ -459,8 +464,8 @@ Pi, the integrator on its default, Codex). The goal told the lead to spawn two p
 rewrite line 1 of a seeded file. The first merged cleanly; the second conflicted, and Codex, as the integrator,
 resolved it in the integration worktree; `murm/<run>` held both lines, the person's checkout was untouched, and
 Harbor's validator accepted the exported ATIF file. Codex first committed the merge with the conflict markers
-still in it (its edit command failed) and fixed the file in a second commit: verification checks the final
-state, not each commit.
+still in it (its edit command failed) and fixed the file in a second commit. Verification checks the final
+state, not each commit; since that run it also rejects marker lines left in the conflicted files.
 
 ## Open questions
 

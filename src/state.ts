@@ -259,6 +259,11 @@ export function fold(events: readonly Event[]): RunState {
         if (node) node.merge = { queued: e.seq, branch: e.branch }
         break
       }
+      case 'merge.withdrawn': {
+        const node = state.nodes.get(e.node)
+        if (node) node.merge = undefined
+        break
+      }
       case 'merge.conflict': {
         const merge = state.nodes.get(e.node)?.merge
         if (merge) merge.conflict = { seq: e.seq, reason: e.reason, files: e.files, onto: e.onto }

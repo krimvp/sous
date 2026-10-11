@@ -185,6 +185,7 @@ function printEvent(e: Event): void {
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
     case 'merge.queued': text = `${e.node} ${e.branch}`; break
+    case 'merge.withdrawn': text = `${e.node}: messages arrived; its worker resumes`; break
     case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
     case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
     case 'merge.failed': text = `${e.node}: ${e.reason}`; break

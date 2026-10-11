@@ -8,11 +8,12 @@ import { createIntegration, createNodeWorktree, mergeInProgress } from '../src/g
 import { openLog, readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
+import type { SupervisorOptions } from '../src/supervisor.ts'
 import { toAtif } from '../src/trace/atif.ts'
 import { toOtlp } from '../src/trace/otlp.ts'
 import { loadRun } from '../src/trace/run.ts'
 import { INTEGRATOR } from '../src/types.ts'
-import type { Event, GraphFile, NodeSpec } from '../src/types.ts'
+import type { Event, GraphFile, LeadHost, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
@@ -29,7 +30,7 @@ const integrator = (steps: FakeStep[]): GraphFile['agents'] => ({ integrator: { 
 const COMMIT = 'git -c user.name=I -c user.email=i@example.com commit -q --no-edit'
 
 /** Runs `nodes` in a git workspace whose first commit holds `files`. */
-async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string>; agents?: GraphFile['agents']; workspace?: string } = {}) {
+async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string>; agents?: GraphFile['agents']; workspace?: string } & Partial<SupervisorOptions> = {}) {
   const workspace = opts.workspace ?? gitWorkspace('murm-merge-', opts.files)
   const runDir = join(workspace, '.murm', 'runs', 'r1')
   mkdirSync(runDir, { recursive: true })
@@ -39,7 +40,7 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => adapter, createLeadRunner: fakeLeadRunner })
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => adapter, createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent })
   const events = readEvents(runDir)
   const integration = join(runDir, 'integration')
   const prompts = (node: string) => {
@@ -115,6 +116,65 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
     'Merge conflict, sent to the integrator: conflict in f.txt',
     `Merged by integrator at ${mergeDone(events, 'b')?.commit}`,
   ])
+})
+
+test('conflict markers committed by the integrator fail verification; it gets one retry, then the merge is done', async () => {
+  const { integration, outcome, events, state, prompts } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    files: { 'f.txt': 'base\n' },
+    agents: integrator([
+      { sh: `git add f.txt && ${COMMIT}`, result: done('committed') },
+      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} -m fix`, result: done('removed the markers') },
+    ]),
+  })
+  assert.equal(outcome, 'completed')
+  assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
+  assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: conflict markers remain in f\.txt/)
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\nb\n')
+})
+
+test('an integrator that aborts the merge does not get it accepted: after a retry the merge fails', async () => {
+  const abort = { sh: 'git merge --abort', result: done('done, honestly') }
+  const { integration, outcome, events, state } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], { files: { 'f.txt': 'base\n' }, agents: integrator([abort, abort]) })
+  assert.equal(outcome, 'failed')
+  assert.equal(mergeDone(events, 'b'), undefined)
+  assert.equal(state.nodes.get('b')!.reason, 'merge failed: not verified after a retry: branch murm/r1.b is not merged')
+  assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\n')
+})
+
+test('a queued node with a message resumes its worker before merging; once merged, messages to it are refused', async () => {
+  const sendTo = (callId: string) => ({ tool: 'send' as const, to: 'w', body: `Message ${callId}.`, mode: 'queue' as const })
+  let host: LeadHost
+  const refused: string[] = []
+  let queued = 0
+  const steps: FakeLeadStep[] = [
+    { calls: [{ tool: 'spawn', children: [{ id: 'w', kind: 'work', agent: 'claude', brief: `W.\n${fakePlan([
+      { write: { 'w.txt': 'old\n' }, result: done('wrote old') },
+      { write: { 'w.txt': 'corrected\n' }, result: done('wrote corrected') },
+    ])}` }] }] },
+    { calls: [{ tool: 'complete', summary: 'ok' }] },
+  ]
+  const { integration, outcome, events, state, prompts } = await runGraph([{ id: 'lead', kind: 'lead', brief: `Lead.\n${fakeLeadPlan(steps)}` }], {
+    createLeadRunner: (o) => ((host = o.host), fakeLeadRunner(o)),
+    onEvent: (e) => {
+      if (e.type === 'merge.queued' && ++queued === 1) host.act('lead', 'early', sendTo('early'))
+      if (e.type === 'merge.done') refused.push(host.act('lead', 'late', sendTo('late')))
+    },
+  })
+  assert.equal(outcome, 'completed')
+  const w = state.nodes.get('w')!
+  assert.deepEqual(w.turns.map((t) => t.mode), ['start', 'resume'])
+  assert.match(prompts('w')[1], /^Message from lead:\nMessage early\./)
+  assert.deepEqual(events.filter((e) => e.type.startsWith('merge.') && 'node' in e && e.node === 'w').map((e) => e.type),
+    ['merge.queued', 'merge.withdrawn', 'merge.queued', 'merge.done'])
+  assert.equal(readFileSync(join(integration, 'w.txt'), 'utf8'), 'corrected\n')
+  assert.deepEqual(refused, ['refused: w is already completed'])
 })
 
 test('a check that fails after a clean merge goes to the integrator, which fixes it on top of the merge', async () => {

@@ -170,7 +170,7 @@ export function toOtlp(run: LoadedRun): object {
           'langfuse.observation.output': e.output,
           'murm.check.exit_code': e.exitCode,
         }, e.exitCode === 0 ? undefined : `exit code ${e.exitCode}`)
-      } else if (e.type === 'merge.queued' || e.type === 'merge.conflict' || e.type === 'merge.done' || e.type === 'merge.failed') {
+      } else if (e.type === 'merge.queued' || e.type === 'merge.withdrawn' || e.type === 'merge.conflict' || e.type === 'merge.done' || e.type === 'merge.failed') {
         const { type, node: _, seq, at, ...details } = e
         const problem = e.type === 'merge.conflict' || e.type === 'merge.failed' ? e.reason : undefined
         span(`merge/${spec.id}/${seq}`, nodeSpan, type, 'span', at, at,
