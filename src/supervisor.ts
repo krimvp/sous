@@ -114,6 +114,7 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
     case 'complete':
     case 'fail':
       if (live.length) return `children still pending or running: ${live.join(', ')}`
+      if (lead.inbox.length) return `messages for ${node} are waiting and will be delivered next`
       return call.tool === 'complete' ? text(call.summary, 'summary') : text(call.reason, 'reason')
     case 'escalate':
       return text(call.question, 'question')
@@ -144,6 +145,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const inFlight = new Map<string, { spec: NodeSpec; done: Promise<void> }>()
   // Live process groups, so a stop request can reach them; `turn` is absent for shell checks.
   const groups = new Map<number, { node: string; turn?: number }>()
+  // Acceptance checks stopped because their worker got an urgent message, with the reason.
+  const interruptedChecks = new Map<number, string>()
   let stopping = false
   // Every group the supervisor stops is awaited until it is gone, so no process outlives its turn or check.
   const terminations = new Map<number, Promise<void>>()
@@ -277,11 +280,15 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       child.stderr.on('data', keep)
       if (child.pid) groups.set(child.pid, { node })
       const finish = async (exitCode: number | null) => {
+        let output = tail.toString('utf8')
         if (child.pid) {
           groups.delete(child.pid)
           await terminate(child.pid) // background processes the command left behind
+          const why = interruptedChecks.get(child.pid)
+          interruptedChecks.delete(child.pid)
+          if (why) output += `${output && !output.endsWith('\n') ? '\n' : ''}interrupted: ${why}\n`
         }
-        resolve({ exitCode, output: tail.toString('utf8') })
+        resolve({ exitCode, output })
       }
       child.on('error', (err) => {
         keep(Buffer.from(String(err)))
@@ -396,17 +403,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (spec.command) {
         const c = await check(spec.id, spec.command)
         if (stopping || isFinal(nodeNow(spec.id))) return
+        // Messages that arrived during the check come first (an urgent one stopped the check); no fix round is spent.
+        inbox = nodeNow(spec.id).inbox
+        if (inbox.length) {
+          prompt = inboxPrompt(inbox)
+          continue
+        }
         if (c.exitCode !== 0) {
           if (fixRounds === MAX_FIX_ROUNDS) {
             return fail(spec.id, `acceptance check still fails after ${MAX_FIX_ROUNDS} fix rounds (exit ${c.exitCode})`)
           }
           fixRounds++
           prompt = fixPrompt(spec.command, c.exitCode, c.output)
-          continue
-        }
-        inbox = nodeNow(spec.id).inbox
-        if (inbox.length) {
-          prompt = inboxPrompt(inbox)
           continue
         }
       }
@@ -444,6 +452,12 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         const n = state.nodes.get(g.node)!
         const urgent = n.inbox.find((m) => m.mode === 'interrupt')
         if (!isFinal(n) && !urgent) continue
+        if (g.turn === undefined && !isFinal(n)) {
+          // The worker's acceptance check: stop it, and the worker resumes with the message.
+          if (!interruptedChecks.has(pid)) interruptedChecks.set(pid, `message from ${urgent!.from}`)
+          void terminate(pid)
+          continue
+        }
         const t = n.turns.find((t) => t.number === g.turn)
         if (t && !t.interrupted && !t.ended) {
           const reason = isFinal(n) ? n.reason ?? 'node finished' : `message from ${urgent!.from}`

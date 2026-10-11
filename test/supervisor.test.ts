@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { openLog, readEvents } from '../src/log.ts'
+import type { EventBody } from '../src/types.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
@@ -15,13 +16,14 @@ import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 
-async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}) {
+async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = []) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-ws-'))
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
   const log = openLog(runDir)
   log.append({ type: 'run.created', goal: 'test goal', workspace })
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
+  for (const body of more) log.append(body)
   log.close()
   const sessions = join(workspace, 'sessions')
   const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => fakeAdapter(sessions), graceMs, ...extra })
@@ -145,12 +147,12 @@ const lead = (steps: FakeLeadStep[], extra: Partial<NodeSpec> = {}): NodeSpec =>
   ({ id: 'lead', kind: 'lead', brief: `Lead the test goal.\n${fakeLeadPlan(steps)}`, ...extra })
 
 /** Runs one top-level lead with the scripted fake lead runner; `onHost` gets the host and every event. */
-async function runLead(steps: FakeLeadStep[], onEvent?: (e: Event, host: LeadHost) => void) {
+async function runLead(steps: FakeLeadStep[], onEvent?: (e: Event, host: LeadHost) => void, more: EventBody[] = []) {
   let host: LeadHost
   return runGraph([lead(steps)], undefined, {
     createLeadRunner: (o) => ((host = o.host), fakeLeadRunner(o)),
     onEvent: onEvent && ((e) => onEvent(e, host)),
-  })
+  }, more)
 }
 
 const delivered = (events: Event[], node = 'lead') =>
@@ -187,7 +189,7 @@ test('a lead spawns two workers, gets both outcomes, completes, and the run comp
   ])
 })
 
-test('policy refuses a fourth lead level, completing with a running child and sending to a non-child', async () => {
+test('policy refuses a lead with a command, a fourth lead level, completing with a running child and sending to a non-child', async () => {
   const leaf = fakeLeadPlan([{ calls: [
     { tool: 'spawn', children: [{ id: 'l4', kind: 'lead', brief: 'too deep' }] },
     { tool: 'complete', summary: 'l3 done' },
@@ -199,12 +201,14 @@ test('policy refuses a fourth lead level, completing with a running child and se
   const { outcome, events, state } = await runLead([
     { calls: [
       { tool: 'spawn', children: [{ id: 'l2', kind: 'lead', brief: `Second level.\n${mid}`, model: 'other/model' }] },
+      { tool: 'spawn', children: [{ id: 'gate', kind: 'lead', brief: 'Gate.', command: 'true' }] },
       { tool: 'complete', summary: 'too early' },
     ] },
     { calls: [{ tool: 'send', to: 'l3', body: 'hi', mode: 'queue' }, { tool: 'complete', summary: 'all done' }] },
   ])
   assert.equal(outcome, 'completed')
   assert.deepEqual(calls(events).filter((c) => !c.ok).map((c) => [c.node, c.call.tool, c.result]), [
+    ['lead', 'spawn', 'refused: child gate: leads have no command; spawn a check child for a deterministic gate'],
     ['lead', 'complete', 'refused: children still pending or running: l2'],
     ['l3', 'spawn', 'refused: child l4: leads may nest at most 3 deep'],
     ['lead', 'send', 'refused: lead may send only to its children or to person'],
@@ -274,4 +278,49 @@ test('an idle lead gets two reminders and then fails', async () => {
   assert.deepEqual(delivered(events).map((d) => d.requestId), ['lead:brief', turns[0], turns[1]])
   assert.match(delivered(events)[2].text, /^Reminder 2 of 2/)
   assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
+})
+
+test('a lead may not complete while a message for it waits; the message is delivered next', async () => {
+  // A runner that lets the lead answer its brief at once, before the waiting message is delivered.
+  const { outcome, events } = await runGraph([lead([{}, { calls: [{ tool: 'complete', summary: 'done with the extra requirement' }] }])], undefined, {
+    createLeadRunner: (o) => {
+      const runner = fakeLeadRunner(o)
+      return { ...runner, deliver(node, text, opts) {
+        if (opts.requestId === 'lead:brief') o.host.act(node, 'early', { tool: 'complete', summary: 'too early' })
+        return runner.deliver(node, text, opts)
+      } }
+    },
+  }, [{ type: 'message', from: 'person', to: 'lead', body: 'Also add tests.', mode: 'queue' }])
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(calls(events).map((c) => [c.ok, c.result]), [
+    [false, 'refused: messages for lead are waiting and will be delivered next'],
+    [true, 'completed'],
+  ])
+  assert.equal(delivered(events)[1].text, 'Message from person:\nAlso add tests.')
+})
+
+test("an interrupt send during a worker's acceptance check stops the check and resumes the worker", async () => {
+  const started = Date.now()
+  const { outcome, state, sessions } = await runLead([
+    { calls: [{ tool: 'spawn', children: [{
+      id: 'w', kind: 'work', command: 'test -f redirected.txt || { touch check-started; sleep 30; }',
+      brief: `Work.\n${fakePlan([{ result: done('first') }, { write: { 'redirected.txt': 'x' }, result: done('redirected') }])}`,
+    }] }] },
+    { calls: [{ tool: 'complete', summary: 'ok' }] },
+  ], (e, host) => {
+    if (e.type !== 'turn.started' || e.node !== 'w' || e.turn !== 1) return
+    const marker = join(e.outFile, '../../../../check-started') // <workspace>/run/nodes/w/turn-1.jsonl
+    const poll = setInterval(() => {
+      if (!existsSync(marker)) return
+      clearInterval(poll)
+      host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
+    }, 20)
+  })
+  assert.equal(outcome, 'completed')
+  assert.ok(Date.now() - started < 15_000)
+  const w = state.nodes.get('w')!
+  assert.deepEqual(w.turns.map((t) => [t.mode, t.check?.exitCode]), [['start', null], ['resume', 0]])
+  assert.match(w.turns[0].check!.output, /interrupted: message from lead/)
+  const session = JSON.parse(readFileSync(join(sessions, `${w.turns[0].sessionId}.json`), 'utf8'))
+  assert.match(session.prompts[1], /^Message from lead:\nChange of plan\./)
 })

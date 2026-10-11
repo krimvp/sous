@@ -26,3 +26,8 @@ test('rejects a check without a command and a work node without a brief', () => 
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 't', kind: 'check' }] }), /node t: check nodes need a command/)
   assert.throws(() => validateGraph({ goal: 'g', harness: 'pi', nodes: [{ id: 'w', kind: 'work' }] }), /node w: work nodes need a brief/)
 })
+
+test('rejects a command on a lead: deterministic gates are check nodes', () => {
+  const graph = { goal: 'g', nodes: [{ id: 'l', kind: 'lead', brief: 'lead it', command: 'true' }] }
+  assert.throws(() => validateGraph(graph), /node l: leads have no command; add a check node for a deterministic gate/)
+})
