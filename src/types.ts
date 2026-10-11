@@ -56,6 +56,10 @@ export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
 
+/** Node ID and agent name reserved for the run's splitter: when the run defines an agent with this name (on a CLI
+ * harness), it proposes how each lead splits its task before the lead receives its brief. */
+export const SPLITTER = 'splitter'
+
 /** The runtimes leads may define agents on, and the models they may choose there (the first is the default): for a
  * new agent, or as a `ChildSpec.model` override of a named agent. A runtime without a list gets no agent defined and
  * no model chosen by a lead. Models the person sets (agent definitions, node models) are not limited. Lists for `pi`
@@ -231,8 +235,9 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 
 export type EventBody =
   /** `maxDepth`: how deep leads may nest in this run (`sous run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
-   * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number }
+   * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`.
+   * `approveSplits`: the person approves each split the splitter proposes before its lead receives it. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
@@ -272,6 +277,12 @@ export type EventBody =
   | { type: 'merge.done'; node: string; commit: string; by: 'supervisor' | 'integrator' | 'nothing' }
   /** The integrator could not merge it; the node fails and its parent is told. */
   | { type: 'merge.failed'; node: string; reason: string }
+  /** Lead `node` is ready and the run has a splitter: it waits for a proposed split before its brief. */
+  | { type: 'split.requested'; node: string }
+  /** The splitter's proposal for lead `node`, valid as a spawn when it was made; the lead's brief carries it. */
+  | { type: 'split.proposed'; node: string; parts: ChildSpec[]; summary: string }
+  /** No valid proposal for lead `node`; it splits its task on its own. */
+  | { type: 'split.failed'; node: string; reason: string }
   | { type: 'run.completed'; summary: string }
   | { type: 'run.failed'; reason: string }
 

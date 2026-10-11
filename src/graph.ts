@@ -1,7 +1,7 @@
 // Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
 import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
-import { INTEGRATOR, PERSON, ROOT } from './types.ts'
+import { INTEGRATOR, PERSON, ROOT, SPLITTER } from './types.ts'
 import type { AgentRuntime, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
 
 const KINDS: string[] = ['work', 'check', 'lead', 'gate']
@@ -12,7 +12,7 @@ const NEW_AGENT_KEYS = ['name', 'runs', 'model', 'instructions']
 // Pi and lead models are named `provider/model`.
 const PROVIDER_MODEL = /^[^/\s]+\/\S+$/
 const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'agent', 'model']
-const RESERVED = [ROOT, PERSON, INTEGRATOR]
+const RESERVED = [ROOT, PERSON, INTEGRATOR, SPLITTER]
 // IDs name directories under nodes/, so keep them to safe file-name characters.
 const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
 
@@ -101,6 +101,7 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
       for (const key of ['model', 'instructions'] as const) {
         if (agent[key] !== undefined && typeof agent[key] !== 'string') throw new Error(`${where}: ${key} must be a string`)
       }
+      if (name === SPLITTER && agent.runs === 'lead') throw new Error(`${where}: the splitter runs a CLI harness (claude, codex or pi), not lead`)
     }
   }
   if (raw.models !== undefined) {
@@ -155,7 +156,9 @@ function newAgentError(defs: Definitions | undefined, kind: string, d: Record<st
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   const extra = Object.keys(d).filter((k) => !NEW_AGENT_KEYS.includes(k))
   if (extra.length) return `agent: unknown field ${extra.join(', ')}`
-  if (typeof d.name !== 'string' || !ID.test(d.name) || d.name === INTEGRATOR) return `agent.name must match ${ID} and not be ${INTEGRATOR}`
+  if (typeof d.name !== 'string' || !ID.test(d.name) || d.name === INTEGRATOR || d.name === SPLITTER) {
+    return `agent.name must match ${ID} and not be ${INTEGRATOR} or ${SPLITTER}`
+  }
   if (agentSpec(defs, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
   if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
   if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'

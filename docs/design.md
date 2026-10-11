@@ -175,7 +175,8 @@ events in `src/types.ts`.
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
-Agents). A lead's first delivery is its brief, with request ID `<node>:brief`.
+Agents). A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
+waits for the lead's proposed split and carries it (see Splitting).
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
 before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
@@ -215,7 +216,8 @@ reminders without progress the lead fails.
 
 **The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
-`<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event.
+`<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event
+(`sous approve` also releases a lead whose proposed split waits for the person; see Splitting).
 The supervisor stays the only writer of the log.
 
 **Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
@@ -227,6 +229,47 @@ told). A gate takes no messages, and a lead waiting only on a gate is not remind
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
+
+## Splitting
+
+A lead both plans (splits its task into children) and coordinates (reacts to their outcomes). A run may give the
+planning to a **splitter**: an agent the graph file or `--agents` file defines under the reserved name `splitter`,
+on a CLI harness (`claude`, `codex` or `pi`; `lead` is rejected at load). Its `instructions` are the splitting
+strategy ("one part per module", "tests first") and its model may differ from the leads': a strong splitter with
+cheap leads. Without a splitter, leads split on their own, as before.
+
+- **When.** A lead that becomes ready (its `needs` complete), top-level or not, gets `split.requested` instead of its
+  brief, so the whole tree splits the same way. The splitter takes requests one at a time, in that order.
+- **The splitter** is the run's second standing node (id `splitter`): created on the first request, resumed in the
+  same session for later ones, never completing, not counted toward the run's completion. Each request is a
+  `message` from `supervisor` with what the lead will know: its task, acceptance criteria and notes, the agents and
+  models its children may use, its depth, the IDs already taken, and the file to write.
+- **It reads the code.** It works in its own worktree `worktrees/splitter/` (branch `sous/<run>.splitter`), reset to
+  the head of the integration branch before each request (`git reset --hard`, `git clean -fd`). It sees the work
+  merged so far, and nothing it writes reaches the run: it is told to change nothing, and the reset makes that safe
+  without per-agent tool limits.
+- **The proposal** is `{"parts": [ChildSpec, …]}`, written to `<runDir>/splits/<lead>.json`, then a `done` result
+  whose summary describes the split. The supervisor checks it exactly as it checks the lead's `spawn` (kinds,
+  briefs, IDs, `needs`, agents, models, depth, children per lead); an invalid proposal goes back to the splitter
+  once, with the reason. A valid one is recorded as `split.proposed` (parts and summary). Otherwise `split.failed`
+  records why: no valid proposal after the retry, the splitter `blocked` or `needs_input`, its agent not available,
+  or the workspace not a git repository.
+- **Advisory.** The lead's brief ends with the proposal as JSON ("spawn these children as they are, adjust them,
+  or split differently") or with why there is none. The lead acts through its normal `spawn` calls, under every
+  usual limit; nothing is spawned for it. Proposals for sibling leads are each checked when made, so their IDs may
+  collide; the later `spawn` is refused and that lead adjusts.
+- **Approval.** With `sous run --approve-splits` (`run.created.approveSplits`; an error without a splitter), a
+  proposed split goes to the person as a message from its lead, and the lead is `waiting` until the person
+  answers: `sous approve <lead>` sends "The person approved the proposed split.", `sous answer <lead> "…"` sends
+  changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
+  failed split needs no approval.
+- **Recovery** is the integrator's: a splitter turn a supervisor stop cut short resumes its session with a recovery
+  note that repeats the split's request (the cut turn may have stopped before the splitter read it); a turn that ended
+  before the stop is settled from its result and its file without running again. Cancelling a lead stops the
+  splitter turn working on its split.
+- **Traces.** `split.requested`, `split.proposed` (with its parts) and `split.failed` are system steps in the lead's
+  ATIF trajectory, before its brief, and a `split` span under the lead in Langfuse, so a run shows what was proposed
+  beside what the lead spawned. The splitter is its own trajectory under the root.
 
 ## Agents
 
@@ -241,12 +284,12 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
   Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
-  children may name, those leads defined so far included, with each one's runtime when it differs from its name.
+  children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
   `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the runtime: `runs` must be a runtime
   the run lists models for (see Model limits), and `model` one of them, by default the first. The agent has exactly
   the instructions the lead gives; nothing is inherited. `name` is a valid id that no built-in, defined or
-  lead-defined agent has, and not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically
+  lead-defined agent has, and not `integrator` or `splitter`. The accepted `lead.call` spawn defines it in the fold, atomically
   with its child, and it exists for the rest of the run: any later spawn, by any lead, may name it. Kind rules are
   unchanged: a lead child needs `runs: 'lead'`, a work child another runtime, and the runtime must be available.
   Leads may still name any existing agent as it is. Status, ATIF and OTLP show the agent by its name.
@@ -264,7 +307,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   graph file is an error (put agents in the graph file).
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
-  between them, and never completes on its own. The integrator is the first one; later, agents outside the
+  between them, and never completes on its own. The integrator and the splitter are the first ones; later, agents outside the
   run (for example over Comitia) can take this role.
 
 ## Merging
@@ -273,7 +316,7 @@ Every `work` node runs in its own git worktree, so work nodes run in parallel (u
 must be a git repository with at least one commit; when it is not, the run fails with that reason before the first
 work or check node starts.
 
-1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
+1. **Integration branch.** Before the first work or check node starts (or the first split), the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`
    (`integration.created`). `.sous/` is added to the repository's `.git/info/exclude`. The person's own
    checkout is never touched.
@@ -442,7 +485,8 @@ run or an older one.
     turn-<k>.err       raw stderr
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git worktree of branch sous/<run-id>, where merges and check nodes run
-  worktrees/<node-id>/ git worktree of branch sous/<run-id>.<node-id> for a work node
+  worktrees/<node-id>/ git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
+  splits/<lead-id>.json the splitter's proposal for a lead
   trace.atif.json      written by sous export atif
 ```
 
@@ -462,6 +506,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 | **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
+| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits` | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -502,6 +547,20 @@ Pi with the lead's instructions in its prompt, the work merged, the check passed
 accepted the ATIF file. A lead choosing a non-default listed model, and `--max-depth`, are covered by
 fake-runner tests only.
 
+v5 was verified on 2026-10-11 with two real runs (leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi). In the
+first, a splitter on Claude (`haiku`) with the strategy "one work part per file, then one check" read a two-module
+repository and proposed two work parts and a check whose briefs followed the files' style (ESM, no semicolons); with
+`--approve-splits` the run waited until `sous approve lead`, the lead spawned the proposal as it was, both parts
+merged and the check passed. Harbor's validator accepted the exported ATIF file apart from its schema version (the
+installed Harbor knows ATIF up to v1.7). In the second, a splitter on Codex proposed two lead parts for the top-level
+lead; that lead spawned them, added a note and a check of its own, and each sub-lead then received its own split from
+the same splitter session (turns 2 and 3 resumed it) and completed. In the first run the splitter also ran `mkdir -p`
+one directory too high, leaving an empty `.sous/runs/splits/`, which `sous status` and `sous approve` then took for the
+latest run; only directories with an event log count as runs since, and the request says the proposal's directory
+exists. A splitter turn cut short by a supervisor stop, an invalid proposal and the fallbacks are covered by
+fake-harness tests only.
+
 ## Open questions
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
+- Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.

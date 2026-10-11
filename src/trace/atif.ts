@@ -168,6 +168,12 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       add({ source: 'system', timestamp: e.at, message: e.by === 'nothing' ? 'Nothing to merge: the branch has no changes' : `Merged by ${e.by} at ${e.commit}`, extra: { commit: e.commit, by: e.by } })
     } else if (e.type === 'merge.failed') {
       add({ source: 'system', timestamp: e.at, message: `Merge failed: ${e.reason}` })
+    } else if (e.type === 'split.requested') {
+      add({ source: 'system', timestamp: e.at, message: 'Split requested from the splitter' })
+    } else if (e.type === 'split.proposed') {
+      add({ source: 'system', timestamp: e.at, message: `Split proposed by the splitter: ${e.summary}`, extra: { parts: e.parts } })
+    } else if (e.type === 'split.failed') {
+      add({ source: 'system', timestamp: e.at, message: `No split proposed: ${e.reason}` })
     } else if (e.type === 'node.failed') {
       add({ source: 'system', timestamp: e.at, message: `Node failed: ${e.reason}` })
     } else if (e.type === 'node.cancelled') {

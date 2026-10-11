@@ -3,8 +3,8 @@ import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
 import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
-/** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
- * waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
+/** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
+ * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
  * between requests. */
 export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'merging' | 'idle' | 'completed' | 'failed'
 
@@ -54,6 +54,18 @@ export interface MergeState {
   conflict?: { seq: number; reason: string; files: string[]; onto: string }
 }
 
+/** A lead's split, proposed by the run's splitter before the lead's brief. */
+export interface SplitState {
+  /** Seq of its `split.requested`: the order in which the splitter takes requests. */
+  seq: number
+  status: 'requested' | 'proposed' | 'failed'
+  /** Seq of the `split.proposed` or `split.failed`. */
+  endSeq?: number
+  parts?: ChildSpec[]
+  summary?: string
+  reason?: string
+}
+
 export interface NodeState {
   spec: NodeSpec
   status: NodeStatus
@@ -81,12 +93,16 @@ export interface NodeState {
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
   escalated: boolean
+  /** Leads, in a run with a splitter: the split proposed for it. */
+  split?: SplitState
 }
 
 export interface RunState {
   goal: string
   /** How deep leads may nest in this run. */
   maxDepth: number
+  /** The person approves each proposed split before its lead receives it. */
+  approveSplits: boolean
   workspace: string
   graph?: GraphFile
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
@@ -107,6 +123,10 @@ export interface RunState {
 export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' || n?.status === 'failed'
 
 export const callKey = (node: string, callId: string) => `${node}\n${callId}`
+
+/** A lead whose proposed split waits for the person: `sous approve` or `sous answer` releases it. */
+export const awaitsSplitApproval = (lead: NodeState) =>
+  lead.spec.kind === 'lead' && !lead.delivered.length && lead.split?.status === 'proposed' && lead.status === 'waiting'
 
 /** The node a lead's child becomes; a child that defines an agent names it. A child lead that names no agent gets its
  * parent's agent and model; a work child that names none gets the default worker when it starts. */
@@ -147,7 +167,7 @@ export function childrenOf(state: RunState, id: string | undefined): NodeState[]
 
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
-    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, workspace: '', agents: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
+    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
@@ -184,7 +204,7 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH })
+        Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
         state.agents = { agent, agents: registry(agents), models }
         break
       }
@@ -267,6 +287,19 @@ export function fold(events: readonly Event[]): RunState {
         else if (call.tool === 'escalate') lead.escalated = true
         break
       }
+      case 'split.requested': {
+        const node = state.nodes.get(e.node)
+        if (node) node.split = { seq: e.seq, status: 'requested' }
+        break
+      }
+      case 'split.proposed':
+      case 'split.failed': {
+        const split = state.nodes.get(e.node)?.split
+        if (split) Object.assign(split, e.type === 'split.proposed'
+          ? { status: 'proposed', endSeq: e.seq, parts: e.parts, summary: e.summary }
+          : { status: 'failed', endSeq: e.seq, reason: e.reason })
+        break
+      }
       case 'integration.created':
         state.integration = { branch: e.branch, path: e.path }
         break
@@ -308,6 +341,8 @@ export function fold(events: readonly Event[]): RunState {
     if (node.spec.standing) node.status = node.inbox.length || (last && !last.ended) ? 'running' : 'idle'
     else if (node.merge) node.status = 'merging'
     else if (node.spec.kind === 'lead' && node.delivered.length) node.status = node.escalated ? 'waiting' : 'running'
+    // Before its brief, a lead's only message to the person is its split for approval.
+    else if (node.spec.kind === 'lead' && node.split) node.status = state.questions.some((q) => q.from === node.spec.id) ? 'waiting' : 'running'
     // A gate's approval request is its question to the person; the person never messages a gate.
     else if (node.spec.kind === 'gate' && state.questions.some((q) => q.from === node.spec.id)) node.status = 'waiting'
     else if (last?.ended && last.result && last.result.status !== 'done') node.status = 'waiting'

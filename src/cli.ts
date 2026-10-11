@@ -6,11 +6,11 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, hasSplitter, whyUnavailable } from './agents.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
-import { eventMessage, fold, isFinal } from './state.ts'
+import { awaitsSplitApproval, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
@@ -20,7 +20,7 @@ import { PERSON } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
-  sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
+  sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
   sous resume [run-id] [--workspace <dir>]
   sous status [run-id] [--workspace <dir>]
   sous answer <node> "text" [--workspace <dir>]
@@ -39,7 +39,9 @@ export interface CliDeps {
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' } } })
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: {
+      workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
+    } })
   } catch (err) {
     console.error(`${(err as Error).message}\n${USAGE}`)
     return 2
@@ -56,7 +58,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
           console.error('sous: --max-depth must be a whole number from 1 to 8')
           return 2
         }
-        return await run(args[0], workspace, deps, maxDepth, parsed.values.agents)
+        return await run(args[0], workspace, deps, { maxDepth, agentsFile: parsed.values.agents, approveSplits: parsed.values['approve-splits'] })
       }
       case 'resume':
         if (args.length > 1) break
@@ -85,12 +87,14 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
  * agent definitions of `agentsFile`, if given. */
-async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: number, agentsFile?: string): Promise<number> {
+async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
+  const { maxDepth, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
   if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
   const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
+  if (approveSplits && !hasSplitter(graph)) throw new Error('--approve-splits needs a splitter: define an agent named splitter')
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.sous', 'runs', id)
@@ -102,7 +106,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: num
   const unavailable = await agents(graph, deps)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}) })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}) })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -149,13 +153,17 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
   return unavailable
 }
 
-/** Prints one line per event, every message to the person as a question to answer, and every gate's request.
- * `past` are the events already in the log, which this does not print. */
+/** Prints one line per event, every message to the person as a question to answer, and every gate's or proposed
+ * split's request. `past` are the events already in the log, which this does not print. */
 function printer(past: Event[] = []): (e: Event) => void {
   const nodes = new Map<string, { parent?: string; kind: string }>()
+  // Leads whose proposed split came before their brief: their message to the person asks for its approval.
+  const proposed = new Set<string>()
   const track = (e: Event) => {
     if (e.type === 'node.added') nodes.set(e.node.id, e.node)
     if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) nodes.set(c.id, { parent: e.node, kind: c.kind })
+    if (e.type === 'split.proposed') proposed.add(e.node)
+    if (e.type === 'lead.delivered') proposed.delete(e.node)
   }
   past.forEach(track)
   return (e) => {
@@ -164,12 +172,16 @@ function printer(past: Event[] = []): (e: Event) => void {
     const m = eventMessage(e, (id) => nodes.get(id)?.parent)
     if (m?.to !== PERSON) return
     if (nodes.get(m.from)?.kind === 'gate') console.log(`\n${approvalText(m.from, m.body)}\n`)
+    else if (proposed.has(m.from)) console.log(`\n${splitApprovalText(m.from, m.body)}\n`)
     else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: sous answer ${m.from} "<answer>"\n`)
   }
 }
 
 const approvalText = (gate: string, body: string) =>
   `Approval requested by ${gate}:\n${body}\nApprove with: sous approve ${gate}, or reject with: sous cancel ${gate}`
+
+const splitApprovalText = (lead: string, body: string) =>
+  `${body}\nApprove with: sous approve ${lead}, or give ${lead} changes with: sous answer ${lead} "<changes>"`
 
 function printEvent(e: Event): void {
   const time = e.at.slice(11, 19)
@@ -199,16 +211,20 @@ function printEvent(e: Event): void {
     case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
     case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
     case 'merge.failed': text = `${e.node}: ${e.reason}`; break
+    case 'split.requested': text = `${e.node} waits for the splitter`; break
+    case 'split.proposed': text = `${e.node}: ${e.parts.map((p) => p.id).join(', ')}: ${e.summary}`; break
+    case 'split.failed': text = `${e.node}: ${e.reason}`; break
     case 'run.completed': text = e.summary; break
     case 'run.failed': text = e.reason; break
   }
   console.log(`${time} ${e.type.padEnd(16)} ${oneLine(text)}`)
 }
 
-/** The run directory for `runId`, or the latest run. */
+/** The run directory for `runId`, or the latest run. Only directories with an event log are runs: an agent may leave
+ * something else there. */
 function findRun(workspace: string, runId?: string): { id: string; runDir: string } {
   const runsDir = join(workspace, '.sous', 'runs')
-  const ids = existsSync(runsDir) ? readdirSync(runsDir).sort() : []
+  const ids = existsSync(runsDir) ? readdirSync(runsDir).filter((id) => existsSync(join(runsDir, id, 'events.jsonl'))).sort() : []
   const id = runId ?? ids.at(-1)
   if (!id || !ids.includes(id)) throw new Error(runId ? `no run ${runId} in ${runsDir}` : `no runs in ${runsDir}`)
   return { id, runDir: join(runsDir, id) }
@@ -247,16 +263,20 @@ function status(workspace: string, runId?: string): number {
   return 0
 }
 
-/** Questions and gate approvals waiting for the person. */
+/** Questions, gate approvals and proposed splits waiting for the person. */
 function printPending(state: RunState): void {
   const open = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
   const isGate = (q: { from: string }) => state.nodes.get(q.from)?.spec.kind === 'gate'
-  const questions = open.filter((q) => !isGate(q))
+  const isSplit = (q: { from: string }) => awaitsSplitApproval(state.nodes.get(q.from)!)
+  const questions = open.filter((q) => !isGate(q) && !isSplit(q))
   const gates = open.filter(isGate)
+  const splits = open.filter(isSplit)
   if (questions.length) console.log('questions for you (sous answer <node> "<answer>"):')
   for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
   if (gates.length) console.log('approvals for you (sous approve <node>, or sous cancel <node> to reject):')
   for (const q of gates) console.log(`  ${q.from}: ${oneLine(q.body)}`)
+  if (splits.length) console.log('splits for you to approve (sous approve <lead>, or sous answer <lead> "<changes>"):')
+  for (const q of splits) console.log(`  ${q.from}: ${oneLine(q.body)}`)
 }
 
 /** Hand a person's answer, approval or cancel to the run's supervisor through a command file. */
@@ -267,8 +287,10 @@ function sendCommand(workspace: string, cmd: PersonCommand): number {
   if (isFinal(node)) throw new Error(`node ${cmd.node} is already ${node.status}`)
   const gate = node.spec.kind === 'gate'
   if (cmd.type === 'answer' && gate) throw new Error(`node ${cmd.node} is a gate: approve it with sous approve, or reject it with sous cancel`)
-  if (cmd.type === 'approve' && !gate) throw new Error(`node ${cmd.node} is not a gate`)
-  if (cmd.type === 'approve' && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
+  if (cmd.type === 'approve' && !gate && !awaitsSplitApproval(node)) {
+    throw new Error(node.spec.kind === 'lead' ? `lead ${cmd.node} has no proposed split waiting for approval` : `node ${cmd.node} is not a gate or a lead`)
+  }
+  if (cmd.type === 'approve' && gate && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
   const dir = join(runDir, 'commands')
   const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)
