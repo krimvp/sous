@@ -125,3 +125,23 @@ export function abortMerge(path: string): void {
 export function head(path: string): string {
   return git(path, ['rev-parse', 'HEAD'])
 }
+
+/** When HEAD is the merge commit of `branch` (a merge that finished before a supervisor stop), the commit it
+ * merged onto. */
+export function mergedOnto(path: string, branch: string): string | undefined {
+  const second = run(path, ['rev-parse', '-q', '--verify', 'HEAD^2'])
+  if (second.status !== 0 || second.stdout.trim() !== git(path, ['rev-parse', branch])) return undefined
+  return git(path, ['rev-parse', 'HEAD^1'])
+}
+
+/** Whether tracked files have changes that are not committed. */
+export function hasUncommitted(path: string): boolean {
+  return git(path, ['status', '--porcelain', '--untracked-files=no']) !== ''
+}
+
+/** Drop a merge that could not be finished: abort it if in progress, and move the branch back to `commit`. */
+export function resetTo(path: string, commit: string): void {
+  if (mergeInProgress(path)) abortMerge(path)
+  git(path, ['reset', '-q', '--hard', commit])
+  git(path, ['clean', '-q', '-fd'])
+}

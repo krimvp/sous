@@ -3,8 +3,9 @@ import { PERSON } from './types.ts'
 import type { ChildSpec, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
- * waiting for the person's approval. */
-export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'completed' | 'failed'
+ * waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
+ * between requests. */
+export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'merging' | 'idle' | 'completed' | 'failed'
 
 export interface CheckState {
   command: string
@@ -43,9 +44,19 @@ export interface InboxMessage {
   mode: 'queue' | 'interrupt'
 }
 
+/** A work node's place in the merge queue. */
+export interface MergeState {
+  /** Seq of its `merge.queued`: the queue order. */
+  queued: number
+  branch: string
+  /** Set once the merge went to the integrator. */
+  conflict?: { seq: number; reason: string; files: string[]; onto: string }
+}
+
 export interface NodeState {
   spec: NodeSpec
   status: NodeStatus
+  merge?: MergeState
   turns: TurnState[]
   /** Runs of a `check` node's command. */
   checks: CheckState[]
@@ -84,6 +95,8 @@ export interface RunState {
   questions: { seq: number; from: string; body: string }[]
   /** Recorded results of lead tool calls by callKey(node, callId). */
   calls: Map<string, string>
+  /** The run's integration branch, once created. */
+  integration?: { branch: string; path: string }
 }
 
 export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' || n?.status === 'failed'
@@ -238,6 +251,28 @@ export function fold(events: readonly Event[]): RunState {
         else if (call.tool === 'escalate') lead.escalated = true
         break
       }
+      case 'integration.created':
+        state.integration = { branch: e.branch, path: e.path }
+        break
+      case 'merge.queued': {
+        const node = state.nodes.get(e.node)
+        if (node) node.merge = { queued: e.seq, branch: e.branch }
+        break
+      }
+      case 'merge.conflict': {
+        const merge = state.nodes.get(e.node)?.merge
+        if (merge) merge.conflict = { seq: e.seq, reason: e.reason, files: e.files, onto: e.onto }
+        break
+      }
+      // A work node completes, or fails, with its merge.
+      case 'merge.done': {
+        const node = state.nodes.get(e.node)
+        finish(node, 'completed', node?.turns.findLast((t) => t.result)?.result?.summary ?? 'merged', e.seq)
+        break
+      }
+      case 'merge.failed':
+        finish(state.nodes.get(e.node), 'failed', `merge failed: ${e.reason}`, e.seq)
+        break
       case 'run.completed':
         Object.assign(state, { status: 'completed', summary: e.summary })
         break
@@ -249,7 +284,9 @@ export function fold(events: readonly Event[]): RunState {
   for (const node of state.nodes.values()) {
     if (isFinal(node)) continue
     const last = node.turns.at(-1)
-    if (node.spec.kind === 'lead' && node.delivered.length) node.status = node.escalated ? 'waiting' : 'running'
+    if (node.spec.standing) node.status = node.inbox.length || (last && !last.ended) ? 'running' : 'idle'
+    else if (node.merge) node.status = 'merging'
+    else if (node.spec.kind === 'lead' && node.delivered.length) node.status = node.escalated ? 'waiting' : 'running'
     // A gate's approval request is its question to the person; the person never messages a gate.
     else if (node.spec.kind === 'gate' && state.questions.some((q) => q.from === node.spec.id)) node.status = 'waiting'
     else if (last?.ended && last.result && last.result.status !== 'done') node.status = 'waiting'

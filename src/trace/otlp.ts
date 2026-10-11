@@ -92,6 +92,7 @@ export function toOtlp(run: LoadedRun): object {
     'langfuse.observation.input': view.goal,
     'langfuse.observation.output': runOutput,
     'murm.workspace': view.workspace,
+    'murm.result_branch': run.events.find((e) => e.type === 'integration.created')?.branch,
   }, view.end?.type === 'run.failed' ? view.end.reason : undefined)
 
   const addTurn = (nodeId: string, parent: string, t: TurnView, cancelled: boolean) => {
@@ -169,6 +170,11 @@ export function toOtlp(run: LoadedRun): object {
           'langfuse.observation.output': e.output,
           'murm.check.exit_code': e.exitCode,
         }, e.exitCode === 0 ? undefined : `exit code ${e.exitCode}`)
+      } else if (e.type === 'merge.queued' || e.type === 'merge.conflict' || e.type === 'merge.done' || e.type === 'merge.failed') {
+        const { type, node: _, seq, at, ...details } = e
+        const problem = e.type === 'merge.conflict' || e.type === 'merge.failed' ? e.reason : undefined
+        span(`merge/${spec.id}/${seq}`, nodeSpan, type, 'span', at, at,
+          Object.fromEntries(Object.entries(details).map(([key, value]) => [`murm.merge.${key}`, value])), problem, type === 'merge.failed' ? 'ERROR' : 'WARNING')
       } else if (e.type === 'lead.delivered') {
         span(`chain/${spec.id}/${e.requestId}`, nodeSpan, `delivery ${e.requestId}`, 'chain', e.at, e.at, {
           'langfuse.observation.input': e.text,

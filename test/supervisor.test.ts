@@ -9,6 +9,7 @@ import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
 import type { Event, GraphFile, HarnessName, LeadHost, NodeSpec } from '../src/types.ts'
+import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import type { FakeLeadStep } from './fixtures/fake-lead.ts'
@@ -18,7 +19,7 @@ const done = (summary: string) => ({ status: 'done' as const, summary })
 
 /** Runs `nodes` as a graph that defines `agents`. `started` lists the harness and model of every turn started. */
 async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = [], agents?: GraphFile['agents']) {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-ws-'))
+  const workspace = gitWorkspace('murm-ws-')
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
   const log = openLog(runDir)
@@ -43,18 +44,19 @@ const work = (id: string, steps: FakeStep[], extra: Partial<NodeSpec> = {}): Nod
 const promptOf = (sessions: string, node: { turns: { sessionId?: string }[] }, turn = 0): string =>
   JSON.parse(readFileSync(join(sessions, `${node.turns[0].sessionId}.json`), 'utf8')).prompts[turn]
 
-test('a work node then a check node completes the run', async () => {
-  const { workspace, outcome, events, state } = await runGraph([
+test('a work node merges, then a check node checks the merged result, and the run completes', async () => {
+  const { runDir, outcome, events, state } = await runGraph([
     work('build', [{ write: { 'out.txt': 'hello\n' }, result: done('wrote out.txt') }]),
     { id: 'verify', kind: 'check', command: 'grep -q hello out.txt && echo verified', needs: ['build'] },
   ])
   assert.equal(outcome, 'completed')
-  assert.equal(readFileSync(join(workspace, 'out.txt'), 'utf8'), 'hello\n')
+  assert.equal(readFileSync(join(runDir, 'integration', 'out.txt'), 'utf8'), 'hello\n')
   assert.deepEqual(events.map((e) => e.type), [
-    'run.created', 'node.added', 'node.added',
-    'turn.started', 'turn.session', 'turn.ended', 'node.completed',
+    'run.created', 'node.added', 'node.added', 'integration.created', 'worktree.created',
+    'turn.started', 'turn.session', 'turn.ended', 'merge.queued', 'merge.done',
     'check.ended', 'node.completed', 'run.completed',
   ])
+  assert.equal(state.nodes.get('build')?.summary, 'wrote out.txt')
   assert.equal(state.nodes.get('verify')?.checks[0].output, 'verified\n')
   assert.deepEqual(state.nodes.get('build')?.turns[0].result, done('wrote out.txt'))
 })
@@ -117,18 +119,6 @@ test('a turn that keeps running after its result is stopped after the grace peri
   assert.equal(outcome, 'completed')
   assert.ok(Date.now() - started < 10_000)
   assert.equal(state.nodes.get('linger')?.turns[0].signal, 'SIGTERM')
-})
-
-test('work nodes run one at a time while they share the workspace', async () => {
-  const slow = [{ sleepMs: 300, result: done('ok') }]
-  const { outcome, events } = await runGraph([work('w1', slow), work('w2', slow)])
-  assert.equal(outcome, 'completed')
-  const span = (node: string) => {
-    const at = (type: string) => events.find((e) => e.type === type && 'node' in e && e.node === node)!.seq
-    return [at('turn.started'), at('turn.ended')]
-  }
-  const overlap = (a: string, b: string) => span(a)[0] < span(b)[1] && span(b)[0] < span(a)[1]
-  assert.equal(overlap('w1', 'w2'), false)
 })
 
 test("a graph agent's instructions reach its worker's brief, it runs on its harness, and a node's model overrides the agent's", async () => {
@@ -206,7 +196,7 @@ test('a lead spawns two workers, gets both outcomes, completes, and the run comp
   assert.deepEqual([...state.nodes.values()].map((n) => [n.spec.id, n.spec.parent, n.turns[0]?.agent, n.status]), [
     ['lead', undefined, undefined, 'completed'], ['a', 'lead', 'claude', 'completed'], ['b', 'lead', 'claude', 'completed'],
   ])
-  const ended = (id: string) => events.find((e) => e.type === 'node.completed' && e.node === id)!.seq
+  const ended = (id: string) => events.find((e) => e.type === 'merge.done' && e.node === id)!.seq
   assert.deepEqual(delivered(events).map((d) => [d.requestId, d.text.split('\n')[0]]), [
     ['lead:brief', 'You are lead lead, one part of a larger goal.'],
     [`evt-${ended('a')}`, 'Child a completed: wrote a'],
@@ -358,7 +348,7 @@ test("an interrupt send during a worker's acceptance check stops the check and r
     { calls: [{ tool: 'complete', summary: 'ok' }] },
   ], (e, host) => {
     if (e.type !== 'turn.started' || e.node !== 'w' || e.turn !== 1) return
-    const marker = join(e.outFile, '../../../../check-started') // <workspace>/run/nodes/w/turn-1.jsonl
+    const marker = join(e.outFile, '../../../worktrees/w/check-started') // <workspace>/run/nodes/w/turn-1.jsonl
     const poll = setInterval(() => {
       if (!existsSync(marker)) return
       clearInterval(poll)

@@ -234,8 +234,10 @@ export type EventBody =
   | { type: 'worktree.created'; node: string; branch: string; path: string; base: string }
   /** A finished node's branch joined the merge queue. */
   | { type: 'merge.queued'; node: string; branch: string }
-  /** A clean merge failed (conflict, or the check after the merge failed) and went to the integrator. */
-  | { type: 'merge.conflict'; node: string; reason: string; files: string[] }
+  /** The merge needs the integrator: it conflicted (`files`, left in progress in the integration worktree), or the
+   * node's check failed after a clean merge (the merge commit stays). `onto`: the integration commit before the
+   * merge, where a failed merge leaves the branch. */
+  | { type: 'merge.conflict'; node: string; reason: string; files: string[]; onto: string }
   /** The node's work is on the integration branch at `commit`. `nothing` when its branch had no changes. */
   | { type: 'merge.done'; node: string; commit: string; by: 'supervisor' | 'integrator' | 'nothing' }
   /** The integrator could not merge it; the node fails and its parent is told. */
