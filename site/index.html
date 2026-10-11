@@ -66,7 +66,7 @@ a:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
     <ul class="dash">
       <li>A lead agent splits your goal into children: workers, checks, approval gates, or sub-leads that split further.</li>
       <li>Workers run on Claude Code, Codex or Pi, each in its own git worktree.</li>
-      <li>Finished work is merged one branch at a time and checked on the merged result. A merge conflict goes to an agent that resolves it.</li>
+      <li>Finished work is merged one branch at a time; checks you or a lead define run on the merged result. A merge conflict goes to an agent that resolves it.</li>
       <li>Plain code runs all of it and records every step, so a stopped run resumes where it left off.</li>
       <li>The result lands on branch <code>murm/&lt;run&gt;</code>. Your own branch is untouched until you merge it.</li>
     </ul>
@@ -77,13 +77,14 @@ a:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
     <div class="ops">
       <code>murm run "goal"</code><span>let a lead decide the plan</span>
       <code>murm run graph.json</code><span>fixed steps, gates and leads you define in a file</span>
-      <code>--agents agents.json</code><span>name your own agents (harness, model, instructions) and limit the models leads may pick</span>
+      <code>--agents agents.json</code><span>for goal runs: name your own agents (harness, model, instructions) and limit the models leads may pick; graph files carry the same definitions</span>
       <code>--max-depth 4</code><span>let leads nest deeper than the default 3</span>
       <code>murm status</code><span>see the live tree and any questions for you</span>
       <code>murm answer &lt;node&gt; "…"</code><span>reply to a question, or steer a lead mid-run</span>
-      <code>murm approve | cancel &lt;node&gt;</code><span>pass a gate, or stop a node and everything under it</span>
+      <code>murm approve &lt;gate&gt;</code><span>pass an approval gate</span>
+      <code>murm cancel &lt;node&gt;</code><span>stop a node and everything under it, or reject a gate</span>
       <code>murm resume</code><span>continue after Ctrl-C or a crash</span>
-      <code>murm export atif | otlp</code><span>export the run as an ATIF trajectory, or to Langfuse</span>
+      <code>murm export atif</code><span>export the run as an ATIF trajectory (<code>export otlp</code> sends it to Langfuse)</span>
     </div>
   </section>
 
