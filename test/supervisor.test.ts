@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,7 +12,7 @@ import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 
-async function runGraph(nodes: NodeSpec[], endGraceMs?: number) {
+async function runGraph(nodes: NodeSpec[], graceMs?: number) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-ws-'))
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
@@ -21,7 +21,7 @@ async function runGraph(nodes: NodeSpec[], endGraceMs?: number) {
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
   log.close()
   const sessions = join(workspace, 'sessions')
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => fakeAdapter(sessions), endGraceMs })
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => fakeAdapter(sessions), graceMs })
   const events = readEvents(runDir)
   return { workspace, outcome, events, state: fold(events), sessions }
 }
@@ -119,4 +119,19 @@ test('writing nodes run one at a time; read-only nodes run alongside', async () 
   assert.equal(overlap('w1', 'w2'), false)
   assert.equal(overlap('r1', 'r2'), true)
   assert.equal(overlap('w1', 'r1'), true)
+})
+
+const grandchildOf = (sessions: string) =>
+  Number(readFileSync(join(sessions, readdirSync(sessions).find((f) => f.endsWith('.grandchild'))!), 'utf8'))
+
+test('processes a worker leaves behind are stopped before its turn counts as ended', async () => {
+  const { outcome, sessions } = await runGraph([work('bg', [{ spawnSleeper: true, result: done('ok') }])])
+  assert.equal(outcome, 'completed')
+  assert.throws(() => process.kill(grandchildOf(sessions), 0), /ESRCH/)
+})
+
+test('a group that ignores SIGTERM is killed before the supervisor finishes', async () => {
+  const { outcome, sessions } = await runGraph([work('stubborn', [{ spawnSleeper: 'ignore-term', result: done('ok'), lingerMs: 60_000 }])], 200)
+  assert.equal(outcome, 'completed')
+  assert.throws(() => process.kill(grandchildOf(sessions), 0), /ESRCH/)
 })

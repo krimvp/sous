@@ -56,8 +56,8 @@ test('murm run completes a work then check graph and murm status shows it', asyn
   assert.match(status.output(), /^run \S+ completed: write a greeting\n  write completed turns 1: wrote hello.txt\n  test completed/)
 })
 
-test('SIGINT stops the running turn group, grandchildren included, and leaves the run resumable', async () => {
-  const { workspace, graph, sessions } = setup([{ spawnSleeper: true, sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
+test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild included, and leaves the run resumable', async () => {
+  const { workspace, graph, sessions } = setup([{ spawnSleeper: 'ignore-term', sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
   const run = murm(['run', graph], workspace, sessions)
   let grandchild: number | undefined
   for (let i = 0; i < 100 && grandchild === undefined; i++) {
@@ -75,7 +75,7 @@ test('SIGINT stops the running turn group, grandchildren included, and leaves th
   assert.ok(!types.includes('run.failed'))
   const started = events.find((e) => e.type === 'turn.started')!
   assert.throws(() => process.kill(started.type === 'turn.started' ? started.pid : 0, 0), /ESRCH/)
-  await sleep(200)
+  // The supervisor exits only after the group is gone: SIGKILL after the 5 s grace for this grandchild.
   assert.throws(() => process.kill(grandchild!, 0), /ESRCH/)
   assert.equal(existsSync(join(runDirOf(workspace)!, 'lock')), false)
   assert.match(run.output(), /can be resumed later/)

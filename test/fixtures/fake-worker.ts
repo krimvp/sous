@@ -9,8 +9,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 export interface FakeStep {
   /** Files to write, relative to the working directory. */
   write?: Record<string, string>
-  /** Start a grandchild `sleep` and write its pid to <session file>.grandchild. */
-  spawnSleeper?: boolean
+  /** Start a grandchild `sleep` (optionally ignoring SIGTERM) and write its pid to <session file>.grandchild. */
+  spawnSleeper?: boolean | 'ignore-term'
   /** Sleep before printing the result. */
   sleepMs?: number
   result?: { status: 'done' | 'blocked' | 'needs_input'; summary: string; question?: string }
@@ -31,8 +31,10 @@ const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
 for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)
 if (step.spawnSleeper) {
-  const sleeper = spawn('sleep', ['60'], { stdio: 'ignore' })
-  writeFileSync(sessionFile + '.grandchild', String(sleeper.pid))
+  const pidFile = sessionFile + '.grandchild'
+  const trap = step.spawnSleeper === 'ignore-term' ? "trap '' TERM; " : ''
+  spawn('sh', ['-c', `${trap}echo $$ > "$0.tmp" && mv "$0.tmp" "$0"; exec sleep 60`, pidFile], { stdio: 'ignore' })
+  while (!existsSync(pidFile)) await sleep(10)
 }
 if (step.sleepMs) await sleep(step.sleepMs)
 if (step.result) emit({ type: 'result', result: step.result })

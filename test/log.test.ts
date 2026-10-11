@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { openLog, readEvents } from '../src/log.ts'
 
 const tempRun = () => mkdtempSync(join(tmpdir(), 'murm-log-'))
@@ -41,4 +42,26 @@ test('refuses a lock held by a live process and takes over a stale one', async (
   assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).pid, process.pid)
   log.close()
   assert.equal(existsSync(lockPath), false)
+})
+
+test('an unreadable lock is not treated as stale', () => {
+  const runDir = tempRun()
+  writeFileSync(join(runDir, 'lock'), '{"pid":')
+  assert.throws(() => openLog(runDir), /unreadable/)
+})
+
+test('only one of many concurrent takers of a stale lock wins', async () => {
+  const taker = new URL('./fixtures/lock-taker.ts', import.meta.url).pathname
+  for (let round = 0; round < 5; round++) {
+    const runDir = tempRun()
+    writeFileSync(join(runDir, 'lock'), JSON.stringify({ pid: 99999999 }))
+    const exits = Array.from({ length: 16 }, (_, id) => {
+      const child = spawn(process.execPath, [taker, runDir, String(id)], { stdio: 'ignore' })
+      return new Promise((resolve) => child.on('exit', resolve))
+    })
+    while (readdirSync(runDir).filter((f) => f.startsWith('ready-')).length < 16) await sleep(10)
+    writeFileSync(join(runDir, 'go'), '')
+    await Promise.all(exits)
+    assert.equal(readdirSync(runDir).filter((f) => f.startsWith('held-')).length, 1, `round ${round}`)
+  }
 })

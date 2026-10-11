@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { composeBrief, fixPrompt, resultReminder } from './brief.ts'
 import { openLog } from './log.ts'
 import { fold } from './state.ts'
@@ -12,8 +13,9 @@ export interface SupervisorOptions {
   runDir: string
   getAdapter: (name: HarnessName) => WorkerAdapter
   onEvent?: (event: Event) => void
-  /** How long a turn may keep running after its end-of-turn marker before its group is stopped. */
-  endGraceMs?: number
+  /** How long a turn may keep running after its end-of-turn marker before its group is stopped,
+   * and how long a stopped group gets between SIGTERM and SIGKILL. */
+  graceMs?: number
 }
 
 export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
@@ -21,7 +23,6 @@ export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
 const MAX_CONCURRENT = 4
 const MAX_FIX_ROUNDS = 2
 const OUTPUT_TAIL = 4096
-const KILL_AFTER_MS = 5000
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 export function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -32,20 +33,49 @@ export function interrupt(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-/** SIGTERM the group, then SIGKILL it if it is still there a little later. */
-function stopGroup(pid: number): void {
+function groupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** SIGTERM the group, SIGKILL it after the grace, and resolve once it is gone (or shortly after SIGKILL). */
+async function stopGroup(pid: number, graceMs: number): Promise<void> {
   interrupt(pid, 'SIGTERM')
-  setTimeout(() => interrupt(pid, 'SIGKILL'), KILL_AFTER_MS).unref()
+  let deadline = Date.now() + graceMs
+  let killed = false
+  while (groupExists(pid)) {
+    if (Date.now() >= deadline) {
+      if (killed) return
+      interrupt(pid, 'SIGKILL')
+      killed = true
+      deadline = Date.now() + 2000
+    }
+    await sleep(20)
+  }
 }
 
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
   const { workspace, runDir, getAdapter } = opts
-  const endGraceMs = opts.endGraceMs ?? 5000
+  const graceMs = opts.graceMs ?? 5000
   const log = openLog(runDir, opts.onEvent)
   const inFlight = new Map<string, { spec: NodeSpec; done: Promise<void> }>()
   // Live process groups, so a stop request can reach them; `turn` is absent for shell checks.
   const groups = new Map<number, { node: string; turn?: number }>()
   let stopping = false
+  // Every group the supervisor stops is awaited until it is gone, so no process outlives its turn or check.
+  const terminations = new Map<number, Promise<void>>()
+  const terminate = (pid: number) => {
+    let done = terminations.get(pid)
+    if (!done) {
+      done = stopGroup(pid, graceMs).finally(() => terminations.delete(pid))
+      terminations.set(pid, done)
+    }
+    return done
+  }
 
   const stop = () => {
     if (stopping) return
@@ -54,7 +84,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (g.turn !== undefined) {
         log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason: 'supervisor stopped', signal: 'SIGTERM' })
       }
-      stopGroup(pid)
+      void terminate(pid)
     }
   }
 
@@ -70,8 +100,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       child.stdout.on('data', keep)
       child.stderr.on('data', keep)
       if (child.pid) groups.set(child.pid, { node })
-      const finish = (exitCode: number | null) => {
-        if (child.pid) groups.delete(child.pid)
+      const finish = async (exitCode: number | null) => {
+        if (child.pid) {
+          groups.delete(child.pid)
+          await terminate(child.pid) // background processes the command left behind
+        }
         resolve({ exitCode, output: tail.toString('utf8') })
       }
       child.on('error', (err) => {
@@ -121,16 +154,17 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         size = now
         if (adapter.parse(readFileSync(turnSpec.outFile, 'utf8')).ended) {
           clearInterval(watch)
-          grace = setTimeout(() => stopGroup(pid), endGraceMs)
+          grace = setTimeout(() => void terminate(pid), graceMs)
         }
       } catch {}
-    }, Math.min(1000, endGraceMs))
+    }, Math.min(1000, graceMs))
 
     const exit = await running.exit
     ended = true
     clearInterval(watch)
     clearTimeout(grace)
     groups.delete(pid)
+    await terminate(pid) // the leader is gone; stop anything it left running in its group
 
     let result: TurnResult | undefined
     let error: string | undefined
