@@ -138,6 +138,8 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     if (e.type === 'turn.started') {
       const turn = node.turns.get(e.turn)
       if (turn) addTurn(add, turn)
+    } else if (e.type === 'inbox.read') {
+      add({ source: 'system', timestamp: e.at, message: `Messages read during the turn, up to event ${e.upTo}`, extra: { up_to: e.upTo } })
     } else if (e.type === 'turn.interrupted') {
       add({ source: 'system', timestamp: e.at, message: `Turn ${e.turn} interrupted (${e.signal}): ${e.reason}` })
     } else if (e.type === 'check.ended' && spec.kind === 'check') {

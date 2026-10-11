@@ -16,7 +16,7 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { MAX_SENDS, sendRefusal, sendTargets } from './send.ts'
+import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets } from './send.ts'
 import { ancestors, awaitsSplitApproval, callKey, childrenOf, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
@@ -59,6 +59,7 @@ export type PersonCommand =
   | { type: 'answer'; node: string; text: string }
   | { type: 'approve' | 'cancel'; node: string }
   | { type: 'send'; from: string; to: string; text: string }
+  | { type: 'receive'; node: string; upTo: number }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -372,6 +373,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       return
     }
+    if (cmd?.type === 'receive') {
+      const n = current().nodes.get(cmd.node)
+      if (n?.spec.kind === 'work' && !n.spec.standing && !isFinal(n) && Number.isInteger(cmd.upTo)) {
+        log.append({ type: 'inbox.read', node: cmd.node, upTo: cmd.upTo, command })
+      }
+      return
+    }
     if (cmd?.type !== 'answer' && cmd?.type !== 'approve' && cmd?.type !== 'cancel') return
     const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
     if (!node || isFinal(node)) return
@@ -513,7 +521,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const instructions = typeof agent === 'string' ? undefined : agent.instructions
     const tree = createNodeWorktree(workspace, runId, runDir, spec.id, head(integrationTree().path))
     if (tree.base) log.append({ type: 'worktree.created', node: spec.id, branch: tree.branch, path: tree.path, base: tree.base })
-    const contacts = spec.standing ? undefined : { ...sendTargets(state, spec.id), max: MAX_SENDS }
+    const contacts = spec.standing ? undefined : { ...sendTargets(state, spec.id), max: MAX_SENDS, maxWait: MAX_WAIT_SECONDS }
     const brief = () => composeBrief(state.goal, spec, tree.path, notesFor(state, spec.id), node.inbox, instructions, contacts)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
@@ -536,6 +544,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (recorded) t = recorded
       else if (typeof agent === 'string') return fail(spec.id, agent)
       else t = await runTurn(spec, agent, turn, prompt, tree.path, sessionId, recovery)
+      // Messages the worker read during the turn must not resume it: take its last commands before looking at its inbox.
+      if (!stopping) readCommands()
       recorded = undefined
       recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return

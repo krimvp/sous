@@ -171,9 +171,9 @@ later, when an agent the supervisor did not launch needs to take part.
 ### Worker messages
 
 A worker that learns something a sibling or its lead must know while it works (an interface it settled, a file it
-moved, a change of plan) tells them with `send`, without stopping.
+moved, a change of plan) tells them with `send`, without stopping, and reads what others tell it with `receive`.
 
-- **Two ways in, one way through.** Claude and Codex workers have a `send` tool from sous's MCP server
+- **Two ways in, one way through.** Claude and Codex workers have `send` and `receive` tools from sous's MCP server
   (`src/mcp.ts`, stdio JSON-RPC on Node built-ins), which their harness starts for the turn; every worker can also run
   `sous send <to> 'text'`, whose full command its brief gives (Pi workers use only this). Both check the message and
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
@@ -184,18 +184,34 @@ moved, a change of plan) tells them with `send`, without stopping.
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
   only a lead stops a worker.
-- **Delivery** follows the usual rules: the recipient reads it when its current turn ends, and a worker's `done`
+- **Receiving mid-turn.** `receive` (the tool, or `sous receive [seconds]`) returns the messages waiting for the worker
+  (from its lead, its siblings or `supervisor`), waiting up to 60 seconds for one if asked, so a worker can wait within
+  its turn for what a sibling must tell it. It writes a command `{type: "receive", node, upTo}`, applied as
+  `inbox.read`, which takes those messages out of the inbox: they are not delivered again. A second `receive` before
+  the supervisor applies the first skips them too (it reads pending commands). When a turn ends, the supervisor applies
+  the worker's pending commands before looking at its inbox, so a worker that read its messages and stopped is not
+  resumed with them.
+- **Delivery** of what a worker does not `receive` follows the usual rules: the recipient reads it when its current
+  turn ends, and a worker's `done`
   counts only with an empty inbox, so a sibling cannot finish without having read it; a waiting worker resumes with
   it; a pending one gets it in its brief. The sender's lead gets every message: what it is told ("Child a tells you
   while it works (no answer needed)") and a copy of what its children tell each other. A message refused when the
   supervisor applies it (the run moved on) comes back to its sender from `supervisor`, unless the sender is already
   waiting to merge (telling it would take it out of the merge queue). A sibling lead gets a worker's message too, as
   something it cannot answer (its `send` reaches only its own children and parent).
-- **Only through sous.** Workers load no MCP server but sous's: Claude runs with `--strict-mcp-config` (and
-  `--mcp-config` for sous's server), Codex with every server of the person's configuration disabled by name (`codex mcp
-  list --json`, once per process; `-c mcp_servers=…` merges rather than replaces), its apps and plugins off, and
-  sous's server added, Pi with `--no-mcp`. If Codex's servers cannot be listed, sous says so on stderr and Codex
-  workers may load them; a server whose name has a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
+- **Only through sous.** Workers load no MCP server but sous's, and none of the person's own instructions, skills,
+  plugins, rules or hooks, while the project's instructions still apply; their brief tells them to talk to the run's
+  other agents only with `send` and `receive`. Per harness (checked with `claude -p` init events and answers, and
+  `codex debug prompt-input`):
+
+  | Harness | MCP | The person's own setup |
+  |---|---|---|
+  | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project,local`: no user settings, CLAUDE.md, skills or plugins (and no user default model) |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges), sous's added | `--ignore-rules`, hooks, apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended |
+
+  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
+  a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
   shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
   determined one from reaching another service; that needs sandboxed workers.
 
@@ -629,11 +645,8 @@ receives messages only between turns.
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.
-- Reading messages mid-turn: a worker learns what it was told only when its turn ends (a real Codex worker read
-  `events.jsonl` instead). A `receive` tool that hands a worker its waiting messages, and marks them read, would let
-  siblings converse within their turns.
-- Whether workers should also skip the person's own instructions and skills (Claude `--setting-sources`, Codex's
-  `AGENTS.md`), which can point them at other services such as Comitia.
+- Codex workers still read the person's global `~/.codex/AGENTS.md`; leaving it out needs a Codex option, or a
+  separate `CODEX_HOME` that shares the login safely.
 - Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
   `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
   smallest step is a bridge process that mirrors chosen events to Comitia and turns Comitia messages into command

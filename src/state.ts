@@ -279,6 +279,11 @@ export function fold(events: readonly Event[]): RunState {
       case 'node.cancelled':
         cancel(e.node, e.by, e.seq)
         break
+      case 'inbox.read': {
+        const node = state.nodes.get(e.node)
+        if (node) node.inbox = node.inbox.filter((m) => m.seq > e.upTo)
+        break
+      }
       case 'lead.delivered': {
         const node = state.nodes.get(e.node)
         if (!node) break

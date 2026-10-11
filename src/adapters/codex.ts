@@ -46,10 +46,14 @@ function mcpConfig(spec: TurnSpec): string[] {
   const server = sousServer(spec)
   const env = server && Object.entries(server.env).map(([k, v]) => `${k}=${q(v)}`).join(',')
   return [
+    // The person's rules, hooks and skills stay out too; their global AGENTS.md cannot be left out without moving
+    // CODEX_HOME, which would put the login at risk.
+    '--ignore-rules', '-c', 'features.hooks=false', '-c', 'skills.include_instructions=false',
     '-c', 'features.apps=false', '-c', 'features.plugins=false',
     // A server of the person's named sous is replaced by sous's own, or disabled when the node gets none.
     ...configuredServers().filter((name) => !(server && name === 'sous')).flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]),
-    ...(server ? ['-c', `mcp_servers.sous={command=${q(server.command)},args=[${server.args.map(q).join(',')}],env={${env}}}`] : []),
+    // receive may wait up to a minute.
+    ...(server ? ['-c', `mcp_servers.sous={command=${q(server.command)},args=[${server.args.map(q).join(',')}],env={${env}},tool_timeout_sec=90}`] : []),
   ]
 }
 

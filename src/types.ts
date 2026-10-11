@@ -270,6 +270,8 @@ export type EventBody =
   /** `sent`: a worker's `send` to a sibling or its lead while it works, which expects no answer; its lead gets a copy
    * of one to a sibling. */
   | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string; sent?: true }
+  /** Worker `node` read its messages up to seq `upTo` during its turn (`receive`): they are not delivered again. */
+  | { type: 'inbox.read'; node: string; upTo: number; command?: string }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this

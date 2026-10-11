@@ -11,6 +11,7 @@ sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
+sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
@@ -72,5 +73,5 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 
 `turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done`/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
-`person`, and `sent: true` for a worker's `send`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
+`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
 `run.completed`/`run.failed`.
