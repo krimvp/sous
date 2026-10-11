@@ -1,4 +1,4 @@
-# Instructions for agents working on Murmuration
+# Instructions for agents working on sous
 
 Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries and roadmap.
 
@@ -10,7 +10,7 @@ Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries
 - **Tests earn their place.** Test observable behaviour at the strongest practical boundary (real processes,
   real files). No tests of private helpers or copied constants. A regression test must fail before its fix.
 - **Real harness checks are separate from unit tests.** Tests that run Claude, Codex or Pi cost money and
-  run only when `MURM_LIVE=1` is set.
+  run only when `SOUS_LIVE=1` is set.
 - **Done means:** `npm run check` passes, the changed path was run for real when practical, and the PR says
   what was verified and what was not.
 - **Review:** every code PR gets one independent review of its exact head by an agent that did not write it.

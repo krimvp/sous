@@ -1,5 +1,5 @@
 {
-  "name": "murmuration-spike-pi-durable",
+  "name": "sous-spike-pi-durable",
   "private": true,
   "type": "module",
   "description": "Spike: a durable lead on pi-durable survives SIGKILL mid-spawn without spawning twice.",

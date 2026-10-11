@@ -1,4 +1,4 @@
-// `murm resume` after a SIGKILLed supervisor, and gate nodes, through real `murm` processes and fake workers.
+// `sous resume` after a SIGKILLed supervisor, and gate nodes, through real `sous` processes and fake workers.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -12,14 +12,14 @@ import { checkAtif } from './atif-checker.ts'
 import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
-import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
+import { fakeBin, sous, runDirOf, waitFor } from './fixtures/sous-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathname
 const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
 
 function workspaceWith(nodes: NodeSpec[]) {
-  const workspace = gitWorkspace('murm-resume-')
+  const workspace = gitWorkspace('sous-resume-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', agent: 'claude', nodes }))
   return { workspace, graph, sessions: join(workspace, 'sessions') }
@@ -57,25 +57,25 @@ async function workerAt(workspace: string, sessions: string, node: string, turn:
   throw new Error(`the worker of ${node} did not start turn ${turn}`)
 }
 
-/** Starts `murm run`, waits until `node`'s first turn runs, and SIGKILLs the supervisor. Returns the run directory. */
+/** Starts `sous run`, waits until `node`'s first turn runs, and SIGKILLs the supervisor. Returns the run directory. */
 async function killDuringTurn(workspace: string, graph: string, sessions: string, node: string) {
-  const run = murm(['run', graph], workspace, sessions)
+  const run = sous(['run', graph], workspace, sessions)
   await workerAt(workspace, sessions, node, 1)
   run.child.kill('SIGKILL')
   await run.exit
   return runDirOf(workspace)!
 }
 
-test('after a SIGKILL, only murm resume takes the run over: it stops the orphaned turn, resumes its session and finishes', async () => {
+test('after a SIGKILL, only sous resume takes the run over: it stops the orphaned turn, resumes its session and finishes', async () => {
   const { workspace, graph, sessions } = workspaceWith([
     work('a', [{ write: { 'a.txt': 'a\n' }, result: { status: 'done', summary: 'wrote a' } }]),
     work('b', [LONG, { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello after resume' } }], ['a']),
     { id: 'test', kind: 'check', command: 'grep -q hello hello.txt', needs: ['b'] },
   ])
-  const run = murm(['run', graph], workspace, sessions)
+  const run = sous(['run', graph], workspace, sessions)
   await workerAt(workspace, sessions, 'b', 1)
   const first = await waitFor(workspace, started('b', 1))
-  const refused = murm(['resume'], workspace, sessions)
+  const refused = sous(['resume'], workspace, sessions)
   assert.equal(await refused.exit, 1)
   assert.match(refused.output(), /locked by a live supervisor/)
   run.child.kill('SIGKILL')
@@ -83,11 +83,11 @@ test('after a SIGKILL, only murm resume takes the run over: it stops the orphane
   const runDir = runDirOf(workspace)!
   assert.ok(existsSync(join(runDir, 'lock')), 'the killed supervisor left its lock')
   assert.ok(!gone(pidOf(first)), 'the turn outlived its supervisor')
-  const status = murm(['status'], workspace, sessions)
+  const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
-  assert.match(status.output(), /^run \S+ stopped: [^]*continue it with: murm resume \S+\n$/)
+  assert.match(status.output(), /^run \S+ stopped: [^]*continue it with: sous resume \S+\n$/)
 
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   assert.equal(await resumed.exit, 0, resumed.output())
   assert.ok(gone(pidOf(first)), 'resume stopped the orphaned turn')
   const events = readEvents(runDir)
@@ -100,19 +100,19 @@ test('after a SIGKILL, only murm resume takes the run over: it stops the orphane
     ['resume', true, undefined, 'wrote hello after resume'],
   ])
   assert.equal(b.turns[1].sessionId, b.turns[0].sessionId)
-  assert.match(promptsOf(sessions, runDir, 'b')[1], /^You were interrupted: Murmuration stopped while you worked/)
+  assert.match(promptsOf(sessions, runDir, 'b')[1], /^You were interrupted: sous stopped while you worked/)
   // The finished node ran once.
   assert.equal(state.nodes.get('a')!.turns.length, 1)
   assert.equal(promptsOf(sessions, runDir, 'a').length, 1)
   assert.equal(existsSync(join(runDir, 'lock')), false)
 
   // The trace shows the resume and the interruption, and stays valid ATIF.
-  assert.equal(await murm(['export', 'atif'], workspace, sessions).exit, 0)
+  assert.equal(await sous(['export', 'atif'], workspace, sessions).exit, 0)
   const doc = JSON.parse(readFileSync(join(runDir, 'trace.atif.json'), 'utf8'))
   assert.deepEqual(checkAtif(doc), [])
   assert.ok(doc.steps.some((s: { source: string; message: string }) => s.source === 'system' && /^Run resumed/.test(s.message)))
 
-  const again = murm(['resume'], workspace, sessions)
+  const again = sous(['resume'], workspace, sessions)
   assert.equal(await again.exit, 1)
   assert.match(again.output(), /already completed; a finished run is not resumed/)
 })
@@ -126,7 +126,7 @@ test('a turn that finished while the supervisor was down is recorded from its ou
   const turn = readEvents(runDir).find(started('w', 1))!
   for (let i = 0; i < 100 && !gone(pidOf(turn)); i++) await sleep(50)
 
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   assert.equal(await resumed.exit, 0, resumed.output())
   const events = readEvents(runDir)
   const w = fold(events).nodes.get('w')!
@@ -149,7 +149,7 @@ test('a recorded pid now used by another process is treated as dead: that proces
   const lines = readFileSync(file, 'utf8').split('\n')
   writeFileSync(file, lines.map((l) => (l.includes('"type":"turn.started"') ? l.replace(`"pid":${pidOf(turn)},`, `"pid":${decoy.pid},`) : l)).join('\n'))
 
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   assert.equal(await resumed.exit, 0, resumed.output())
   assert.ok(!gone(decoy.pid!), 'the decoy was not signalled')
   const w = fold(readEvents(runDir)).nodes.get('w')!
@@ -163,13 +163,13 @@ test('a node whose turn a supervisor stop cuts short after 3 recoveries fails', 
   const { workspace, graph, sessions } = workspaceWith([work('w', [LONG, LONG, LONG, LONG, LONG])])
   const runDir = await killDuringTurn(workspace, graph, sessions, 'w')
   for (let turn = 2; turn <= 4; turn++) {
-    const resumed = murm(['resume'], workspace, sessions)
+    const resumed = sous(['resume'], workspace, sessions)
     await workerAt(workspace, sessions, 'w', turn)
     resumed.child.kill('SIGKILL')
     await resumed.exit
   }
   const last = readEvents(runDir).find(started('w', 4))!
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   assert.equal(await resumed.exit, 1, resumed.output())
   assert.ok(gone(pidOf(last)))
   const state = fold(readEvents(runDir))
@@ -186,7 +186,7 @@ test("a lead's delivery left unanswered by a SIGKILL is delivered again on resum
     { sleepMs: 1500, calls: [{ tool: 'complete', summary: 'shipped' }] },
   ])}`
   const outcome = (e: Event) => e.type === 'lead.delivered' && e.requestId.startsWith('evt-')
-  const run = murm(['run', goal], workspace, sessions)
+  const run = sous(['run', goal], workspace, sessions)
   await waitFor(workspace, outcome)
   run.child.kill('SIGKILL')
   await run.exit
@@ -195,7 +195,7 @@ test("a lead's delivery left unanswered by a SIGKILL is delivered again on resum
   assert.ok(!readEvents(runDir).some((e) => e.type === 'lead.turn' && e.requestId === requestId))
   const before = fakeLeadRecords(runDir).length
 
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   assert.equal(await resumed.exit, 0, resumed.output())
   const events = readEvents(runDir)
   const state = fold(events)
@@ -208,38 +208,38 @@ test("a lead's delivery left unanswered by a SIGKILL is delivered again on resum
   assert.equal(events.filter((e) => e.type === 'lead.turn' && e.requestId === requestId).length, 1)
 })
 
-test('a gate waits for murm approve from another process, then its dependants run', async () => {
+test('a gate waits for sous approve from another process, then its dependants run', async () => {
   const { workspace, graph, sessions } = workspaceWith([
     { id: 'ship', kind: 'gate', brief: 'Publish the greeting?' },
     work('w', [{ write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'published' } }], ['ship']),
   ])
-  const run = murm(['run', graph], workspace, sessions)
+  const run = sous(['run', graph], workspace, sessions)
   await waitFor(workspace, (e) => e.type === 'message' && e.from === 'ship')
-  const status = murm(['status'], workspace, sessions)
+  const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
-  assert.match(status.output(), /\n  ship waiting\n  w pending\napprovals for you \(murm approve <node>, or murm cancel <node> to reject\):\n  ship: Publish the greeting\?\n$/)
-  const answer = murm(['answer', 'ship', 'yes'], workspace, sessions)
+  assert.match(status.output(), /\n  ship waiting\n  w pending\napprovals for you \(sous approve <node>, or sous cancel <node> to reject\):\n  ship: Publish the greeting\?\n$/)
+  const answer = sous(['answer', 'ship', 'yes'], workspace, sessions)
   assert.equal(await answer.exit, 1)
-  assert.match(answer.output(), /ship is a gate: approve it with murm approve/)
-  assert.equal(await murm(['approve', 'w'], workspace, sessions).exit, 1)
+  assert.match(answer.output(), /ship is a gate: approve it with sous approve/)
+  assert.equal(await sous(['approve', 'w'], workspace, sessions).exit, 1)
 
-  const approve = murm(['approve', 'ship'], workspace, sessions)
+  const approve = sous(['approve', 'ship'], workspace, sessions)
   assert.equal(await approve.exit, 0, approve.output())
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /Approval requested by ship:\nPublish the greeting\?\nApprove with: murm approve ship, or reject with: murm cancel ship/)
+  assert.match(run.output(), /Approval requested by ship:\nPublish the greeting\?\nApprove with: sous approve ship, or reject with: sous cancel ship/)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual(['ship', 'w'].map((id) => state.nodes.get(id)!.summary), ['approved by person', 'published'])
 })
 
-test("murm cancel rejects a lead's gate child, and the lead hears it", async () => {
+test("sous cancel rejects a lead's gate child, and the lead hears it", async () => {
   const { workspace, sessions } = workspaceWith([])
   const goal = `Deploy.\n${fakeLeadPlan([
     { calls: [{ tool: 'spawn', children: [{ id: 'ok', kind: 'gate', brief: 'Deploy to production?' }] }] },
     { calls: [{ tool: 'complete', summary: 'not deployed: rejected' }] },
   ])}`
-  const run = murm(['run', goal], workspace, sessions)
+  const run = sous(['run', goal], workspace, sessions)
   await waitFor(workspace, (e) => e.type === 'message' && e.from === 'ok')
-  const cancel = murm(['cancel', 'ok'], workspace, sessions)
+  const cancel = sous(['cancel', 'ok'], workspace, sessions)
   assert.equal(await cancel.exit, 0, cancel.output())
   assert.equal(await run.exit, 0, run.output())
   const events = readEvents(runDirOf(workspace)!)
@@ -249,10 +249,10 @@ test("murm cancel rejects a lead's gate child, and the lead hears it", async () 
   assert.equal(state.summary, 'not deployed: rejected')
 })
 
-/** A run directory with these nodes (and events) in <workspace>/.murm/runs/, for `murm resume`. */
+/** A run directory with these nodes (and events) in <workspace>/.sous/runs/, for `sous resume`. */
 function runWith(nodes: NodeSpec[], more: EventBody[] = []) {
-  const workspace = gitWorkspace('murm-resume-')
-  const runDir = join(workspace, '.murm', 'runs', 'r')
+  const workspace = gitWorkspace('sous-resume-')
+  const runDir = join(workspace, '.sous', 'runs', 'r')
   mkdirSync(join(runDir, 'commands'), { recursive: true })
   const log = openLog(runDir)
   log.append({ type: 'run.created', goal: 'g', workspace })
@@ -268,9 +268,9 @@ function crash(workspace: string, runDir: string, point: 'event' | 'rm', name: s
   return new Promise<NodeJS.Signals | null>((resolve) => child.on('exit', (_, signal) => resolve(signal)))
 }
 
-/** `murm resume`, stopped (SIGINT) if it has not finished within `ms`. */
+/** `sous resume`, stopped (SIGINT) if it has not finished within `ms`. */
 async function resumeWithin(workspace: string, sessions: string, ms: number) {
-  const resumed = murm(['resume'], workspace, sessions)
+  const resumed = sous(['resume'], workspace, sessions)
   const timer = setTimeout(() => resumed.child.kill('SIGINT'), ms)
   const code = await resumed.exit
   clearTimeout(timer)
@@ -278,8 +278,8 @@ async function resumeWithin(workspace: string, sessions: string, ms: number) {
 }
 
 test('a done result recorded before a crash settles the node on resume even when its agent is no longer available', async () => {
-  const workspace = gitWorkspace('murm-resume-')
-  const runDir = join(workspace, '.murm', 'runs', '20261011T000000Z-0000')
+  const workspace = gitWorkspace('sous-resume-')
+  const runDir = join(workspace, '.sous', 'runs', '20261011T000000Z-0000')
   mkdirSync(runDir, { recursive: true })
   const log = openLog(runDir)
   log.append({ type: 'run.created', goal: 'test', workspace })
@@ -287,7 +287,7 @@ test('a done result recorded before a crash settles the node on resume even when
   log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', agent: 'claude', pid: 999_999_999, outFile: join(runDir, 'out'), errFile: join(runDir, 'err') })
   log.append({ type: 'turn.ended', node: 'w', turn: 1, exitCode: 0, signal: null, result: { status: 'done', summary: 'work finished' } })
   log.close()
-  const resume = murm(['resume'], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
+  const resume = sous(['resume'], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await resume.exit, 0, resume.output())
   assert.equal(fold(readEvents(runDir)).nodes.get('w')!.summary, 'work finished')
 })

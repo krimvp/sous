@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto'
 import type { Usage } from '../types.ts'
-import { loadRun, MURM_VERSION, viewRun } from './run.ts'
+import { loadRun, SOUS_VERSION, viewRun } from './run.ts'
 import type { LoadedRun, ParseTurn, TurnView } from './run.ts'
 
 type AttrValue = { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean }
@@ -26,7 +26,7 @@ const STATUS_ERROR = 2
 
 const hexId = (seed: string, length: number) => createHash('sha256').update(seed).digest('hex').slice(0, length)
 
-const traceIdOf = (runId: string) => hexId(`murm:${runId}`, 32)
+const traceIdOf = (runId: string) => hexId(`sous:${runId}`, 32)
 
 const nanos = (iso: string) => (BigInt(Date.parse(iso)) * 1_000_000n).toString()
 
@@ -64,7 +64,7 @@ export function toOtlp(run: LoadedRun): object {
     key: string, parent: string | undefined, name: string, type: string, start: string, end: string,
     attrs: Record<string, unknown>, error?: string, level = 'ERROR',
   ): string => {
-    const spanId = hexId(`murm:${view.runId}:${key}`, 16)
+    const spanId = hexId(`sous:${view.runId}:${key}`, 16)
     spans.push({
       traceId,
       spanId,
@@ -85,14 +85,14 @@ export function toOtlp(run: LoadedRun): object {
   }
 
   const runOutput = view.end?.type === 'run.completed' ? view.end.summary : view.end?.reason
-  const root = span('run', undefined, `murm run ${view.runId}`, 'span', view.createdAt, view.endedAt, {
-    'langfuse.trace.name': `murm run ${view.runId}`,
+  const root = span('run', undefined, `sous run ${view.runId}`, 'span', view.createdAt, view.endedAt, {
+    'langfuse.trace.name': `sous run ${view.runId}`,
     'langfuse.trace.input': view.goal,
     'langfuse.trace.output': runOutput,
     'langfuse.observation.input': view.goal,
     'langfuse.observation.output': runOutput,
-    'murm.workspace': view.workspace,
-    'murm.result_branch': run.events.find((e) => e.type === 'integration.created')?.branch,
+    'sous.workspace': view.workspace,
+    'sous.result_branch': run.events.find((e) => e.type === 'integration.created')?.branch,
   }, view.end?.type === 'run.failed' ? view.end.reason : undefined)
 
   const addTurn = (nodeId: string, parent: string, t: TurnView, cancelled: boolean) => {
@@ -101,10 +101,10 @@ export function toOtlp(run: LoadedRun): object {
     const turnSpan = span(`turn/${key}`, parent, `turn ${t.turn}`, 'chain', t.startedAt, t.endedAt, {
       'langfuse.observation.input': t.prompt,
       'langfuse.observation.output': t.ended?.result ?? t.parsed.result,
-      'murm.turn.mode': t.mode,
-      'murm.turn.agent': t.agent,
-      'murm.turn.session_id': t.sessionId,
-      'murm.turn.exit_code': t.ended?.exitCode,
+      'sous.turn.mode': t.mode,
+      'sous.turn.agent': t.agent,
+      'sous.turn.session_id': t.sessionId,
+      'sous.turn.exit_code': t.ended?.exitCode,
     }, t.ended?.error ?? interrupted, t.ended?.error && !cancelled ? 'ERROR' : 'WARNING')
     const items = t.parsed.items
     const lastGeneration = items.findLastIndex((i) => i.kind === 'message' && i.role === 'assistant')
@@ -128,7 +128,7 @@ export function toOtlp(run: LoadedRun): object {
         span(`item/${key}/${i}`, turnSpan, item.name, 'tool', at, output?.at ?? at, {
           'langfuse.observation.input': item.arguments,
           'langfuse.observation.output': output?.content,
-          'murm.tool.call_id': item.id,
+          'sous.tool.call_id': item.id,
         }, output?.isError ? 'tool returned an error' : undefined)
       }
       prevAt = at
@@ -151,10 +151,10 @@ export function toOtlp(run: LoadedRun): object {
     const nodeSpan = span(`node/${spec.id}`, parent, `${spec.kind} ${spec.id}`, spec.kind === 'check' ? 'span' : 'agent', node.addedAt, node.endedAt, {
       'langfuse.observation.input': spec.kind === 'check' ? spec.command : spec.brief,
       'langfuse.observation.output': spec.kind === 'check' && check?.type === 'check.ended' ? check.output : node.outcome,
-      'murm.node.id': spec.id,
-      'murm.node.kind': spec.kind,
-      'murm.node.status': node.status,
-      'murm.check.exit_code': spec.kind === 'check' && check?.type === 'check.ended' ? check.exitCode : undefined,
+      'sous.node.id': spec.id,
+      'sous.node.kind': spec.kind,
+      'sous.node.status': node.status,
+      'sous.check.exit_code': spec.kind === 'check' && check?.type === 'check.ended' ? check.exitCode : undefined,
     }, node.status === 'failed' ? node.outcome : undefined, node.cancelledBy ? 'WARNING' : 'ERROR')
     nodeSpans.set(spec.id, nodeSpan)
     let running: Chain[] = []
@@ -168,18 +168,18 @@ export function toOtlp(run: LoadedRun): object {
         span(`check/${spec.id}/${e.seq}`, nodeSpan, 'acceptance check', 'span', prevAt, e.at, {
           'langfuse.observation.input': e.command,
           'langfuse.observation.output': e.output,
-          'murm.check.exit_code': e.exitCode,
+          'sous.check.exit_code': e.exitCode,
         }, e.exitCode === 0 ? undefined : `exit code ${e.exitCode}`)
       } else if (e.type === 'merge.queued' || e.type === 'merge.withdrawn' || e.type === 'merge.conflict' || e.type === 'merge.done' || e.type === 'merge.failed') {
         const { type, node: _, seq, at, ...details } = e
         const problem = e.type === 'merge.conflict' || e.type === 'merge.failed' ? e.reason : undefined
         span(`merge/${spec.id}/${seq}`, nodeSpan, type, 'span', at, at,
-          Object.fromEntries(Object.entries(details).map(([key, value]) => [`murm.merge.${key}`, value])), problem, type === 'merge.failed' ? 'ERROR' : 'WARNING')
+          Object.fromEntries(Object.entries(details).map(([key, value]) => [`sous.merge.${key}`, value])), problem, type === 'merge.failed' ? 'ERROR' : 'WARNING')
       } else if (e.type === 'lead.delivered') {
         span(`chain/${spec.id}/${e.requestId}`, nodeSpan, `delivery ${e.requestId}`, 'chain', e.at, e.at, {
           'langfuse.observation.input': e.text,
-          'murm.lead.request_id': e.requestId,
-          'murm.lead.mode': e.mode,
+          'sous.lead.request_id': e.requestId,
+          'sous.lead.mode': e.mode,
         })
         const chain = { requestId: e.requestId, span: spans.at(-1)!, lastAt: e.at }
         if (!running.length) running = [chain]
@@ -192,15 +192,15 @@ export function toOtlp(run: LoadedRun): object {
         callSpans.set(`${spec.id}/${e.callId}`, span(`call/${spec.id}/${e.callId}`, chain?.span.spanId ?? nodeSpan, tool, 'tool', e.at, e.at, {
           'langfuse.observation.input': args,
           'langfuse.observation.output': e.result,
-          'murm.tool.call_id': e.callId,
-          'murm.tool.ok': e.ok,
+          'sous.tool.call_id': e.callId,
+          'sous.tool.ok': e.ok,
         }, e.ok ? undefined : 'call refused', 'WARNING'))
       } else if (e.type === 'lead.turn') {
         const inRunning = running.some((c) => c.requestId === e.requestId)
         const ended = inRunning ? running : queued.filter((c) => c.requestId === e.requestId)
         for (const c of ended) c.span.endTimeUnixNano = nanos(e.at)
         const chain = ended.find((c) => c.requestId === e.requestId)
-        chain?.span.attributes.push(...attributes({ 'langfuse.observation.output': e.text, 'murm.lead.status': e.status }))
+        chain?.span.attributes.push(...attributes({ 'langfuse.observation.output': e.text, 'sous.lead.status': e.status }))
         // The answer's generation runs from the answer's last delivery or tool call to the lead.turn.
         const from = ended.map((c) => c.lastAt).sort().at(-1) ?? prevAt
         span(`generation/${spec.id}/${e.seq}`, chain?.span.spanId ?? nodeSpan, 'generation', 'generation', from, e.at, {
@@ -220,8 +220,8 @@ export function toOtlp(run: LoadedRun): object {
 
   return {
     resourceSpans: [{
-      resource: { attributes: attributes({ 'service.name': 'murmuration', 'service.version': MURM_VERSION }) },
-      scopeSpans: [{ scope: { name: 'murmuration', version: MURM_VERSION }, spans }],
+      resource: { attributes: attributes({ 'service.name': 'sous', 'service.version': SOUS_VERSION }) },
+      scopeSpans: [{ scope: { name: 'sous', version: SOUS_VERSION }, spans }],
     }],
   }
 }
@@ -245,7 +245,7 @@ export async function postOtlp(payload: object, { host, publicKey, secretKey }: 
   if (!res.ok) throw new Error(`Langfuse OTLP export failed: ${res.status} ${res.statusText}: ${await res.text()}`)
 }
 
-/** `murm export otlp`: posts the run's trace to Langfuse; returns the trace ID. */
+/** `sous export otlp`: posts the run's trace to Langfuse; returns the trace ID. */
 export async function exportOtlp(runDir: string, parseTurn: ParseTurn, env: NodeJS.ProcessEnv = process.env): Promise<string> {
   const { LANGFUSE_HOST: host, LANGFUSE_PUBLIC_KEY: publicKey, LANGFUSE_SECRET_KEY: secretKey } = env
   if (!host || !publicKey || !secretKey) {

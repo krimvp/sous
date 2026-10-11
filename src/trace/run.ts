@@ -16,7 +16,7 @@ export interface LoadedRun {
   turns: Record<string, ParsedTurn>
 }
 
-export const MURM_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version
+export const SOUS_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version
 
 function turnKey(node: string, turn: number): string {
   return `${node}#${turn}`

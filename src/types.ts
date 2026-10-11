@@ -62,7 +62,7 @@ export const INTEGRATOR = 'integrator'
  * and `lead` hold `provider/model` names. */
 export type ModelLimits = Partial<Record<AgentRuntime, string[]>>
 
-/** The agent definitions of a run: from its graph file, or from `murm run --agents <file>` for a goal run. */
+/** The agent definitions of a run: from its graph file, or from `sous run --agents <file>` for a goal run. */
 export interface Definitions {
   /** Default agent for work nodes that do not name one. */
   agent?: string
@@ -71,7 +71,7 @@ export interface Definitions {
   models?: ModelLimits
 }
 
-/** A graph file for `murm run`. Top-level nodes are children of the implicit root. */
+/** A graph file for `sous run`. Top-level nodes are children of the implicit root. */
 export interface GraphFile extends Definitions {
   goal: string
   nodes: NodeSpec[]
@@ -230,8 +230,8 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 // ---- Event log -------------------------------------------------------------------------------
 
 export type EventBody =
-  /** `maxDepth`: how deep leads may nest in this run (`murm run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
-   * `definitions`: a goal run's agents file (`murm run --agents`); a graph run's definitions are in its `graph`. */
+  /** `maxDepth`: how deep leads may nest in this run (`sous run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
+   * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`. */
   | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
@@ -241,7 +241,7 @@ export type EventBody =
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
-  /** `command`: on events a person command produced, the name of its command file (see `murm answer`). */
+  /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */
   | { type: 'node.completed'; node: string; summary: string; command?: string }
   | { type: 'node.failed'; node: string; reason: string }
   | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string }
@@ -254,7 +254,7 @@ export type EventBody =
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
-  /** `murm resume` took over a run whose supervisor had stopped. */
+  /** `sous resume` took over a run whose supervisor had stopped. */
   | { type: 'run.resumed' }
   /** The run's integration branch and worktree, created before the first work or check node starts. */
   | { type: 'integration.created'; branch: string; path: string; base: string }
@@ -281,5 +281,5 @@ export type Event = EventBody & { seq: number; at: string }
 /** The implicit root node's ID. */
 export const ROOT = 'root'
 
-/** Message address of the person running Murmuration: the parent of top-level nodes. */
+/** Message address of the person running sous: the parent of top-level nodes. */
 export const PERSON = 'person'

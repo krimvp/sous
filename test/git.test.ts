@@ -8,8 +8,8 @@ import {
   abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, head, merge, mergeInProgress,
 } from '../src/git.ts'
 
-// No user identity anywhere: Murmuration's commits must carry their own.
-process.env.HOME = mkdtempSync(join(tmpdir(), 'murm-git-home-'))
+// No user identity anywhere: sous's commits must carry their own.
+process.env.HOME = mkdtempSync(join(tmpdir(), 'sous-git-home-'))
 process.env.GIT_CONFIG_GLOBAL = '/dev/null'
 process.env.GIT_CONFIG_NOSYSTEM = '1'
 
@@ -17,18 +17,18 @@ const sh = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, 
 
 /** A workspace repo with one commit, where git refuses to guess an identity. */
 function repo(): { workspace: string; runDir: string } {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-git-'))
+  const workspace = mkdtempSync(join(tmpdir(), 'sous-git-'))
   sh(workspace, 'init', '-q', '-b', 'main')
   sh(workspace, 'config', 'user.useConfigOnly', 'true')
   writeFileSync(join(workspace, 'a.txt'), 'one\n')
   writeFileSync(join(workspace, '.gitignore'), '*.log\n')
   sh(workspace, 'add', '-A')
   sh(workspace, '-c', 'user.name=Person', '-c', 'user.email=p@example.com', 'commit', '-q', '-m', 'init')
-  return { workspace, runDir: join(workspace, '.murm', 'runs', 'r1') }
+  return { workspace, runDir: join(workspace, '.sous', 'runs', 'r1') }
 }
 
 test('rejects a directory that is not a repository, and a repository with no commits', () => {
-  const plain = mkdtempSync(join(tmpdir(), 'murm-git-'))
+  const plain = mkdtempSync(join(tmpdir(), 'sous-git-'))
   assert.throws(() => ensureRepo(plain), /must be a git repository with at least one commit/)
   sh(plain, 'init', '-q')
   assert.throws(() => ensureRepo(plain), /must be a git repository with at least one commit/)
@@ -39,13 +39,13 @@ test('integration and node worktrees are created once, and found again on resume
   const start = head(workspace)
   ensureRepo(workspace)
   ensureRepo(workspace)
-  assert.equal(readFileSync(join(workspace, '.git', 'info', 'exclude'), 'utf8').split('\n').filter((l) => l === '.murm/').length, 1)
+  assert.equal(readFileSync(join(workspace, '.git', 'info', 'exclude'), 'utf8').split('\n').filter((l) => l === '.sous/').length, 1)
 
   const integration = createIntegration(workspace, 'r1', runDir)
-  assert.deepEqual(integration, { branch: 'murm/r1', path: join(runDir, 'integration'), base: start })
-  assert.equal(sh(integration.path, 'branch', '--show-current'), 'murm/r1')
+  assert.deepEqual(integration, { branch: 'sous/r1', path: join(runDir, 'integration'), base: start })
+  assert.equal(sh(integration.path, 'branch', '--show-current'), 'sous/r1')
   const node = createNodeWorktree(workspace, 'r1', runDir, 'build', start)
-  assert.deepEqual(node, { branch: 'murm/r1.build', path: join(runDir, 'worktrees', 'build'), base: start })
+  assert.deepEqual(node, { branch: 'sous/r1.build', path: join(runDir, 'worktrees', 'build'), base: start })
   assert.equal(readFileSync(join(node.path, 'a.txt'), 'utf8'), 'one\n')
 
   // On resume the branches exist: no base is reported (the events hold it), whatever HEAD is now.
@@ -68,17 +68,17 @@ test('integration and node worktrees are created once, and found again on resume
   assert.throws(() => createNodeWorktree(workspace, 'r1', runDir, 'a..b', start), /check-ref-format/)
 })
 
-test('ensureRepo from a linked worktree excludes .murm/ in the shared repository', () => {
+test('ensureRepo from a linked worktree excludes .sous/ in the shared repository', () => {
   const { workspace } = repo()
-  const linked = join(mkdtempSync(join(tmpdir(), 'murm-git-')), 'linked')
+  const linked = join(mkdtempSync(join(tmpdir(), 'sous-git-')), 'linked')
   sh(workspace, 'worktree', 'add', '-q', '-b', 'side', linked)
   ensureRepo(linked)
-  mkdirSync(join(linked, '.murm'))
-  writeFileSync(join(linked, '.murm', 'x'), 'x')
+  mkdirSync(join(linked, '.sous'))
+  writeFileSync(join(linked, '.sous', 'x'), 'x')
   assert.equal(sh(linked, 'status', '--porcelain'), '')
 })
 
-test('commitAll commits untracked files as Murmuration, honours .gitignore, and reports when there is nothing', () => {
+test('commitAll commits untracked files as sous, honours .gitignore, and reports when there is nothing', () => {
   const { workspace, runDir } = repo()
   ensureRepo(workspace)
   const node = createNodeWorktree(workspace, 'r1', runDir, 'n', head(workspace))
@@ -86,7 +86,7 @@ test('commitAll commits untracked files as Murmuration, honours .gitignore, and 
   writeFileSync(join(node.path, 'debug.log'), 'noise\n')
 
   assert.equal(commitAll(node.path, 'node n'), true)
-  assert.equal(sh(node.path, 'log', '-1', '--format=%an <%ae>|%s'), 'Murmuration <murmuration@localhost>|node n')
+  assert.equal(sh(node.path, 'log', '-1', '--format=%an <%ae>|%s'), 'sous <sous@localhost>|node n')
   assert.deepEqual(sh(node.path, 'show', '--name-only', '--format=', 'HEAD').split('\n'), ['new.txt'])
   assert.equal(existsSync(join(node.path, 'debug.log')), true)
   assert.equal(commitAll(node.path, 'again'), false)
@@ -123,10 +123,10 @@ test('a conflict returns its files and leaves the merge in progress; abort resto
     writeFileSync(join(node.path, `${id}.txt`), `${id}\n`)
     commitAll(node.path, id)
   }
-  assert.equal(merge(integration.path, 'murm/r1.x', 'merge x').ok, true)
+  assert.equal(merge(integration.path, 'sous/r1.x', 'merge x').ok, true)
   const before = head(integration.path)
 
-  assert.deepEqual(merge(integration.path, 'murm/r1.y', 'merge y'), { ok: false, files: ['a.txt', 'café.txt'] })
+  assert.deepEqual(merge(integration.path, 'sous/r1.y', 'merge y'), { ok: false, files: ['a.txt', 'café.txt'] })
   assert.equal(mergeInProgress(integration.path), true)
 
   abortMerge(integration.path)
@@ -146,7 +146,7 @@ test('a merge that fails without a conflict throws git\'s error and is aborted',
   const hook = join(workspace, '.git', 'hooks', 'prepare-commit-msg')
   writeFileSync(hook, '#!/bin/sh\necho hook says no >&2\nexit 1\n', { mode: 0o755 })
 
-  assert.throws(() => merge(integration.path, node.branch, 'merge n'), /git merge --no-ff murm\/r1\.n failed.*/)
+  assert.throws(() => merge(integration.path, node.branch, 'merge n'), /git merge --no-ff sous\/r1\.n failed.*/)
   assert.equal(mergeInProgress(integration.path), false)
   assert.equal(head(integration.path), before)
   assert.equal(sh(integration.path, 'status', '--porcelain'), '')

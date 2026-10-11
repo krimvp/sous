@@ -1,5 +1,5 @@
 // A real lead on Ollama Cloud with a fake host: it splits a tiny goal into two children, receives their outcomes
-// and completes. Costs money; runs only with MURM_LIVE=1.
+// and completes. Costs money; runs only with SOUS_LIVE=1.
 import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,7 +9,7 @@ import { createLeadRunner } from '../src/lead/index.ts'
 import { DEFAULT_LEAD_MODEL } from '../src/types.ts'
 import type { LeadCall, LeadHost } from '../src/types.ts'
 
-const live = process.env.MURM_LIVE === '1'
+const live = process.env.SOUS_LIVE === '1'
 
 test('live: a lead spawns two children, receives their outcomes and completes', { skip: !live, timeout: 300_000 }, async (t) => {
   const calls: LeadCall[] = []
@@ -40,7 +40,7 @@ test('live: a lead spawns two children, receives their outcomes and completes', 
       outcomesDelivered = true
     },
   }
-  const runner = createLeadRunner({ runDir: mkdtempSync(join(tmpdir(), 'murm-lead-live-')), host })
+  const runner = createLeadRunner({ runDir: mkdtempSync(join(tmpdir(), 'sous-lead-live-')), host })
   await runner.deliver('lead', 'Goal: the workspace has a file a.txt containing "alpha" and a file b.txt containing "beta". ' +
     'Split it into exactly 2 independent work children in one spawn call, one per file. Then wait for their outcomes and complete.',
   { requestId: 'lead:brief', mode: 'queue' })

@@ -10,11 +10,11 @@ import { fold } from '../src/state.ts'
 import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
-import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
+import { fakeBin, sous, runDirOf, waitFor } from './fixtures/sous-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 function setup(steps: FakeStep[]) {
-  const workspace = gitWorkspace('murm-cli-')
+  const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write a greeting',
@@ -27,9 +27,9 @@ function setup(steps: FakeStep[]) {
   return { workspace, graph, sessions: join(workspace, 'sessions') }
 }
 
-test('murm run completes a work then check graph and murm status shows it', async () => {
+test('sous run completes a work then check graph and sous status shows it', async () => {
   const { workspace, graph, sessions } = setup([{ write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello.txt' } }])
-  const run = murm(['run', graph], workspace, sessions)
+  const run = sous(['run', graph], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
   assert.match(run.output(), /turn.ended +write turn 1 done: wrote hello.txt/)
   assert.match(run.output(), /run.completed +2 nodes completed/)
@@ -38,15 +38,15 @@ test('murm run completes a work then check graph and murm status shows it', asyn
   assert.equal(JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).goal, 'write a greeting')
   assert.equal(existsSync(join(runDir, 'lock')), false)
 
-  const status = murm(['status', '--workspace', workspace], tmpdir(), sessions)
+  const status = sous(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
   const id = runDir.split('/').at(-1)
-  assert.match(run.output(), new RegExp(`^result: branch murm/${id}$`, 'm'))
-  assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch murm/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
+  assert.match(run.output(), new RegExp(`^result: branch sous/${id}$`, 'm'))
+  assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
 })
 
-test('murm run checks the agents on PATH: a node without an agent falls back to codex; a node naming claude fails', async () => {
-  const workspace = gitWorkspace('murm-cli-')
+test('sous run checks the agents on PATH: a node without an agent falls back to codex; a node naming claude fails', async () => {
+  const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write two files',
@@ -56,7 +56,7 @@ test('murm run checks the agents on PATH: a node without an agent falls back to 
     ],
   }))
   // Only codex, pi and git are on PATH: no claude, and no other directory.
-  const run = murm(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
+  const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 1, run.output())
   assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
@@ -66,19 +66,19 @@ test('murm run checks the agents on PATH: a node without an agent falls back to 
 })
 
 test("a graph that shadows a built-in with a lead agent: a work node's default skips it for the next worker agent", async () => {
-  const workspace = gitWorkspace('murm-cli-')
+  const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write a', agents: { claude: { runs: 'lead' } },
     nodes: [{ id: 'w', kind: 'work', brief: `Write a.\n${fakePlan([{ result: { status: 'done', summary: 'wrote a' } }])}` }],
   }))
-  const run = murm(['run', graph], workspace, join(workspace, 'sessions'))
+  const run = sous(['run', graph], workspace, join(workspace, 'sessions'))
   assert.equal(await run.exit, 0, run.output())
   assert.equal(fold(readEvents(runDirOf(workspace)!)).nodes.get('w')!.turns[0].agent, 'codex')
 })
 
 test("a lead whose node model is on another provider runs when that provider, not the default one, has a credential", async () => {
-  const workspace = gitWorkspace('murm-cli-')
+  const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   const brief = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
   writeFileSync(graph, JSON.stringify({ goal: 'plan', nodes: [{ id: 'planner', kind: 'lead', model: 'openai-codex/gpt-5.5', brief }] }))
@@ -93,7 +93,7 @@ test("a lead whose node model is on another provider runs when that provider, no
 
 test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild included, and leaves the run resumable', async () => {
   const { workspace, graph, sessions } = setup([{ spawnSleeper: 'ignore-term', sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
-  const run = murm(['run', graph], workspace, sessions)
+  const run = sous(['run', graph], workspace, sessions)
   let grandchild: number | undefined
   for (let i = 0; i < 100 && grandchild === undefined; i++) {
     await sleep(100)
@@ -113,11 +113,11 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   // The supervisor exits only after the group is gone: SIGKILL after the 5 s grace for this grandchild.
   assert.throws(() => process.kill(grandchild!, 0), /ESRCH/)
   assert.equal(existsSync(join(runDirOf(workspace)!, 'lock')), false)
-  assert.match(run.output(), /continue with: murm resume /)
+  assert.match(run.output(), /continue with: sous resume /)
 })
 
-test('murm cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
-  const workspace = gitWorkspace('murm-cli-')
+test('sous cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
+  const workspace = gitWorkspace('sous-cli-')
   const sessions = join(workspace, 'sessions')
   const worker = { id: 'w', kind: 'work' as const, brief: `Wait.\n${fakePlan([{ sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])}` }
   const sub = { id: 'sub', kind: 'lead' as const, brief: `Run w.\n${fakeLeadPlan([{ calls: [{ tool: 'spawn', children: [worker] }] }])}` }
@@ -125,9 +125,9 @@ test('murm cancel from another terminal cancels a subtree, stops its worker and 
     { calls: [{ tool: 'spawn', children: [sub] }] },
     { calls: [{ tool: 'complete', summary: 'shipped without sub' }] },
   ])}`
-  const run = murm(['run', goal], workspace, sessions)
+  const run = sous(['run', goal], workspace, sessions)
   const started = await waitFor(workspace, (e) => e.type === 'turn.started' && e.node === 'w')
-  const cancel = murm(['cancel', 'sub'], workspace, sessions)
+  const cancel = sous(['cancel', 'sub'], workspace, sessions)
   assert.equal(await cancel.exit, 0, cancel.output())
   assert.equal(await run.exit, 0, run.output())
 
@@ -141,22 +141,22 @@ test('murm cancel from another terminal cancels a subtree, stops its worker and 
   assert.deepEqual(readdirSync(join(runDir, 'commands')), [])
 })
 
-test('murm answer delivers to a lead that asked the person, and murm status lists the question', async () => {
-  const workspace = gitWorkspace('murm-cli-')
+test('sous answer delivers to a lead that asked the person, and sous status lists the question', async () => {
+  const workspace = gitWorkspace('sous-cli-')
   const sessions = join(workspace, 'sessions')
   const goal = `Pick a database.\n${fakeLeadPlan([
     { calls: [{ tool: 'escalate', question: 'Which database?' }] },
     { calls: [{ tool: 'complete', summary: 'picked' }] },
   ])}`
-  const run = murm(['run', goal], workspace, sessions)
+  const run = sous(['run', goal], workspace, sessions)
   await waitFor(workspace, (e) => e.type === 'lead.turn')
-  assert.match(run.output(), /Question from lead:\nWhich database\?\nAnswer with: murm answer lead/)
+  assert.match(run.output(), /Question from lead:\nWhich database\?\nAnswer with: sous answer lead/)
 
-  const status = murm(['status'], workspace, sessions)
+  const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
-  assert.match(status.output(), /\n  lead waiting\nquestions for you \(murm answer <node> "<answer>"\):\n  lead: Which database\?\n$/)
+  assert.match(status.output(), /\n  lead waiting\nquestions for you \(sous answer <node> "<answer>"\):\n  lead: Which database\?\n$/)
 
-  const answer = murm(['answer', 'lead', 'Postgres.'], workspace, sessions)
+  const answer = sous(['answer', 'lead', 'Postgres.'], workspace, sessions)
   assert.equal(await answer.exit, 0, answer.output())
   assert.equal(await run.exit, 0, run.output())
   const events = readEvents(runDirOf(workspace)!)
@@ -166,8 +166,8 @@ test('murm answer delivers to a lead that asked the person, and murm status list
   assert.deepEqual(last.type === 'lead.delivered' && [last.requestId, last.text], [`evt-${message.seq}`, 'Message from person:\nPostgres.'])
 })
 
-test('murm run --agents gives a goal run its agents and models, recorded in run.created; with a graph file it is an error', async () => {
-  const workspace = gitWorkspace('murm-cli-')
+test('sous run --agents gives a goal run its agents and models, recorded in run.created; with a graph file it is an error', async () => {
+  const workspace = gitWorkspace('sous-cli-')
   const sessions = join(workspace, 'sessions')
   const file = join(workspace, 'agents.json')
   const definitions = { agents: { hr: { runs: 'claude', instructions: 'Be kind.' } }, models: { claude: ['haiku'] } }
@@ -177,7 +177,7 @@ test('murm run --agents gives a goal run its agents and models, recorded in run.
     { calls: [{ tool: 'spawn', children: [{ id: 'hire', kind: 'work', brief, agent: 'hr', model: 'haiku' }] }] },
     { calls: [{ tool: 'complete', summary: 'hired' }] },
   ])}`
-  const run = murm(['run', goal, '--agents', file], workspace, sessions)
+  const run = sous(['run', goal, '--agents', file], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
   assert.match(run.output(), /^agents: claude, codex, pi, lead, hr$/m)
   const runDir = runDirOf(workspace)!
@@ -190,17 +190,17 @@ test('murm run --agents gives a goal run its agents and models, recorded in run.
   assert.equal(hire.turns[0].agent, 'hr')
   const prompt = JSON.parse(readFileSync(join(sessions, `${hire.turns[0].sessionId}.json`), 'utf8')).prompts[0]
   assert.match(prompt, /Your standing instructions:\nBe kind\./)
-  const status = murm(['status'], workspace, sessions)
+  const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
   assert.match(status.output(), /\n    hire completed on hr turns 1: hired\n/)
 
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({ goal: 'g', nodes: [{ id: 'a', kind: 'work', brief: 'a' }] }))
-  const both = murm(['run', graph, '--agents', file], workspace, sessions)
+  const both = sous(['run', graph, '--agents', file], workspace, sessions)
   assert.equal(await both.exit, 1)
-  assert.match(both.output(), /murm: --agents is for goal runs: put agents in the graph file/)
+  assert.match(both.output(), /sous: --agents is for goal runs: put agents in the graph file/)
   writeFileSync(file, JSON.stringify({ ...definitions, nodes: [] }))
-  const bad = murm(['run', 'g', '--agents', file], workspace, sessions)
+  const bad = sous(['run', 'g', '--agents', file], workspace, sessions)
   assert.equal(await bad.exit, 1)
-  assert.match(bad.output(), /murm: agents file: unknown field nodes/)
+  assert.match(bad.output(), /sous: agents file: unknown field nodes/)
 })

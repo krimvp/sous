@@ -1,15 +1,15 @@
-# Murmuration reference
+# sous reference
 
 ## Commands
 
 ```
-murm run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
-murm resume [run-id] [--workspace <dir>]
-murm status [run-id] [--workspace <dir>]
-murm answer <node> "text" [--workspace <dir>]
-murm approve <node> [--workspace <dir>]
-murm cancel <node> [--workspace <dir>]
-murm export atif|otlp [run-id] [--workspace <dir>]
+sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
+sous resume [run-id] [--workspace <dir>]
+sous status [run-id] [--workspace <dir>]
+sous answer <node> "text" [--workspace <dir>]
+sous approve <node> [--workspace <dir>]
+sous cancel <node> [--workspace <dir>]
+sous export atif|otlp [run-id] [--workspace <dir>]
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
@@ -34,7 +34,7 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 | Field | Kinds | Meaning |
 |---|---|---|
 | `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person` and `integrator` are reserved |
-| `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `murm approve`) |
+| `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `sous approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
 | `command` | check, work | a check's command, or a work node's acceptance check |
@@ -53,14 +53,14 @@ its first). New agents exist for the rest of the run.
 ## Files
 
 ```
-.murm/runs/<run-id>/
+.sous/runs/<run-id>/
   events.jsonl          the run's only state (one JSON event per line)
   nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn
   leads/<node>/         each lead's durable conversation
-  integration/          worktree of branch murm/<run-id> (the result)
-  worktrees/<node>/     each worker's worktree, branch murm/<run-id>.<node>
+  integration/          worktree of branch sous/<run-id> (the result)
+  worktrees/<node>/     each worker's worktree, branch sous/<run-id>.<node>
   commands/             answer/approve/cancel requests waiting for the supervisor
-  trace.atif.json       after `murm export atif`
+  trace.atif.json       after `sous export atif`
 ```
 
 ## Events worth grepping

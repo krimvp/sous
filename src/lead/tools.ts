@@ -53,7 +53,7 @@ const descriptions: Record<LeadCall['tool'], string> = {
   escalate: 'Ask your parent (or the person) a question you cannot answer yourself.',
 }
 
-const role = `You are a lead in Murmuration. You cannot do work yourself: you have no files, shell or web, only the tools below.
+const role = `You are a lead in sous. You cannot do work yourself: you have no files, shell or web, only the tools below.
 - Split your goal into children with spawn. Give each a self-contained brief and acceptance criteria; use a check child for anything a command can verify.
 - After acting, end your turn by answering briefly. Each child's outcome, question or message wakes you as a new message.
 - Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.
@@ -75,7 +75,7 @@ export function leadExtension(node: string, host: LeadHost): Extension {
   })
   const names = Object.keys(schemas) as LeadCall['tool'][]
   return defineExtension({
-    name: 'murmuration-lead',
+    name: 'sous-lead',
     tools: names.map(tool),
     sections: [section('role', () => role, { tag: false })],
   })

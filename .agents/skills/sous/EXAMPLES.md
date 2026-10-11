@@ -1,4 +1,4 @@
-# Murmuration examples
+# sous examples
 
 ## A goal with cheap workers and a final check
 
@@ -6,7 +6,7 @@
 cat > agents.json <<'EOF'
 { "agent": "pi", "models": { "pi": ["ollama-cloud/glm-5.3", "ollama-cloud/deepseek-v4.1-flash"] } }
 EOF
-murm run --agents agents.json "Add input validation to src/cli.js with unit tests. Use agent pi for workers. \
+sous run --agents agents.json "Add input validation to src/cli.js with unit tests. Use agent pi for workers. \
 Finish with a check that runs: node --test"
 ```
 
@@ -59,7 +59,7 @@ Finish with a check that runs: node --test"
 ## A deep decomposition (experiment)
 
 ```bash
-murm run --max-depth 4 "$(cat goal.md)"
+sous run --max-depth 4 "$(cat goal.md)"
 ```
 
 with a goal that fixes each level: "depth 1 splits into these four subsystem leads; depth 2 splits into 2–3

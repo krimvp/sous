@@ -1,12 +1,12 @@
-# Murmuration design
+# sous design
 
-Murmuration runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
+sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
 lead agents plan and split, worker agents (Claude Code, Codex, Pi or a custom agent) do it, and plain
 code keeps everything moving. It is local only, keeps runtime dependencies to the lead runner, and keeps its
 whole state in files you can read.
 
-A murmuration is a flock of starlings that moves as one without a central conductor. Here there is a
-small conductor after all: the supervisor.
+The name comes from the kitchen brigade: you call the order, the sous chef splits it across stations (leads),
+cooks do it (workers), and plates are checked at the pass (merges and checks).
 
 ## Principles
 
@@ -30,15 +30,15 @@ No sandbox (workers run as the user's own CLIs, in a git worktree), no web UI, n
 no remote pushes or PRs, no message service. These can come later behind the seams below.
 
 Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
-product; Murmuration shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
-Murmuration focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
+product; sous shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
+sous focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
 engine can be tested without a lead.
 
 ## Concepts
 
 | Term | Meaning |
 |---|---|
-| **Run** | One invocation of `murm run`: a goal, a tree of nodes, an event log in `<workspace>/.murm/runs/<run-id>/`. |
+| **Run** | One invocation of `sous run`: a goal, a tree of nodes, an event log in `<workspace>/.sous/runs/<run-id>/`. |
 | **Node** | One unit of work in the tree. Has a kind, a brief, acceptance criteria, a parent and an agent. |
 | **Turn** | One execution of a node: a worker process from start to exit, or one lead call. Numbered per node. |
 | **Inbox** | Messages addressed to a node that have not yet been delivered to a turn. |
@@ -52,7 +52,7 @@ engine can be tested without a lead.
 | `work` | a worker adapter (Claude, Codex, Pi, custom) | does the work in a git worktree |
 | `check` | a shell command | deterministic gate; exit code 0 passes |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
-| `gate` | the person running Murmuration | approval via `murm approve`, rejection via `murm cancel` |
+| `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
 
 A node may list `needs` (sibling node IDs that must complete first). The graph is a tree with
 dependency edges between siblings; it stays acyclic because a lead can only add children under itself and
@@ -77,18 +77,18 @@ parent completes only through its own acceptance check, never just because every
 ## Architecture
 
 ```
-murm CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) ──▶ worker processes
+sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) ──▶ worker processes
                │   ▲                                                        │
-               │   └──────────── turn output files (.murm/runs/<id>/nodes/) ◀┘
+               │   └──────────── turn output files (.sous/runs/<id>/nodes/) ◀┘
                ├──▶ lead runner (LLM + orchestration tools; tool calls become events)
-               ├──▶ .murm/runs/<id>/events.jsonl  (the only state)
+               ├──▶ .sous/runs/<id>/events.jsonl  (the only state)
                └──▶ trace exporters (ATIF file, OTLP/HTTP to Langfuse)
 ```
 
 ### Supervisor
 
-One process per run, holding `.murm/runs/<id>/lock` (pid and start time), created exclusively. A lock left
-by a stopped supervisor is taken over only by `murm resume` (see Recovery); `murm run` never takes one over. Its loop:
+One process per run, holding `.sous/runs/<id>/lock` (pid and start time), created exclusively. A lock left
+by a stopped supervisor is taken over only by `sous resume` (see Recovery); `sous run` never takes one over. Its loop:
 
 1. Fold the event log into state.
 2. For each ready node with no running turn: start a turn (new brief, or resume with the inbox).
@@ -121,7 +121,7 @@ Each adapter starts the CLI as the leader of a new process group, sends stdout t
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
 [the spike](../spikes/pi-durable/RESULTS.md)). Each lead node is one durable conversation, stored with the
-JSONL backend in `.murm/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
+JSONL backend in `.sous/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
 reopened lead continues where it stopped.
 
 - **Events reach a lead as submissions:** a follow-up when it is idle, a steer when it must change course
@@ -132,7 +132,7 @@ reopened lead continues where it stopped.
   the spike, a different replay result made the model stop early.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
   (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
-  from the user's Pi login in `~/.pi/agent/auth.json`, read only: Murmuration never refreshes them (a
+  from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
   refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
   small provider definition, because pi-ai has none built in.
 
@@ -161,7 +161,7 @@ Agents address nodes, not processes, and the supervisor is the only router.
   shared ancestor and back down.
 - **Delivery:** append a `message` event, add it to the recipient's inbox, then wake the recipient: start a
   lead turn, resume an idle worker, queue for a running worker, or interrupt it.
-- **Escalation goes up a level.** The person is the root's parent: `murm answer <node> "…"`.
+- **Escalation goes up a level.** The person is the root's parent: `sous answer <node> "…"`.
 
 Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
 things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
@@ -172,7 +172,7 @@ later, when an agent the supervisor did not launch needs to take part.
 The contracts are `ChildSpec`, `LeadCall`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
 events in `src/types.ts`.
 
-**Starting.** `murm run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
+**Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
 Agents). A lead's first delivery is its brief, with request ID `<node>:brief`.
@@ -182,7 +182,7 @@ before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event th
 
 - a child's outcome: completed with its summary, failed with its reason;
 - a question from a child (a worker's `needs_input` or `blocked` result, or a child lead's `escalate`);
-- a message sent to it by its parent or by the person (`murm answer`).
+- a message sent to it by its parent or by the person (`sous answer`).
 
 `interrupt` deliveries steer a running lead; everything else is queued.
 
@@ -192,7 +192,7 @@ settings:
 
 | Rule | Value |
 |---|---|
-| Lead depth (a top-level lead is depth 1) | at most 3 by default, or `murm run --max-depth <n>` (1–8) for the run; each lead's brief states its depth and the limit |
+| Lead depth (a top-level lead is depth 1) | at most 3 by default, or `sous run --max-depth <n>` (1–8) for the run; each lead's brief states its depth and the limit |
 | Children per lead, over its lifetime | at most 12 |
 | `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
 | `cancel` targets | the lead's own children |
@@ -213,15 +213,15 @@ one was delivered, and the runner may report one twice after a crash; the second
 messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
 reminders without progress the lead fails.
 
-**The person.** Messages to `person` are printed by `murm run` and listed by `murm status`. `murm answer
-<node> "text"`, `murm approve <gate>` and `murm cancel <node>` (from another terminal) write a command file in
+**The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
+<node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
 `<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event.
 The supervisor stays the only writer of the log.
 
 **Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
-no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `murm run` prints
-it as an approval request and `murm status` lists it. `murm approve <gate>` completes it with summary "approved
-by person"; `murm cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
+no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `sous run` prints
+it as an approval request and `sous status` lists it. `sous approve <gate>` completes it with summary "approved
+by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
 told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
@@ -258,7 +258,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   a chosen model to another runtime. Refusals name the allowed models, or say none are allowed. Agent definitions
   and node models the person writes are not limited. A lead's brief lists the runtimes it may define agents on,
   with their models.
-- **Agents for goal runs.** `murm run "goal" --agents <file>` reads a JSON file with optional `agent`, `agents`
+- **Agents for goal runs.** `sous run "goal" --agents <file>` reads a JSON file with optional `agent`, `agents`
   and `models`, under the same rules as a graph file (unknown keys are rejected). `run.created.definitions` records
   it, so resume and traces see it; a graph run's definitions stay in `run.created.graph`, and `--agents` with a
   graph file is an error (put agents in the graph file).
@@ -274,11 +274,11 @@ must be a git repository with at least one commit; when it is not, the run fails
 work or check node starts.
 
 1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
-   `murm/<run>` from the workspace's `HEAD` and its worktree in `.murm/runs/<run>/integration/`
-   (`integration.created`). `.murm/` is added to the repository's `.git/info/exclude`. The person's own
+   `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`
+   (`integration.created`). `.sous/` is added to the repository's `.git/info/exclude`. The person's own
    checkout is never touched.
-2. **Node worktrees.** A work node gets branch `murm/<run>.<node>` (git cannot hold `murm/<run>/<node>` beside
-   `murm/<run>`) and worktree `.murm/runs/<run>/worktrees/<node>/`, created from the integration branch's
+2. **Node worktrees.** A work node gets branch `sous/<run>.<node>` (git cannot hold `sous/<run>/<node>` beside
+   `sous/<run>`) and worktree `.sous/runs/<run>/worktrees/<node>/`, created from the integration branch's
    current commit when the node starts (`worktree.created`). Its worker runs there and its acceptance check
    runs there. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
 3. **Merge queue.** When a work node is done and its acceptance check passed in its own worktree, the
@@ -304,31 +304,31 @@ work or check node starts.
    passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
    is reset to where the merge started, the node fails and its parent is told. The integrator never completes,
-   does not count toward the run's completion, and shows in `murm status` (`idle` between requests).
+   does not count toward the run's completion, and shows in `sous status` (`idle` between requests).
 5. **Completion.** A work node completes only on `merge.done` (and fails on `merge.failed`). `check` nodes run
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
-6. **The result** is branch `murm/<run>`. Merging it into the person's own branch is their decision; `murm
-   status` and the end of `murm run` name the branch.
+6. **The result** is branch `sous/<run>`. Merging it into the person's own branch is their decision; `sous
+   status` and the end of `sous run` name the branch.
 7. **Traces.** Worktree and merge events are system steps in the node's ATIF trajectory and spans under the
    node in Langfuse; the integrator is its own trajectory under the root.
 
 Recovery: worktrees, branches and queue state survive a crash. `integration.created` and `worktree.created`
-are appended only when the branch was newly created; on resume the existing worktree is used. On `murm
+are appended only when the branch was newly created; on resume the existing worktree is used. On `sous
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
 usual; queued merges continue in order.
 
 ## Recovery
 
-The supervisor, not any lead, owns recovery. `murm resume [run-id]` (latest run by default) continues a run
+The supervisor, not any lead, owns recovery. `sous resume [run-id]` (latest run by default) continues a run
 whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
 
 1. **Intent before effect.** `turn.started {node, turn, pid, startTime}` is appended immediately after
    spawning (`startTime` is field 22 of `/proc/<pid>/stat`); `turn.session` once a session ID is known;
    `turn.ended {result}` after.
 2. **Output goes to files**, so a turn that finishes while the supervisor is down leaves its result on disk.
-3. **The lock.** `murm resume` removes a lock whose holder is gone (pid plus start time) and refuses a live
+3. **The lock.** `sous resume` removes a lock whose holder is gone (pid plus start time) and refuses a live
    one. It appends `run.resumed`; a run that already completed or failed is not resumed.
 4. **Unfinished worker turns.** For each turn without `turn.ended`:
    - its output file has an end marker with a result → record `turn.ended` from it; the turn is not run again;
@@ -356,7 +356,7 @@ whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
    fails with "a supervisor stop cut its turn short after 3 recoveries" (a constant, not a setting).
 
 Pi runs its tool commands in their own session, outside the turn's process group. In the v2 real run (Roadmap),
-after `murm run` was killed with SIGKILL, Pi and its running `sleep` survived (reparented); `murm resume`
+after `sous run` was killed with SIGKILL, Pi and its running `sleep` survived (reparented); `sous resume`
 sent SIGTERM to Pi's group and Pi stopped its tool command before exiting. Had Pi needed SIGKILL, its tool
 command could have outlived it.
 
@@ -393,7 +393,7 @@ from them, so traces can move between tools later.
 
 ### ATIF (Harbor RFC 0001, ATIF-v1.8)
 
-`murm export atif [run-id]` writes one ATIF document per run, to `.murm/runs/<id>/trace.atif.json`:
+`sous export atif [run-id]` writes one ATIF document per run, to `.sous/runs/<id>/trace.atif.json`:
 
 - The root trajectory is the supervisor's view of the root node. Supervisor decisions and lead tool
   calls are `agent` steps with `llm_call_count: 0` when no model was involved; lead model calls carry
@@ -405,15 +405,15 @@ from them, so traces can move between tools later.
   Pi `--mode json` events. A tool call and its result must share one step (`source_call_id` matches a
   `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt is a `system`
   step.
-- Murmuration-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
+- sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
-- Tests check every document with a strict checker of the subset Murmuration emits (`test/atif-checker.ts`),
+- Tests check every document with a strict checker of the subset sous emits (`test/atif-checker.ts`),
   and with Harbor's validator (`python -m harbor.utils.trajectory_validator`) when Harbor is installed
   (`HARBOR_PYTHON`).
 
 ### Langfuse (OTLP/HTTP)
 
-`murm export otlp [run-id]` posts OTLP JSON to
+`sous export otlp [run-id]` posts OTLP JSON to
 `$LANGFUSE_HOST/api/public/otel/v1/traces` with plain `fetch`:
 
 - Header `Authorization: Basic base64(pk:sk)` and `x-langfuse-ingestion-version: 4`.
@@ -432,18 +432,18 @@ run or an older one.
 ## Storage layout
 
 ```
-<workspace>/.murm/runs/<run-id>/
+<workspace>/.sous/runs/<run-id>/
   run.json             goal, workspace, graph or agents file, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
-  commands/            command files from murm answer, approve and cancel, until processed
+  commands/            command files from sous answer, approve and cancel, until processed
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
-  integration/         git worktree of branch murm/<run-id>, where merges and check nodes run
-  worktrees/<node-id>/ git worktree of branch murm/<run-id>.<node-id> for a work node
-  trace.atif.json      written by murm export atif
+  integration/         git worktree of branch sous/<run-id>, where merges and check nodes run
+  worktrees/<node-id>/ git worktree of branch sous/<run-id>.<node-id> for a work node
+  trace.atif.json      written by sous export atif
 ```
 
 ## Implementation
@@ -457,17 +457,17 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 
 | Version | Scope | Done when |
 |---|---|---|
-| **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
+| **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `sous run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
 | **v1** (done) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
-| **v2** (done) | `murm resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
-| **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `murm/<run>`, one real conflict resolved by the integrator |
+| **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
+| **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
 (its default `ollama-cloud/glm-5.2`). A goal split into two work children and a check completed and exported a valid
 ATIF file with the children nested under the lead; a lead escalated a choice and finished with the answer
-given by `murm answer` from another process; `murm cancel` of a running worker, and of the lead, stopped the
+given by `sous answer` from another process; `sous cancel` of a running worker, and of the lead, stopped the
 processes (Pi's tool command included) and failed the subtree; a lead told to interrupt its running worker
 did, and the worker resumed its session with the message. Limitations found:
 
@@ -478,18 +478,18 @@ did, and the worker resumed its session with the message. Limitations found:
 - Ollama Cloud reports no prices, so lead and Pi worker usage is in tokens only.
 
 v2 was verified on 2026-10-11 with real runs (lead on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi). A
-goal split into two Pi work children and a check; `murm run` was killed with SIGKILL while the second child ran
-`sleep 30`; `murm resume` stopped the orphaned Pi turn and resumed its session, and the run completed with one
+goal split into two Pi work children and a check; `sous run` was killed with SIGKILL while the second child ran
+`sleep 30`; `sous resume` stopped the orphaned Pi turn and resumed its session, and the run completed with one
 spawn call, the first child's single turn, and an ATIF file that Harbor's validator accepted. In a second run the
 supervisor was killed just after a child's outcome was delivered to the lead and before the lead answered or the
-check ran; after `murm resume` the lead answered that delivery once, the check ran, and the run completed with
+check ran; after `sous resume` the lead answered that delivery once, the check ran, and the run completed with
 no turn repeated. The 3-recovery limit, a reused pid, a turn finished while the supervisor was down, and gates
 are covered by fake-harness tests with real processes.
 
 v3 merging was verified on 2026-10-11 with a real run (lead on `ollama-cloud/deepseek-v4.1-flash`, workers on
 Pi, the integrator on its default, Codex). The goal told the lead to spawn two parallel Pi children that both
 rewrite line 1 of a seeded file. The first merged cleanly; the second conflicted, and Codex, as the integrator,
-resolved it in the integration worktree; `murm/<run>` held both lines, the person's checkout was untouched, and
+resolved it in the integration worktree; `sous/<run>` held both lines, the person's checkout was untouched, and
 Harbor's validator accepted the exported ATIF file. Codex first committed the merge with the conflict markers
 still in it (its edit command failed) and fixed the file in a second commit. Verification checks the final
 state, not each commit; since that run it also rejects marker lines left in the conflicted files. Agent

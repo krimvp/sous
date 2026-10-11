@@ -1,5 +1,5 @@
 // Real harness turns: start, then resume the same session and prove it kept context.
-// Costs money; runs only with MURM_LIVE=1.
+// Costs money; runs only with SOUS_LIVE=1.
 
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
@@ -10,14 +10,14 @@ import { test } from 'node:test'
 import { getAdapter } from '../src/adapters/index.ts'
 import type { HarnessName, RunningTurn, TurnSpec } from '../src/types.ts'
 
-const live = process.env.MURM_LIVE === '1'
+const live = process.env.SOUS_LIVE === '1'
 // Claude also exercises --model with a cheap model; the others use their configured default.
 const MODELS: Record<HarnessName, string | undefined> = { claude: 'haiku', codex: undefined, pi: undefined }
 
 for (const harness of ['claude', 'codex', 'pi'] as const) {
   test(`${harness}: a resumed session remembers the first turn`, { skip: !live, timeout: 600_000 }, async () => {
     const adapter = getAdapter(harness)
-    const cwd = mkdtempSync(join(tmpdir(), `murm-live-${harness}-`))
+    const cwd = mkdtempSync(join(tmpdir(), `sous-live-${harness}-`))
     const codeword = randomBytes(4).toString('hex').toUpperCase()
     const spec = (turn: number, prompt: string): TurnSpec => ({
       nodeId: 'live', turn, cwd, prompt, model: MODELS[harness],
