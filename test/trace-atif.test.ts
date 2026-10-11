@@ -239,3 +239,23 @@ test('a cancellation by the person comes from node.cancelled, and the lead\'s la
   ])
   assert.equal(readme.extra.outcome, 'cancelled by person')
 })
+
+test('spawned children get the design\'s defaults: a work child runs on claude, a child lead takes its parent\'s model', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
+  cpSync(LEAD_RUN_DIR, dir, { recursive: true })
+  const file = join(dir, 'events.jsonl')
+  const events = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  for (const e of events) {
+    if (e.type === 'node.added') e.node.model = 'ollama-cloud/glm-5.3'
+    if (e.callId === 'call_1') delete e.call.children[0].harness
+    if (e.type === 'turn.started' && e.node === 'impl') delete e.harness
+  }
+  writeFileSync(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n')
+  const out = toAtif(loadRun(dir, parseTurn)) as Obj
+  const find = (node: string) => trajectories(out).find((t) => t.trajectory_id.endsWith(`/${node}`))!
+  const impl = find('impl')
+  assert.deepEqual(impl.steps.map((s: Obj) => s.source), leadSub('impl').steps.map((s: Obj) => s.source))
+  assert.equal(impl.agent.name, 'claude-code')
+  assert.equal(impl.final_metrics.total_prompt_tokens, 3000)
+  assert.equal(find('docs').extra.node.model, 'ollama-cloud/glm-5.3')
+})

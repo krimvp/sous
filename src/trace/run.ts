@@ -36,9 +36,16 @@ export function readEvents(file: string): Event[] {
   return events
 }
 
-/** Nodes a lead's `spawn` call added: children of the calling lead. */
-function spawned(e: Event): NodeSpec[] {
-  return e.type === 'lead.call' && e.ok && e.call.tool === 'spawn' ? e.call.children.map((c) => ({ ...c, parent: e.node })) : []
+/** Nodes a lead's `spawn` call added: children of the calling lead, with the design's child defaults (a work
+ * child runs on `claude`; a child lead uses its parent's model). */
+function spawned(e: Event, specOf: (id: string) => NodeSpec | undefined): NodeSpec[] {
+  if (e.type !== 'lead.call' || !e.ok || e.call.tool !== 'spawn') return []
+  return e.call.children.map((c) => ({
+    ...c,
+    parent: e.node,
+    harness: c.kind === 'work' ? c.harness ?? 'claude' : c.harness,
+    model: c.kind === 'lead' ? c.model ?? specOf(e.node)?.model : c.model,
+  }))
 }
 
 export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
@@ -48,7 +55,7 @@ export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
   const turns: Record<string, ParsedTurn> = {}
   for (const e of events) {
     if (e.type === 'node.added') specs.set(e.node.id, e.node)
-    for (const spec of spawned(e)) specs.set(spec.id, spec)
+    for (const spec of spawned(e, (id) => specs.get(id))) specs.set(spec.id, spec)
     if (e.type !== 'turn.started') continue
     const harness = e.harness ?? specs.get(e.node)?.harness ?? graph?.harness
     const file = resolve(runDir, e.outFile)
@@ -224,7 +231,7 @@ export function viewRun(run: LoadedRun): RunView {
         // A call's effects follow from the call itself; a refused call changed nothing.
         if (!e.ok) break
         const { call } = e
-        for (const spec of spawned(e)) add(spec, id, e, e.callId)
+        for (const spec of spawned(e, (id) => nodes.get(id)?.spec)) add(spec, id, e, e.callId)
         if (call.tool === 'send') inbox.set(call.to, [...(inbox.get(call.to) ?? []), call.body])
         if (call.tool === 'cancel') cancel({ type: 'node.cancelled', node: call.node, by: id, seq: e.seq, at: e.at })
         if (call.tool === 'complete') Object.assign(node, { status: 'completed', outcome: call.summary })
