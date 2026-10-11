@@ -180,9 +180,10 @@ export type EventBody =
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
-  | { type: 'node.completed'; node: string; summary: string }
+  /** `command`: on events a person command produced, the name of its command file (see `murm answer`). */
+  | { type: 'node.completed'; node: string; summary: string; command?: string }
   | { type: 'node.failed'; node: string; reason: string }
-  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt' }
+  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
@@ -191,7 +192,7 @@ export type EventBody =
   /** A lead answered a delivery and is idle again. */
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
-  | { type: 'node.cancelled'; node: string; by: string }
+  | { type: 'node.cancelled'; node: string; by: string; command?: string }
   /** `murm resume` took over a run whose supervisor had stopped. */
   | { type: 'run.resumed' }
   | { type: 'run.completed'; summary: string }

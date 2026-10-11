@@ -274,24 +274,29 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // ---- Person commands ------------------------------------------------------------------------
 
+  // A command's effect is appended with the command file's name before the file is removed, so a crash in between
+  // neither loses the command nor applies it twice.
   const readCommands = () => {
     for (const file of readdirSync(commandsDir).filter((f) => f.endsWith('.json')).sort()) {
       const path = join(commandsDir, file)
-      let cmd: PersonCommand | undefined
-      try {
-        cmd = JSON.parse(readFileSync(path, 'utf8'))
-      } catch {}
+      if (!log.events.some((e) => 'command' in e && e.command === file)) apply(path, file)
       rmSync(path, { force: true })
-      const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
-      if (!node || isFinal(node)) continue
-      const gate = node.spec.kind === 'gate'
-      if (cmd!.type === 'answer' && !gate && typeof cmd!.text === 'string' && cmd!.text.trim()) {
-        log.append({ type: 'message', from: PERSON, to: cmd!.node, body: cmd!.text, mode: 'queue' })
-      } else if (cmd!.type === 'approve' && gate && node.status === 'waiting') {
-        complete(cmd!.node, 'approved by person')
-      } else if (cmd!.type === 'cancel') {
-        log.append({ type: 'node.cancelled', node: cmd!.node, by: PERSON })
-      }
+    }
+  }
+  const apply = (path: string, command: string) => {
+    let cmd: PersonCommand | undefined
+    try {
+      cmd = JSON.parse(readFileSync(path, 'utf8'))
+    } catch {}
+    const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
+    if (!node || isFinal(node)) return
+    const gate = node.spec.kind === 'gate'
+    if (cmd!.type === 'answer' && !gate && typeof cmd!.text === 'string' && cmd!.text.trim()) {
+      log.append({ type: 'message', from: PERSON, to: cmd!.node, body: cmd!.text, mode: 'queue', command })
+    } else if (cmd!.type === 'approve' && gate && node.status === 'waiting') {
+      log.append({ type: 'node.completed', node: cmd!.node, summary: 'approved by person', command })
+    } else if (cmd!.type === 'cancel') {
+      log.append({ type: 'node.cancelled', node: cmd!.node, by: PERSON, command })
     }
   }
 
@@ -476,7 +481,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   }
 
   const runCheckNode = async (spec: NodeSpec) => {
-    const c = await check(spec.id, spec.command!)
+    // After a restart, a check whose outcome was recorded settles from it (a check node runs its command once).
+    const c = nodeNow(spec.id).checks.at(-1) ?? await check(spec.id, spec.command!)
     if (stopping || isFinal(nodeNow(spec.id))) return
     if (c.exitCode === 0) complete(spec.id, 'check passed')
     else fail(spec.id, `check exited ${c.exitCode}`)

@@ -248,13 +248,16 @@ whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
    inbox. A node without a session ID starts again from its brief. A node whose last turn ended `done` runs
    its acceptance check (again, if it was running), and a worker's question that was not yet sent to its
    parent is sent.
-5. **Checks** (`check` nodes and acceptance checks) that were running are simply run again. Their processes
-   are not recorded, so one left running by a killed supervisor finishes on its own.
+5. **Checks** (`check` nodes and acceptance checks) that were running are simply run again; one whose
+   `check.ended` was recorded settles from it. Their processes are not recorded, so one left running by a
+   killed supervisor finishes on its own.
 6. **Leads recover through pi-durable.** The supervisor calls `LeadRunner.resume()`, which reopens every
    lead's storage and resumes its unfinished run, replaying interrupted tool calls (they find their effects in
    the event log by tool call ID). Then it delivers again every `lead.delivered` without a `lead.turn`; the
    runner ignores a request ID it already has, so this is safe.
-7. **Person commands** waiting in `<runDir>/commands/` are processed as usual.
+7. **Person commands** waiting in `<runDir>/commands/` are processed as usual. The event a command produces
+   carries its file name (`command`) and is appended before the file is removed, so a crash in between neither
+   loses it nor applies it twice.
 8. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
    fails with "a supervisor stop cut its turn short after 3 recoveries" (a constant, not a setting).
 

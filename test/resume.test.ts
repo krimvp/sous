@@ -1,20 +1,21 @@
 // `murm resume` after a SIGKILLed supervisor, and gate nodes, through real `murm` processes and fake workers.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { readEvents } from '../src/log.ts'
+import { openLog, readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
-import type { Event, NodeSpec } from '../src/types.ts'
+import type { Event, EventBody, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
 import { murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
+const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathname
 const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
 
 function workspaceWith(nodes: NodeSpec[]) {
@@ -246,4 +247,57 @@ test("murm cancel rejects a lead's gate child, and the lead hears it", async () 
   assert.equal(state.nodes.get('ok')!.reason, 'cancelled by person')
   assert.ok(events.some((e) => e.type === 'lead.delivered' && e.text === 'Child ok failed: cancelled by person'))
   assert.equal(state.summary, 'not deployed: rejected')
+})
+
+/** A run directory with these nodes (and events) in <workspace>/.murm/runs/, for `murm resume`. */
+function runWith(nodes: NodeSpec[], more: EventBody[] = []) {
+  const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
+  const runDir = join(workspace, '.murm', 'runs', 'r')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
+  for (const e of more) log.append(e)
+  log.close()
+  return { workspace, runDir, sessions: join(workspace, 'sessions') }
+}
+
+/** Runs a supervisor over the run that SIGKILLs itself at `point`. */
+function crash(workspace: string, runDir: string, point: 'event' | 'rm', name: string) {
+  const child = spawn(process.execPath, [CRASH, workspace, runDir, point, name], { stdio: 'ignore' })
+  return new Promise<NodeJS.Signals | null>((resolve) => child.on('exit', (_, signal) => resolve(signal)))
+}
+
+/** `murm resume`, stopped (SIGINT) if it has not finished within `ms`. */
+async function resumeWithin(workspace: string, sessions: string, ms: number) {
+  const resumed = murm(['resume'], workspace, sessions)
+  const timer = setTimeout(() => resumed.child.kill('SIGINT'), ms)
+  const code = await resumed.exit
+  clearTimeout(timer)
+  return { code, output: resumed.output() }
+}
+
+test('a check whose outcome was recorded before a crash is settled from it on resume, not run again', async () => {
+  const { workspace, runDir, sessions } = runWith([{ id: 'c', kind: 'check', command: 'echo ran >> count; test $(wc -l < count) -eq 1' }])
+  assert.equal(await crash(workspace, runDir, 'event', 'check.ended'), 'SIGKILL')
+  assert.equal(fold(readEvents(runDir)).nodes.get('c')!.status, 'running')
+  const resumed = await resumeWithin(workspace, sessions, 5000)
+  assert.equal(resumed.code, 0, resumed.output)
+  assert.equal(readFileSync(join(workspace, 'count'), 'utf8'), 'ran\n')
+  assert.equal(fold(readEvents(runDir)).nodes.get('c')!.summary, 'check passed')
+})
+
+test('a person command survives a crash on either side of removing its file, and applies once', async () => {
+  const ask: EventBody = { type: 'message', from: 'ok', to: 'person', body: 'Ship?', mode: 'queue' }
+  for (const point of ['rm', 'event'] as const) {
+    const { workspace, runDir, sessions } = runWith([{ id: 'ok', kind: 'gate', brief: 'Ship?' }], [ask])
+    writeFileSync(join(runDir, 'commands', 'approve.json'), JSON.stringify({ type: 'approve', node: 'ok' }))
+    assert.equal(await crash(workspace, runDir, point, point === 'rm' ? 'approve.json' : 'node.completed'), 'SIGKILL')
+    const resumed = await resumeWithin(workspace, sessions, 3000)
+    assert.equal(resumed.code, 0, `${point}: ${resumed.output}`)
+    const events = readEvents(runDir)
+    assert.equal(events.filter((e) => e.type === 'node.completed').length, 1, point)
+    assert.equal(fold(events).nodes.get('ok')!.summary, 'approved by person')
+    assert.equal(existsSync(join(runDir, 'commands', 'approve.json')), false)
+  }
 })
