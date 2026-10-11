@@ -305,3 +305,34 @@ test('read_file refuses a FIFO without blocking the supervisor', async () => {
   assert.equal(code, 0, `the run did not finish: ${run.output()}`)
   assert.deepEqual(results(fakeLeadRecords(runDirOf(workspace)!)), ['refused: workspace/pipe is not a regular file', 'completed'])
 })
+
+test('collecting renames around a file or link in the way of a directory, and a directory in the way of a file; nothing outside is touched, and collecting again picks the same names', async () => {
+  const { workspace, runDir, output } = queuedRun({})
+  for (const dir of ['notes', 'link/new', 'sub']) mkdirSync(join(runDir, 'work', 'w', dir), { recursive: true })
+  writeFileSync(join(runDir, 'work', 'w', 'notes', 'report.md'), 'r\n')
+  writeFileSync(join(runDir, 'work', 'w', 'link', 'new', 'r.md'), 'n\n')
+  writeFileSync(join(runDir, 'work', 'w', 'sub', 'x'), 'x\n')
+  writeFileSync(join(runDir, 'work', 'w', 'top'), 't\n')
+  const outside = plainDir('sous-outside-')
+  writeFileSync(join(outside, 'collect.tmp'), 'keep\n')
+  writeFileSync(join(output, 'notes'), 'a file from an earlier node\n') // a file where w has a directory
+  const linked = plainDir('sous-outside-')
+  symlinkSync(linked, join(output, 'link')) // a link where w has a directory
+  mkdirSync(join(output, 'top')) // a directory where w has a file
+  symlinkSync(outside, join(runDir, 'staging')) // an old staging link is never used
+  // As if a stopped supervisor had collected notes/report.md already.
+  mkdirSync(join(output, 'notes.w'))
+  writeFileSync(join(output, 'notes.w', 'report.md'), 'r\n')
+  const resumed = sous(['resume'], workspace, plainDir('sous-sessions-'), NO_GIT)
+  assert.equal(await resumed.exit, 0, resumed.output())
+  assert.deepEqual(readdirSync(linked), [])
+  assert.deepEqual(readdirSync(outside), ['collect.tmp'])
+  assert.equal(readFileSync(join(outside, 'collect.tmp'), 'utf8'), 'keep\n')
+  assert.deepEqual(tree(output), ['link.w/new/r.md', 'notes', 'notes.w/report.md', 'sub/x', 'top.w'])
+  assert.ok(!readdirSync(runDir).some((f) => f.startsWith('.collect-')), 'nothing staged is left behind')
+  const done = readEvents(runDir).flatMap((e) => (e.type === 'merge.done' ? [e] : []))
+  assert.deepEqual(done.map((e) => [e.files, e.renamed]), [[
+    ['link.w/new/r.md', 'notes.w/report.md', 'sub/x', 'top.w'],
+    { 'link/new/r.md': 'link.w/new/r.md', 'notes/report.md': 'notes.w/report.md', top: 'top.w' },
+  ]])
+})

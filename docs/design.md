@@ -353,9 +353,12 @@ For non-code work and machines without git. Nothing runs git.
 2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
    (not `.git`, `.sous`, `node_modules` or symbolic links, so not the two links) are copied into the output folder by relative path. A file
    that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
-   different file is there, both are kept: the new one gets the first of `<name>.<node>.<ext>`, `<name>.<node>-2.<ext>`,
-   … that is free or already holds the same content, so nothing in the results is ever replaced and resume picks the
-   same name. Each copy is staged in `.sous/runs/<run>/staging/` (created exclusively) and renamed into place. Then
+   different file, a directory or a link is in the way, both are kept: the new one gets the first of
+   `<name>.<node>.<ext>`, `<name>.<node>-2.<ext>`, … that is free or already holds the same content. A file or link in
+   the way of a directory is renamed around the same way, at the first segment that clashes (`notes/report.md` lands
+   in `notes.<node>/report.md`). So nothing in the results is ever replaced or followed, every rename is listed, and
+   resume picks the same names. Each copy is staged under a unique name in the run directory (`.collect-<uuid>`, created
+   exclusively) and renamed into place. Then
    `merge.done` (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead
    hears both. As in git mode, a node with messages waiting when its turn comes leaves the queue (`merge.withdrawn`),
    its worker resumes with them, and it queues again when done.
@@ -489,7 +492,7 @@ run or an older one.
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node
   output/              folder mode: the results, where collected files land
   work/<node-id>/      folder mode: a work or check node's own folder, with links workspace and results
-  staging/             folder mode: where a file being collected is copied before it is renamed into output/
+  .collect-<uuid>      folder mode: a file being collected, briefly, before it is renamed into output/
   trace.atif.json      written by sous export atif
 ```
 

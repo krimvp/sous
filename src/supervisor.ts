@@ -598,7 +598,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const { spec } = n
     if (n.inbox.length) return void log.append({ type: 'merge.withdrawn', node: spec.id })
     try {
-      const { files, renamed } = collect(nodeFolder(spec.id), resultsDir(), spec.id, join(runDir, 'staging'))
+      const { files, renamed } = collect(nodeFolder(spec.id), resultsDir(), spec.id, runDir)
       log.append({ type: 'merge.done', node: spec.id, by: files.length ? 'supervisor' : 'nothing', files, ...(Object.keys(renamed).length ? { renamed } : {}) })
     } catch (err) {
       if (!stopping && !isFinal(nodeNow(spec.id))) log.append({ type: 'merge.failed', node: spec.id, reason: `supervisor error: ${(err as Error).message}` })
