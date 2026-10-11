@@ -11,7 +11,7 @@ import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
-import { eventMessage, fold, isFinal } from './state.ts'
+import { completedText, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
@@ -291,7 +291,7 @@ function sendCommand(workspace: string, cmd: PersonCommand): number {
 }
 
 function lastSummary(n: NodeState): string {
-  const text = n.reason ?? n.turns.findLast((t) => t.result)?.result?.summary ?? n.summary ??
+  const text = n.reason ?? (n.failedChecks?.length ? completedText(n) : undefined) ?? n.turns.findLast((t) => t.result)?.result?.summary ?? n.summary ??
     (n.checks.length ? lastLine(n.checks[n.checks.length - 1].output) : undefined)
   return text ? `: ${oneLine(text)}` : ''
 }

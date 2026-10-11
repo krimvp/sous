@@ -74,6 +74,8 @@ export interface NodeState {
   endSeq?: number
   /** Who cancelled the node or an ancestor, when it ended that way. */
   cancelledBy?: string
+  /** Leads: check children that had failed when the lead completed (see `failedChecks`). */
+  failedChecks?: string[]
   /** Leads: notes recorded for the subtree. */
   notes: string[]
   /** Leads: request IDs delivered, in order. */
@@ -149,6 +151,19 @@ export function ancestors(state: RunState, id: string): NodeState[] {
 
 export function childrenOf(state: RunState, id: string | undefined): NodeState[] {
   return [...state.nodes.values()].filter((n) => n.spec.parent === id)
+}
+
+/** The lead's check children that failed (not cancelled) with no check child added after them that passed: a lead may
+ * complete over them, and its completion says so. */
+export function failedChecks(state: RunState, lead: string): string[] {
+  const checks = childrenOf(state, lead).filter((c) => c.spec.kind === 'check')
+  return checks.filter((c, i) => c.status === 'failed' && !c.cancelledBy && !checks.slice(i + 1).some((l) => l.status === 'completed'))
+    .map((c) => c.spec.id)
+}
+
+/** A node's completion summary, naming the failed checks a lead completed over. */
+export function completedText(n: NodeState): string {
+  return n.failedChecks?.length ? `completed with failed checks: ${n.failedChecks.join(', ')}. ${n.summary}` : n.summary ?? ''
 }
 
 export function fold(events: readonly Event[]): RunState {
@@ -268,7 +283,11 @@ export function fold(events: readonly Event[]): RunState {
         }
         else if (call.tool === 'note') lead.notes.push(call.text)
         else if (call.tool === 'cancel') cancel(call.node, e.node, e.seq)
-        else if (call.tool === 'complete') finish(lead, 'completed', call.summary, e.seq)
+        else if (call.tool === 'complete') {
+          const failed = failedChecks(state, e.node)
+          if (failed.length && !isFinal(lead)) lead.failedChecks = failed
+          finish(lead, 'completed', call.summary, e.seq)
+        }
         else if (call.tool === 'fail') finish(lead, 'failed', call.reason, e.seq)
         else if (call.tool === 'escalate') lead.escalated = true
         break

@@ -18,7 +18,7 @@ From a folder of documents that is not a git repository, sous collects the worke
 ```bash
 cd ~/reports
 sous run "Summarise each document here in its own Markdown file, then write overview.md from those summaries. \
-Use agent pi for workers. Finish with a check that runs: test -s overview.md"
+Use agent pi for workers. Finish with a check that runs: test -s results/overview.md"
 ```
 
 ## Fixed steps: writer, reviewer, check, approval

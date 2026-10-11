@@ -1,6 +1,7 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
 import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
+import { completedText } from './state.ts'
 import type { InboxMessage, NodeState } from './state.ts'
 import type { ModelLimits, NodeSpec, RunMode } from './types.ts'
 
@@ -38,9 +39,10 @@ export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: s
   if (node.command) parts.push(`After you report done, this check runs in ${cwd} and must exit 0:\n${node.command}`)
   const where = folders
     ? [
-      `Inputs: the workspace ${folders.workspace}. Read it; do not modify it.`,
-      `Results of earlier tasks so far: ${folders.output}. Read them; do not modify them.`,
-      `Write your own output files in your current directory, ${cwd}; they are added to the results when you finish. Do only this task.`,
+      `You work in your own folder, ${cwd}. It has two read-only links: workspace/ holds the inputs (${folders.workspace})`,
+      `and results/ the results of earlier tasks so far (${folders.output}). Read them; do not modify them.`,
+      'Write your own output files at the top of your folder, not inside workspace/ or results/; they are added to the',
+      'results when you finish. Do only this task.',
     ].join('\n')
     : `Work in the directory ${cwd}. Do only this task.`
   parts.push(...fromLeads(notes), ...messages(inbox), where, RESULT)
@@ -107,14 +109,20 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents:
     ]
     : [
       'Split the task with spawn: work children are agents (for code, research, writing or analysis), each writing its files',
-      'in its own folder, run in parallel; when one is done its files are added to the run\'s results folder. Check children',
-      'are shell commands run in the results folder that must exit 0; lead children split a large part further; gate',
-      'children wait for the person to approve what their brief describes. Children with needs start after those siblings',
-      'complete (work children: once their files are in the results).',
+      'in its own folder, run in parallel; when one is done its files are added to the run\'s results. Check children are',
+      'shell commands that must exit 0; lead children split a large part further; gate children wait for the person to',
+      'approve what their brief describes. Children with needs start after those siblings complete (work children: once',
+      'their files are in the results).',
     ]
   const look = mode === 'git'
     ? 'Before you split, you may look at the files with list_files and read_file: paths are relative to the workspace, which includes the work merged so far.'
-    : 'Before you split, you may look at the files with list_files and read_file: workspace/ holds the inputs, results/ the files your children produced so far.'
+    : [
+      'Before you split, you may look at the files with list_files and read_file: workspace/ holds the inputs, results/ the',
+      'files your children produced so far. These names mean the same for your tools, your work children and your checks:',
+      'workers and checks run in a folder of their own where workspace/ and results/ are read-only links, so a check of a',
+      'result is, say, test -s results/report.md. Tell workers which file names to write; they write them at the top of',
+      'their folder, and those files appear at the top of results/.',
+    ].join('\n')
   parts.push(...fromLeads(notes), [
     ...split,
     'Their outcomes and questions arrive as messages. Answer a child with send; record',
@@ -135,7 +143,7 @@ const MAX_NAMED_FILES = 20
 /** A child's outcome, delivered to its lead, with the files a work child added to the results. */
 export function outcomeText(child: NodeState): string {
   if (child.status !== 'completed') return `Child ${child.spec.id} failed: ${child.reason}`
-  const parts = [`Child ${child.spec.id} completed: ${child.summary}`]
+  const parts = [`Child ${child.spec.id} ${child.failedChecks?.length ? completedText(child) : `completed: ${child.summary}`}`]
   const files = child.files ?? []
   if (files.length) {
     const more = files.length > MAX_NAMED_FILES ? ` and ${files.length - MAX_NAMED_FILES} more` : ''

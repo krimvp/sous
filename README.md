@@ -46,9 +46,11 @@ with the others; when it is done its branch is merged into the run's branch `sou
 Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
 
 Anywhere else, or without git, sous uses folder mode on its own; good for research and summaries of many
-documents. Workers read the workspace and write their files in their own folders, which are collected into
-`.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
-first as `<name>.<node>.<ext>`. Your files are only read; `sous status` names the output folder.
+documents. Each worker and check runs in a folder of its own where `workspace/` (your files) and `results/` (the
+results so far) are links, the same names the lead reads by. Workers write their files at the top of their folder,
+and these are collected into `.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
+first as `<name>.<node>.<ext>`. Your files are only read; `sous status` names the output folder. A lead may
+complete over a failed check, and then `sous run` and `sous status` say "completed with failed checks: …".
 
 Or give it a fixed graph file:
 

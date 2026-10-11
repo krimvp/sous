@@ -10,7 +10,7 @@ import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
   recoveryPrompt, resultReminder,
 } from './brief.ts'
-import { collect, listFiles, readText } from './files.ts'
+import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
 import {
   abortMerge, changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto,
@@ -18,7 +18,7 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { ancestors, callKey, childrenOf, fold, isFinal } from './state.ts'
+import { ancestors, callKey, childrenOf, completedText, failedChecks, fold, isFinal } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON } from './types.ts'
 import type { CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
@@ -154,13 +154,16 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
   }
 }
 
-function accepted(call: LeadCall, parent: string): string {
+function accepted(state: RunState, node: string, call: LeadCall, parent: string): string {
   switch (call.tool) {
     case 'spawn': return `spawned ${call.children.map((c) => c.id).join(', ')}; their outcomes will be delivered to you`
     case 'send': return `sent to ${call.to}`
     case 'note': return 'noted'
     case 'cancel': return `cancelled ${call.node} and its subtree`
-    case 'complete': return 'completed'
+    case 'complete': {
+      const failed = failedChecks(state, node)
+      return failed.length ? `completed with failed checks: ${failed.join(', ')}` : 'completed'
+    }
     case 'fail': return 'failed'
     case 'escalate': return `asked ${parent}; the answer will be delivered to you`
   }
@@ -182,7 +185,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   }
   const commandsDir = join(runDir, 'commands')
   mkdirSync(commandsDir, { recursive: true })
-  // Folder mode (no git): each work node writes in its own folder, collected into the output folder when it is done.
+  // Folder mode (no git): each work node writes in its own folder, collected into the output folder when it is done;
+  // work and check nodes run in folders of their own with the links workspace/ and results/.
   const folder = fold(log.events).mode === 'folder'
   const output = join(runDir, 'output')
   const nodeFolder = (id: string) => join(runDir, 'work', id)
@@ -255,7 +259,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       const recorded = state.calls.get(callKey(node, callId))
       if (recorded !== undefined) return recorded
       const why = refusal(state, node, call)
-      const result = why ? `refused: ${why}` : accepted(call, state.nodes.get(node)!.spec.parent ?? PERSON)
+      const result = why ? `refused: ${why}` : accepted(state, node, call, state.nodes.get(node)!.spec.parent ?? PERSON)
       log.append({ type: 'lead.call', node, callId, call, ok: !why, result })
       wakeUp()
       return result
@@ -497,7 +501,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const instructions = typeof agent === 'string' ? undefined : agent.instructions
     let cwd = nodeFolder(spec.id)
     let branch: string | undefined
-    if (folder) mkdirSync(cwd, { recursive: true })
+    if (folder) linkedFolder(cwd, workspace, resultsDir())
     else {
       const tree = createNodeWorktree(workspace, runId, runDir, spec.id, head(integrationTree().path))
       if (tree.base) log.append({ type: 'worktree.created', node: spec.id, branch: tree.branch, path: tree.path, base: tree.base })
@@ -572,7 +576,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   const runCheckNode = async (spec: NodeSpec) => {
     // After a restart, a check whose outcome was recorded settles from it (a check node runs its command once).
-    const c = nodeNow(spec.id).checks.at(-1) ?? await check(spec.id, spec.command!, resultsDir())
+    // Folder mode: a check runs in its own folder, where workspace/ and results/ are links, as they are for workers.
+    const cwd = () => (folder ? linkedFolder(nodeFolder(spec.id), workspace, resultsDir()) : resultsDir())
+    const c = nodeNow(spec.id).checks.at(-1) ?? await check(spec.id, spec.command!, cwd())
     if (stopping || isFinal(nodeNow(spec.id))) return
     if (c.exitCode === 0) complete(spec.id, 'check passed')
     else fail(spec.id, `check exited ${c.exitCode}`)
@@ -822,7 +828,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!tasks().length && top.every(isFinal)) {
         const failed = top.filter((n) => n.status === 'failed').map((n) => n.spec.id)
         if (failed.length) log.append({ type: 'run.failed', reason: `failed nodes: ${failed.join(', ')}` })
-        else log.append({ type: 'run.completed', summary: top.length === 1 ? top[0].summary! : `${top.length} nodes completed` })
+        else log.append({ type: 'run.completed', summary: top.length === 1 ? completedText(top[0]) : `${top.length} nodes completed` })
         continue
       }
 

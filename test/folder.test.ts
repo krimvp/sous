@@ -1,6 +1,6 @@
 // Folder mode (no git) end to end through real `sous` processes, and the leads' read-only file tools in both modes.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -30,14 +30,14 @@ const tree = (dir: string): string[] => (readdirSync(dir, { recursive: true, wit
   .filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name).slice(dir.length + 1)).sort()
 const results = (fake: { op: string; result?: string }[]) => fake.flatMap((r) => (r.op === 'act' ? [r.result!] : []))
 
-test('folder mode without git: a lead looks first, workers write in their own folders, files are collected with a rename on a clash, and a check reads the results', async () => {
+test('folder mode without git: a lead looks first, workers and checks see workspace/ and results/ as the lead does, files are collected with a rename on a clash', async () => {
   const workspace = plainDir('sous-folder-')
   const sessions = plainDir('sous-sessions-')
   writeFileSync(join(workspace, 'input.txt'), 'three facts\n')
   const children = [
-    work('a', [{ write: { 'summary.md': 'A\n', 'same.txt': 'same\n' }, sh: 'mkdir notes && echo n > notes/a.md', result: done('summarised') }]),
-    work('b', [{ write: { 'summary.md': 'B\n', 'same.txt': 'same\n' }, result: done('summarised again') }], ['a']),
-    { id: 'c', kind: 'check' as const, command: 'grep -qx A summary.md && grep -qx B summary.b.md && grep -qx same same.txt', needs: ['b'] },
+    work('a', [{ write: { 'summary.md': 'A\n', 'same.txt': 'same\n' }, sh: 'mkdir notes && echo n > notes/a.md && grep three workspace/input.txt > facts.txt', result: done('summarised') }]),
+    work('b', [{ write: { 'summary.md': 'B\n', 'same.txt': 'same\n' }, sh: 'grep -x A results/summary.md > seen.txt', result: done('summarised again') }], ['a']),
+    { id: 'c', kind: 'check' as const, command: 'grep -qx A results/summary.md && grep -qx B results/summary.b.md && grep -qx A results/seen.txt && grep -q three workspace/input.txt', needs: ['b'] },
   ]
   const lead: FakeLeadStep[] = [
     { calls: [{ tool: 'list_files' }, { tool: 'read_file', path: 'workspace/input.txt' }, { tool: 'spawn', children }] },
@@ -53,7 +53,13 @@ test('folder mode without git: a lead looks first, workers write in their own fo
   const output = join(runDir, 'output')
   assert.match(run.output(), new RegExp(`folder mode \\(not a git repository\\): results go to ${output}`))
   assert.match(run.output(), new RegExp(`^result: folder ${output}$`, 'm'))
-  assert.deepEqual(tree(output), ['notes/a.md', 'same.txt', 'summary.b.md', 'summary.md'])
+  // The workspace/ and results/ links of the workers' folders are not collected.
+  assert.deepEqual(readdirSync(output).sort(), ['facts.txt', 'notes', 'same.txt', 'seen.txt', 'summary.b.md', 'summary.md'])
+  assert.deepEqual(tree(output), ['facts.txt', 'notes/a.md', 'same.txt', 'seen.txt', 'summary.b.md', 'summary.md'])
+  assert.equal(readFileSync(join(output, 'facts.txt'), 'utf8'), 'three facts\n')
+  for (const node of ['a', 'c']) {
+    for (const [name, target] of [['workspace', workspace], ['results', output]]) assert.equal(readlinkSync(join(runDir, 'work', node, name)), target)
+  }
   assert.equal(readFileSync(join(output, 'summary.b.md'), 'utf8'), 'B\n')
   assert.deepEqual(readdirSync(workspace).sort(), ['.sous', 'graph.json', 'input.txt'], 'the workspace is only read')
 
@@ -64,21 +70,20 @@ test('folder mode without git: a lead looks first, workers write in their own fo
   assert.ok(!events.some((e) => e.type === 'integration.created' || e.type === 'worktree.created'))
   const merged = events.flatMap((e) => (e.type === 'merge.done' ? [[e.node, e.by, e.files, e.renamed]] : []))
   assert.deepEqual(merged, [
-    ['a', 'supervisor', ['notes/a.md', 'same.txt', 'summary.md'], undefined],
-    ['b', 'supervisor', ['same.txt', 'summary.b.md'], { 'summary.md': 'summary.b.md' }],
+    ['a', 'supervisor', ['facts.txt', 'notes/a.md', 'same.txt', 'summary.md'], undefined],
+    ['b', 'supervisor', ['same.txt', 'seen.txt', 'summary.b.md'], { 'summary.md': 'summary.b.md' }],
   ])
   // The lead is told which files each child produced, and about the rename.
   const told = (requestId: string) => events.find((e): e is Event & { type: 'lead.delivered' } => e.type === 'lead.delivered' && e.requestId === requestId)!.text
   const outcomeB = told(`evt-${state.nodes.get('b')!.endSeq}`)
-  assert.equal(outcomeB, 'Child b completed: summarised again\nFiles: same.txt, summary.b.md\nsummary.md was saved as summary.b.md: the results already had a different summary.md.')
-  assert.match(told('lead:brief'), /workspace\/ holds the inputs, results\/ the files your children produced so far/)
+  assert.equal(outcomeB, 'Child b completed: summarised again\nFiles: same.txt, seen.txt, summary.b.md\nsummary.md was saved as summary.b.md: the results already had a different summary.md.')
+  assert.match(told('lead:brief'), /workspace\/ holds the inputs, results\/ the\nfiles your children produced so far\. These names mean the same for your tools, your work children and your checks/)
 
   // The worker ran in its own folder and was told where its inputs and the results are.
   const a = state.nodes.get('a')!
   const prompt = JSON.parse(readFileSync(join(sessions, `${a.turns[0].sessionId}.json`), 'utf8')).prompts[0]
-  assert.match(prompt, new RegExp(`Inputs: the workspace ${workspace}\\. Read it; do not modify it\\.`))
-  assert.match(prompt, new RegExp(`Results of earlier tasks so far: ${output}\\.`))
-  assert.match(prompt, new RegExp(`Write your own output files in your current directory, ${join(runDir, 'work', 'a')};`))
+  assert.match(prompt, new RegExp(`You work in your own folder, ${join(runDir, 'work', 'a')}\\. It has two read-only links: workspace/ holds the inputs \\(${workspace}\\)\nand results/ the results of earlier tasks so far \\(${output}\\)\\.`))
+  assert.match(prompt, /Write your own output files at the top of your folder, not inside workspace\/ or results\//)
   assert.doesNotMatch(prompt, /worktree/)
 
   // What the lead looked at is recorded, without the text.
@@ -93,7 +98,7 @@ test('folder mode without git: a lead looks first, workers write in their own fo
   const doc = toAtif(loaded)
   assert.deepEqual(checkAtif(doc), [])
   assert.match(JSON.stringify(doc), /"function_name":"read_file","arguments":\{"path":"workspace\/input.txt"\}/)
-  assert.match(JSON.stringify(doc), /2 files added to the results/)
+  assert.match(JSON.stringify(doc), /3 files added to the results/)
   assert.match(JSON.stringify(toOtlp(loaded)), /"stringValue":"read_file"|"name":"read_file"/)
 })
 
@@ -205,4 +210,26 @@ test('git mode: a lead reads the workspace as committed plus merged work, and a 
   assert.match(delivered[0], /work children are agents \(for code, research, writing or analysis\), each in its own git\nworktree/)
   assert.match(delivered[0], /paths are relative to the workspace, which includes the work merged so far/)
   assert.equal(delivered[1], `Child w completed: wrote\nFiles: ${Object.keys(files).slice(0, 20).join(', ')} and 2 more`)
+})
+
+test('a lead may complete over a failed check, and sous run and sous status say so; a check that passed later supersedes an earlier failure', async () => {
+  const workspace = plainDir('sous-folder-')
+  const sessions = plainDir('sous-sessions-')
+  const check = (id: string, command: string) => ({ id, kind: 'check' as const, command })
+  const lead: FakeLeadStep[] = [
+    { calls: [{ tool: 'spawn', children: [check('v1', 'false')] }] },
+    // v1 failed; v2 passes after it, so v1 no longer counts; v3 fails and nothing passes after it.
+    { calls: [{ tool: 'spawn', children: [check('v2', 'true'), check('v3', 'false')] }] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'checked' }] },
+  ]
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({ goal: 'check', nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }] }))
+  const run = sous(['run', graph], workspace, sessions, NO_GIT)
+  assert.equal(await run.exit, 0, run.output())
+  assert.match(run.output(), /lead\.call +lead complete: completed with failed checks: v3$/m)
+  assert.match(run.output(), /run\.completed +completed with failed checks: v3\. checked$/m)
+  const status = sous(['status'], workspace, sessions, NO_GIT)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), /^ {2}lead completed: completed with failed checks: v3\. checked$/m)
 })

@@ -34,7 +34,7 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 | Field | Kinds | Meaning |
 |---|---|---|
 | `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person` and `integrator` are reserved |
-| `kind` | all | `work` (agent in its own worktree or folder), `check` (shell command, exit 0 passes, runs on the merged result or in the output folder), `lead` (splits work), `gate` (waits for `sous approve`) |
+| `kind` | all | `work` (agent in its own worktree or folder), `check` (shell command, exit 0 passes, runs on the merged result, or in folder mode in its own folder with `results/` linked), `lead` (splits work), `gate` (waits for `sous approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
 | `command` | check, work | a check's command, or a work node's acceptance check |
@@ -61,7 +61,7 @@ its first). New agents exist for the rest of the run.
   integration/          git mode: worktree of branch sous/<run-id> (the result)
   worktrees/<node>/     git mode: each worker's worktree, branch sous/<run-id>.<node>
   output/               folder mode: the result, the workers' files collected
-  work/<node>/          folder mode: each worker's own folder
+  work/<node>/          folder mode: each worker's or check's own folder, with links workspace/ and results/
   commands/             answer/approve/cancel requests waiting for the supervisor
   trace.atif.json       after `sous export atif`
 ```

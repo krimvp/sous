@@ -1,6 +1,6 @@
 // Plain files: collecting a work node's folder into the run's output folder (folder mode), and the leads' read-only look
 // at the workspace and the results so far.
-import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync } from 'node:fs'
+import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, symlinkSync } from 'node:fs'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 
 /** Names that are never collected or listed (in a git worktree `.git` is a file). */
@@ -51,6 +51,20 @@ export function collect(from: string, into: string, node: string): { files: stri
     files.push(target)
   }
   return { files, renamed }
+}
+
+/** Folder mode: the own folder of a work or check node, with the links `workspace` (to the inputs) and `results` (to the
+ * output folder), so these names mean the same to leads, workers and checks. Collecting skips the links. */
+export function linkedFolder(dir: string, workspace: string, output: string): string {
+  mkdirSync(dir, { recursive: true })
+  for (const [name, target] of [['workspace', workspace], ['results', output]]) {
+    try {
+      lstatSync(join(dir, name))
+    } catch {
+      symlinkSync(target, join(dir, name), 'dir')
+    }
+  }
+  return dir
 }
 
 /** A directory a lead may read: the workspace, the results, or (git mode) the integration worktree, which holds both. */

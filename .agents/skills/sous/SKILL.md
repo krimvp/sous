@@ -25,7 +25,9 @@ $M run "Add a --precision N option to the CLI, with tests and a check that node 
 
 A lead (default `ollama-cloud/deepseek-v4.1-flash`) splits the goal into workers, checks and sub-leads. The
 result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
-`.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting.
+`.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting. In folder
+mode, workers and checks run in their own folders with links `workspace/` (inputs) and `results/` (the output), so
+write checks such as `test -s results/report.md`.
 
 ## Workflow
 
@@ -37,7 +39,7 @@ result lands on branch `sous/<run-id>` (the person's own branch is never touched
    graph files carry the same `agent`, `agents`, `models` keys. See [REFERENCE.md](REFERENCE.md).
 3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
    approvals, so a foreground run can block your shell).
-4. **Watch** `run.log` for `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
+4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
    `run.failed`; `$M status` prints the live tree and pending questions.
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).

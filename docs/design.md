@@ -235,6 +235,10 @@ by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes tha
 told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
+A lead may complete over a failed check child (its judgment), but it is recorded: a check child counts as failed
+when it failed (not cancelled) and no check child added after it passed. The fold keeps these on the lead
+(`failedChecks`, derived from the `complete` call's place in the log), the call's result says "completed with failed
+checks: …", and so do the lead's outcome for its parent, `run.completed` and `sous status`.
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
@@ -338,12 +342,15 @@ usual; queued merges continue in order.
 
 For non-code work and machines without git. Nothing runs git.
 
-1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node gets an empty folder,
-   `.sous/runs/<run>/work/<node>/`, as its working directory; its brief names the workspace (inputs: read, do not
-   modify) and the output folder (results of earlier nodes: read only), and says to write its own files where it is.
-   Its acceptance check runs in its folder; `check` nodes run in the output folder.
+1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node and each `check` node gets a
+   folder of its own, `.sous/runs/<run>/work/<node>/`, as its working directory, holding two links: `workspace` (to
+   the workspace, the inputs) and `results` (to the output folder). So `workspace/` and `results/` mean the same to a
+   lead's read tools, its workers and its checks; a check of a result reads, say, `results/report.md`. A worker's
+   brief says both are read only and to write its own files at the top of its folder. Its acceptance check runs in
+   its folder too. A link that cannot be created (a system without symbolic links) fails the node; there is no
+   fallback.
 2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
-   (not `.git`, `.sous`, `node_modules` or symbolic links) are copied into the output folder by relative path. A file
+   (not `.git`, `.sous`, `node_modules` or symbolic links, so not the two links) are copied into the output folder by relative path. A file
    that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
    different file is there, both are kept: the new one is written as `<name>.<node>.<ext>`. Then `merge.done`
    (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead hears both.
@@ -475,8 +482,8 @@ run or an older one.
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node
-  output/              folder mode: the results, where collected files land and check nodes run
-  work/<node-id>/      folder mode: a work node's own folder
+  output/              folder mode: the results, where collected files land
+  work/<node-id>/      folder mode: a work or check node's own folder, with links workspace and results
   trace.atif.json      written by sous export atif
 ```
 
