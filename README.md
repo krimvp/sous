@@ -11,15 +11,22 @@ keeps everything moving, delivers messages between levels, and recovers after a 
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.
 
-Status: v1 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
-questions, and asks you when it cannot. Fixed graph files of `work` and `check` nodes still run as in v0.
-Crash recovery (`murm resume`) comes in v2. Read [docs/design.md](docs/design.md).
+Status: v2 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
+questions, and asks you when it cannot. If the run stops or crashes, `murm resume` continues it without
+repeating finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and
+`gate` nodes also run. Read [docs/design.md](docs/design.md).
 
 ```bash
 node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"
 node src/cli.ts answer lead "Use Grace."   # from another terminal: answer a question the run printed
-node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree
+node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
+node src/cli.ts approve <gate>             # from another terminal: approve a gate the run printed
+node src/cli.ts resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
+
+`murm resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
+stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
+interrupted more than 3 times fails.
 
 Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
 `pi` once to log in or refresh). Their workers default to Claude Code with its default model; a goal can
@@ -31,7 +38,8 @@ Or give it a fixed graph file:
 { "goal": "Add a greeting", "harness": "claude",
   "nodes": [
     { "id": "write", "kind": "work", "brief": "Create greeting.txt containing: hello" },
-    { "id": "verify", "kind": "check", "needs": ["write"], "command": "grep -qx hello greeting.txt" }
+    { "id": "verify", "kind": "check", "needs": ["write"], "command": "grep -qx hello greeting.txt" },
+    { "id": "ship", "kind": "gate", "needs": ["verify"], "brief": "Keep greeting.txt?" }
   ] }
 ```
 

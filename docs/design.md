@@ -51,8 +51,8 @@ engine can be tested without a lead.
 | `lead` | an LLM with orchestration tools only | splits its node into children, reacts to events, completes itself |
 | `work` | a worker adapter (Claude, Codex, Pi, custom) | does the work in a git worktree |
 | `check` | a shell command | deterministic gate; exit code 0 passes |
-| `review` | a worker adapter, read-only brief | independent verdict, ideally from another harness |
-| `gate` | the person running Murmuration | approval via `murm approve` |
+| `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
+| `gate` | the person running Murmuration | approval via `murm approve`, rejection via `murm cancel` |
 
 A node may list `needs` (sibling node IDs that must complete first). The graph is a tree with
 dependency edges between siblings; it stays acyclic because a lead can only add children under itself and
@@ -88,7 +88,7 @@ murm CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) 
 ### Supervisor
 
 One process per run, holding `.murm/runs/<id>/lock` (pid and start time), created exclusively. A lock left
-by a stopped supervisor is removed by hand until `murm resume` exists (v2). Its loop:
+by a stopped supervisor is taken over only by `murm resume` (see Recovery); `murm run` never takes one over. Its loop:
 
 1. Fold the event log into state.
 2. For each ready node with no running turn: start a turn (new brief, or resume with the inbox).
@@ -211,9 +211,15 @@ messages, and without completing, it receives a reminder to spawn, complete, fai
 reminders without progress the lead fails.
 
 **The person.** Messages to `person` are printed by `murm run` and listed by `murm status`. `murm answer
-<node> "text"` and `murm cancel <node>` (from another terminal) write a command file in
+<node> "text"`, `murm approve <gate>` and `murm cancel <node>` (from another terminal) write a command file in
 `<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event.
 The supervisor stays the only writer of the log.
+
+**Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
+no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `murm run` prints
+it as an approval request and `murm status` lists it. `murm approve <gate>` completes it with summary "approved
+by person"; `murm cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
+told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
@@ -221,18 +227,41 @@ calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing 
 
 ## Recovery
 
-The supervisor, not any lead, owns recovery.
+The supervisor, not any lead, owns recovery. `murm resume [run-id]` (latest run by default) continues a run
+whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
 
-1. **Intent before effect.** `turn.started {node, turn, sessionId?, pid, pgid, startTime}` is appended
-   immediately after spawning; `turn.session` once a session ID is known; `turn.ended {result}` after.
+1. **Intent before effect.** `turn.started {node, turn, pid, startTime}` is appended immediately after
+   spawning (`startTime` is field 22 of `/proc/<pid>/stat`); `turn.session` once a session ID is known;
+   `turn.ended {result}` after.
 2. **Output goes to files**, so a turn that finishes while the supervisor is down leaves its result on disk.
-3. **On start**, `murm resume <run>` takes the lock, folds the log and, for each turn without `turn.ended`:
-   - its output file has a final result → record it;
-   - its process group is still alive (pid plus start time from `/proc`) → stop the group, then resume;
-   - otherwise → resume with "you were interrupted, re-check the worktree".
-4. **Leads recover through pi-durable:** reopening a lead's storage resumes its unfinished run, replaying
-   interrupted tool calls, which find their effects in the event log by tool call ID.
-5. **Recovery spends budget.** Each resumed turn counts as an attempt, so crash loops stop and escalate.
+3. **The lock.** `murm resume` removes a lock whose holder is gone (pid plus start time) and refuses a live
+   one. It appends `run.resumed`; a run that already completed or failed is not resumed.
+4. **Unfinished worker turns.** For each turn without `turn.ended`:
+   - its output file has an end marker with a result → record `turn.ended` from it; the turn is not run again;
+   - its process group is still alive (the leader's pid with the recorded start time, or a group whose leader
+     is gone, since a pid is not reused while its group has members) → record `turn.interrupted`, stop the
+     group, record `turn.ended`;
+   - otherwise → record `turn.ended` without a result. A turn recorded without a start time is never signalled.
+
+   A node whose last turn has no result then resumes its session with a recovery turn
+   (`turn.started {recovery: true}`): "you were interrupted; re-check the workspace", plus any messages in its
+   inbox. A node without a session ID starts again from its brief. A node whose last turn ended `done` runs
+   its acceptance check (again, if it was running), and a worker's question that was not yet sent to its
+   parent is sent.
+5. **Checks** (`check` nodes and acceptance checks) that were running are simply run again. Their processes
+   are not recorded, so one left running by a killed supervisor finishes on its own.
+6. **Leads recover through pi-durable.** The supervisor calls `LeadRunner.resume()`, which reopens every
+   lead's storage and resumes its unfinished run, replaying interrupted tool calls (they find their effects in
+   the event log by tool call ID). Then it delivers again every `lead.delivered` without a `lead.turn`; the
+   runner ignores a request ID it already has, so this is safe.
+7. **Person commands** waiting in `<runDir>/commands/` are processed as usual.
+8. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
+   fails with "a supervisor stop cut its turn short after 3 recoveries" (a constant, not a setting).
+
+Pi runs its tool commands in their own session, outside the turn's process group. In the v2 real run (Roadmap),
+after `murm run` was killed with SIGKILL, Pi and its running `sleep` survived (reparented); `murm resume`
+sent SIGTERM to Pi's group and Pi stopped its tool command before exiting. Had Pi needed SIGKILL, its tool
+command could have outlived it.
 
 ## Harness facts (spike, 2026-10-11)
 
@@ -328,7 +357,8 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 |---|---|---|
 | **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
 | **v1** (done) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
-| **v2** | `murm resume` and crash recovery; worktree merge; `review` and `gate` nodes; budgets | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
+| **v2** (done) | `murm resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
+| **Later** | Worktrees and merge for parallel writers (including how merges between sibling worktrees are ordered and who resolves conflicts); separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
 (its default `ollama-cloud/glm-5.2`). A goal split into two work children and a check completed and exported a valid
@@ -343,7 +373,15 @@ did, and the worker resumed its session with the message. Limitations found:
   SIGTERM; if a turn needs SIGKILL, they can outlive it.
 - Ollama Cloud reports no prices, so lead and Pi worker usage is in tokens only.
 
+v2 was verified on 2026-10-11 with real runs (lead on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi). A
+goal split into two Pi work children and a check; `murm run` was killed with SIGKILL while the second child ran
+`sleep 30`; `murm resume` stopped the orphaned Pi turn and resumed its session, and the run completed with one
+spawn call, the first child's single turn, and an ATIF file that Harbor's validator accepted. In a second run the
+supervisor was killed just after a child's outcome was delivered to the lead and before the lead answered or the
+check ran; after `murm resume` the lead answered that delivery once, the check ran, and the run completed with
+no turn repeated. The 3-recovery limit, a reused pid, a turn finished while the supervisor was down, and gates
+are covered by fake-harness tests with real processes.
+
 ## Open questions
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
-- How merges between sibling worktrees are ordered and who resolves conflicts (v2).

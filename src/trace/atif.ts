@@ -241,6 +241,9 @@ export function toAtif(run: LoadedRun): object {
   const { steps, add } = stepList()
   add({ source: 'user', timestamp: view.createdAt, message: view.goal })
   for (const node of view.top) addDispatch(add, view.runId, node)
+  for (const e of run.events) {
+    if (e.type === 'run.resumed') add({ source: 'system', timestamp: e.at, message: 'Run resumed by murm resume after its supervisor stopped' })
+  }
   if (view.end) {
     const text = view.end.type === 'run.completed' ? `Run completed: ${view.end.summary}` : `Run failed: ${view.end.reason}`
     add({ source: 'agent', timestamp: view.end.at, llm_call_count: 0, message: text })

@@ -31,3 +31,10 @@ test('rejects a command on a lead: deterministic gates are check nodes', () => {
   const graph = { goal: 'g', nodes: [{ id: 'l', kind: 'lead', brief: 'lead it', command: 'true' }] }
   assert.throws(() => validateGraph(graph), /node l: leads have no command; add a check node for a deterministic gate/)
 })
+
+test('a gate needs a brief for the person and takes no command or harness', () => {
+  const graph = validateGraph({ goal: 'g', harness: 'claude', nodes: [{ id: 'ok', kind: 'gate', brief: 'Ship it?' }] })
+  assert.deepEqual(graph.nodes, [{ id: 'ok', kind: 'gate', brief: 'Ship it?' }])
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate' }] }), /node ok: gate nodes need a brief/)
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate', brief: 'b', command: 'true' }] }), /node ok: gates have no command/)
+})

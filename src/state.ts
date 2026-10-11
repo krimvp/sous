@@ -2,7 +2,8 @@
 import { DEFAULT_LEAD_MODEL, PERSON } from './types.ts'
 import type { ChildSpec, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
-/** `waiting`: a worker that asked its parent and waits for a message, or a lead waiting on its escalation. */
+/** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
+ * waiting for the person's approval. */
 export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'completed' | 'failed'
 
 export interface CheckState {
@@ -16,6 +17,9 @@ export interface TurnState {
   mode: 'start' | 'resume'
   harness?: HarnessName
   pid: number
+  startTime?: string
+  /** Continues (or restarts) a turn that a supervisor stop cut short. */
+  recovery?: boolean
   outFile: string
   errFile: string
   sessionId?: string
@@ -161,7 +165,10 @@ export function fold(events: readonly Event[]): RunState {
         break
       case 'turn.started': {
         const node = state.nodes.get(e.node)
-        node?.turns.push({ number: e.turn, mode: e.mode, harness: e.harness, pid: e.pid, outFile: e.outFile, errFile: e.errFile, ended: false })
+        node?.turns.push({
+          number: e.turn, mode: e.mode, harness: e.harness, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
+          outFile: e.outFile, errFile: e.errFile, ended: false,
+        })
         if (node) node.inbox = []
         break
       }
@@ -239,6 +246,8 @@ export function fold(events: readonly Event[]): RunState {
     if (isFinal(node)) continue
     const last = node.turns.at(-1)
     if (node.spec.kind === 'lead' && node.delivered.length) node.status = node.escalated ? 'waiting' : 'running'
+    // A gate's approval request is its question to the person; the person never messages a gate.
+    else if (node.spec.kind === 'gate' && state.questions.some((q) => q.from === node.spec.id)) node.status = 'waiting'
     else if (last?.ended && last.result && last.result.status !== 'done') node.status = 'waiting'
     else if (node.turns.length || node.checks.length) node.status = 'running'
     else if ((node.spec.needs ?? []).every((id) => state.nodes.get(id)?.status === 'completed')) node.status = 'ready'

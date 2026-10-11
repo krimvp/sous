@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// murm: run a graph file or a goal, show a run's status, answer and cancel nodes of a running run.
+// murm: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
+// running run.
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -8,7 +9,7 @@ import { parseArgs } from 'node:util'
 import { loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
 import { eventMessage, fold, isFinal } from './state.ts'
-import type { NodeState } from './state.ts'
+import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
@@ -18,8 +19,10 @@ import type { Event, GraphFile, HarnessName, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
   murm run <graph.json | "goal"> [--workspace <dir>]
+  murm resume [run-id] [--workspace <dir>]
   murm status [run-id] [--workspace <dir>]
   murm answer <node> "text" [--workspace <dir>]
+  murm approve <node> [--workspace <dir>]
   murm cancel <node> [--workspace <dir>]
   murm export atif|otlp [run-id] [--workspace <dir>]`
 
@@ -44,15 +47,19 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'run':
         if (args.length !== 1) break
         return await run(args[0], workspace, deps)
+      case 'resume':
+        if (args.length > 1) break
+        return await resumeRun(workspace, deps, args[0])
       case 'status':
         if (args.length > 1) break
         return status(workspace, args[0])
       case 'answer':
         if (args.length !== 2 || !args[1].trim()) break
         return sendCommand(workspace, { type: 'answer', node: args[0], text: args[1] })
+      case 'approve':
       case 'cancel':
         if (args.length !== 1) break
-        return sendCommand(workspace, { type: 'cancel', node: args[0] })
+        return sendCommand(workspace, { type: command, node: args[0] })
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
@@ -87,21 +94,47 @@ async function run(arg: string, workspace: string, deps: CliDeps): Promise<numbe
   const outcome = await runSupervisor({
     workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
   })
-  if (outcome === 'interrupted') console.log(`stopped; run ${id} can be resumed later`)
+  if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
   return outcome === 'completed' ? 0 : 1
 }
 
-/** Prints one line per event, and every message to the person as a question to answer. */
-function printer(): (e: Event) => void {
-  const parents = new Map<string, string | undefined>()
+/** Continue a run whose supervisor stopped or crashed. */
+async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Promise<number> {
+  const { id, runDir } = findRun(workspace, runId)
+  const events = readEvents(runDir)
+  const state = fold(events)
+  if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
+  console.log(`resuming run ${id} (${runDir})`)
+  printPending(state)
+  const printEvent = printer(events)
+  const outcome = await runSupervisor({
+    workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, resume: true,
+  })
+  if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
+  return outcome === 'completed' ? 0 : 1
+}
+
+/** Prints one line per event, every message to the person as a question to answer, and every gate's request.
+ * `past` are the events already in the log, which this does not print. */
+function printer(past: Event[] = []): (e: Event) => void {
+  const nodes = new Map<string, { parent?: string; kind: string }>()
+  const track = (e: Event) => {
+    if (e.type === 'node.added') nodes.set(e.node.id, e.node)
+    if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) nodes.set(c.id, { parent: e.node, kind: c.kind })
+  }
+  past.forEach(track)
   return (e) => {
-    if (e.type === 'node.added') parents.set(e.node.id, e.node.parent)
-    if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) parents.set(c.id, e.node)
+    track(e)
     printEvent(e)
-    const m = eventMessage(e, (id) => parents.get(id))
-    if (m?.to === PERSON) console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: murm answer ${m.from} "<answer>"\n`)
+    const m = eventMessage(e, (id) => nodes.get(id)?.parent)
+    if (m?.to !== PERSON) return
+    if (nodes.get(m.from)?.kind === 'gate') console.log(`\n${approvalText(m.from, m.body)}\n`)
+    else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: murm answer ${m.from} "<answer>"\n`)
   }
 }
+
+const approvalText = (gate: string, body: string) =>
+  `Approval requested by ${gate}:\n${body}\nApprove with: murm approve ${gate}, or reject with: murm cancel ${gate}`
 
 function printEvent(e: Event): void {
   const time = e.at.slice(11, 19)
@@ -123,6 +156,7 @@ function printEvent(e: Event): void {
     case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
+    case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
     case 'run.completed': text = e.summary; break
     case 'run.failed': text = e.reason; break
   }
@@ -164,18 +198,33 @@ function status(workspace: string, runId?: string): number {
     for (const c of children(n.spec.id)) print(c, depth + 1)
   }
   for (const n of children(undefined)) print(n, 1)
-  const questions = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
-  if (questions.length) console.log('questions for you (murm answer <node> "<answer>"):')
-  for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
+  printPending(state)
+  if (live === 'stopped') console.log(`continue it with: murm resume ${id}`)
   return 0
 }
 
-/** Hand a person's answer or cancel to the run's supervisor through a command file. */
+/** Questions and gate approvals waiting for the person. */
+function printPending(state: RunState): void {
+  const open = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
+  const isGate = (q: { from: string }) => state.nodes.get(q.from)?.spec.kind === 'gate'
+  const questions = open.filter((q) => !isGate(q))
+  const gates = open.filter(isGate)
+  if (questions.length) console.log('questions for you (murm answer <node> "<answer>"):')
+  for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
+  if (gates.length) console.log('approvals for you (murm approve <node>, or murm cancel <node> to reject):')
+  for (const q of gates) console.log(`  ${q.from}: ${oneLine(q.body)}`)
+}
+
+/** Hand a person's answer, approval or cancel to the run's supervisor through a command file. */
 function sendCommand(workspace: string, cmd: PersonCommand): number {
   const { id, runDir } = findRun(workspace)
   const node = fold(readEvents(runDir)).nodes.get(cmd.node)
   if (!node) throw new Error(`run ${id} has no node ${cmd.node}`)
   if (isFinal(node)) throw new Error(`node ${cmd.node} is already ${node.status}`)
+  const gate = node.spec.kind === 'gate'
+  if (cmd.type === 'answer' && gate) throw new Error(`node ${cmd.node} is a gate: approve it with murm approve, or reject it with murm cancel`)
+  if (cmd.type === 'approve' && !gate) throw new Error(`node ${cmd.node} is not a gate`)
+  if (cmd.type === 'approve' && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
   const dir = join(runDir, 'commands')
   const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)

@@ -16,9 +16,10 @@ export function readEvents(runDir: string): Event[] {
   return parseLog(readLog(join(runDir, 'events.jsonl')).complete)
 }
 
-/** Take the run's lock and open its log for appending. Throws if a live supervisor holds the lock. */
-export function openLog(runDir: string, onEvent?: (event: Event) => void): EventLog {
-  acquireLock(runDir)
+/** Take the run's lock and open its log for appending. Throws if a live supervisor holds the lock, and, unless
+ * `takeOver` (`murm resume`), if a stopped one left it. */
+export function openLog(runDir: string, onEvent?: (event: Event) => void, opts: { takeOver?: boolean } = {}): EventLog {
+  acquireLock(runDir, opts.takeOver ?? false)
   const path = join(runDir, 'events.jsonl')
   let fd: number | undefined
   try {
@@ -83,7 +84,8 @@ interface Lock {
   startTime?: string
 }
 
-function procStartTime(pid: number): string | undefined {
+/** A process's start time in clock ticks since boot (field 22 of /proc/<pid>/stat); undefined when it is gone. */
+export function procStartTime(pid: number): string | undefined {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
     // Fields after the command name, which is in parentheses and may contain spaces; starttime is field 22.
@@ -122,21 +124,26 @@ function readRaw(path: string): string | undefined {
 
 const held = new Map<string, string>()
 
-// The lock is created exclusively, so exactly one supervisor holds it. A lock left by a stopped
-// supervisor is never taken over automatically: the person removes it (resume comes in v2).
-function acquireLock(runDir: string): void {
+// The lock is created exclusively, so exactly one supervisor holds it. A lock left by a stopped supervisor is
+// taken over only by an explicit `murm resume`; `murm run` never does.
+function acquireLock(runDir: string, takeOver: boolean): void {
   const path = join(runDir, 'lock')
   const mine = JSON.stringify({ pid: process.pid, startTime: procStartTime(process.pid) }) + '\n'
-  try {
-    writeFileSync(path, mine, { flag: 'wx' })
-    held.set(runDir, mine)
-    return
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+  for (let attempt = 0; ; attempt++) {
+    try {
+      writeFileSync(path, mine, { flag: 'wx' })
+      held.set(runDir, mine)
+      return
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+    }
+    const raw = readRaw(path)
+    const holder = parseLock(raw)
+    if (holder && alive(holder)) throw new Error(`run ${runDir} is locked by a live supervisor (pid ${holder.pid})`)
+    if (!takeOver || attempt > 0) throw new Error(`run ${runDir} has a lock from a stopped supervisor; continue it with murm resume`)
+    // Remove the stale lock only if it is still the one just read, then create ours exclusively.
+    if (readRaw(path) === raw) rmSync(path, { force: true })
   }
-  const holder = parseLock(readRaw(path))
-  if (holder && alive(holder)) throw new Error(`run ${runDir} is locked by a live supervisor (pid ${holder.pid})`)
-  throw new Error(`run ${runDir} has a lock from a stopped supervisor; remove ${path} if none is running`)
 }
 
 function releaseLock(runDir: string): void {

@@ -44,6 +44,14 @@ export function fixPrompt(command: string, exitCode: number | null, output: stri
   ].join('\n\n') + '\n'
 }
 
+/** Resume prompt after a supervisor stop cut the last turn short, with the messages that arrived meanwhile. */
+export function recoveryPrompt(inbox: InboxMessage[]): string {
+  return [
+    'You were interrupted: Murmuration stopped while you worked. Re-check the workspace, since some of your last',
+    'steps may not have happened, then continue your task.',
+  ].join(' ') + '\n\n' + [...messages(inbox), RESULT].join('\n\n') + '\n'
+}
+
 /** Resume prompt after a turn ended without a usable structured result. */
 export function resultReminder(): string {
   return `Your last turn ended without the required structured result. If the task is not finished, finish it first.\n\n${RESULT}\n`
@@ -59,7 +67,8 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[]): string
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   parts.push(...fromLeads(notes), [
     'Split the task with spawn: work children are coding agents in the workspace, check children are shell',
-    'commands that must exit 0, lead children split a large part further. Children with needs start after',
+    'commands that must exit 0, lead children split a large part further, gate children wait for the person to',
+    'approve what their brief describes. Children with needs start after',
     'those siblings complete. Their outcomes and questions arrive as messages. Answer a child with send; record',
     'facts every child should know with note; ask your parent with escalate. Finish with complete or fail once',
     'no child is still working. End each turn with a short answer: the next message wakes you.',

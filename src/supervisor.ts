@@ -4,11 +4,11 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { composeBrief, fixPrompt, idleReminder, inboxPrompt, leadBrief, leadMessageText, outcomeText, resultReminder } from './brief.ts'
+import { composeBrief, fixPrompt, idleReminder, inboxPrompt, leadBrief, leadMessageText, outcomeText, recoveryPrompt, resultReminder } from './brief.ts'
 import { childError } from './graph.ts'
-import { openLog } from './log.ts'
+import { openLog, procStartTime } from './log.ts'
 import { ancestors, callKey, childrenOf, fold, isFinal } from './state.ts'
-import type { NodeState, RunState } from './state.ts'
+import type { CheckState, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, PERSON } from './types.ts'
 import type { CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
 
@@ -22,6 +22,8 @@ export interface SupervisorOptions {
   /** How long a turn may keep running after its end-of-turn marker before its group is stopped,
    * and how long a stopped group gets between SIGTERM and SIGKILL. */
   graceMs?: number
+  /** `murm resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
+  resume?: boolean
 }
 
 export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
@@ -32,11 +34,13 @@ const OUTPUT_TAIL = 4096
 const MAX_LEAD_DEPTH = 3
 const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
+/** Times a supervisor stop may cut a node's turn short before the node fails. */
+const MAX_RECOVERIES = 3
 /** How often `<runDir>/commands/` is checked for `murm answer` and `murm cancel`. */
 const POLL_MS = 200
 
-/** A command file written by `murm answer` or `murm cancel`. */
-export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'cancel'; node: string }
+/** A command file written by `murm answer`, `murm approve` or `murm cancel`. */
+export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'approve' | 'cancel'; node: string }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 export function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -54,6 +58,15 @@ function groupExists(pid: number): boolean {
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+
+/** Whether a turn's process group, started by an earlier supervisor, still runs. A pid whose start time differs was
+ * reused by another process; a turn recorded without a start time is never signalled. */
+function turnAlive(t: TurnState): boolean {
+  if (t.startTime === undefined) return false
+  const now = procStartTime(t.pid)
+  if (now !== undefined) return now === t.startTime
+  return groupExists(t.pid) // the leader is gone: its pid is not reused while members of its group remain
 }
 
 /** SIGTERM the group, SIGKILL it after the grace, and resolve once it is gone (or shortly after SIGKILL). */
@@ -103,6 +116,7 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
       const target = state.nodes.get(call.to)
       if (isFinal(target)) return `${call.to} is already ${target!.status}`
       if (target?.spec.kind === 'check') return `${call.to} is a check and takes no messages`
+      if (target?.spec.kind === 'gate') return `${call.to} is a gate and takes no messages; the person approves it`
       if (call.mode !== 'queue' && call.mode !== 'interrupt') return 'mode must be queue or interrupt'
       return text(call.body, 'body')
     }
@@ -138,7 +152,15 @@ function accepted(call: LeadCall, parent: string): string {
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
   const { workspace, runDir, getAdapter } = opts
   const graceMs = opts.graceMs ?? 5000
-  const log = openLog(runDir, opts.onEvent)
+  const log = openLog(runDir, opts.onEvent, { takeOver: opts.resume })
+  if (opts.resume) {
+    const { status } = fold(log.events)
+    if (status !== 'running') {
+      log.close()
+      throw new Error(`the run already ${status}; a finished run is not resumed`)
+    }
+    log.append({ type: 'run.resumed' })
+  }
   const commandsDir = join(runDir, 'commands')
   mkdirSync(commandsDir, { recursive: true })
   let closed = false
@@ -214,8 +236,12 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   }
 
   const deliver = (lead: NodeState, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
+    log.append({ type: 'lead.delivered', node: lead.spec.id, requestId, text, mode })
+    send(lead, requestId, text, mode)
+  }
+  /** Hand a recorded delivery to the runner; a repeated requestId is ignored there. */
+  const send = (lead: NodeState, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
     const node = lead.spec.id
-    log.append({ type: 'lead.delivered', node, requestId, text, mode })
     runner!.deliver(node, text, { requestId, mode, model: lead.spec.model ?? DEFAULT_LEAD_MODEL }).catch((err) => {
       if (closed || isFinal(nodeNow(node))) return
       abandon(current(), node, `lead runner: ${(err as Error).message}`)
@@ -239,8 +265,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
     for (const i of fresh) deliver(lead, `evt-${i.seq}`, i.text, i.mode)
     if (fresh.length || !lead.idle || lead.escalated) return
-    // A waiting child with messages is about to resume, so it still counts as working.
-    const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length).map((c) => c.spec.id)
+    // A waiting child with messages is about to resume, and a gate waits for the person, so both still count as working.
+    const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && c.spec.kind !== 'gate').map((c) => c.spec.id)
     if (children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))) return
     if (lead.reminders >= MAX_REMINDERS) return abandon(state, id, `idle after ${MAX_REMINDERS} reminders`)
     deliver(lead, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')
@@ -258,8 +284,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       rmSync(path, { force: true })
       const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
       if (!node || isFinal(node)) continue
-      if (cmd!.type === 'answer' && typeof cmd!.text === 'string' && cmd!.text.trim()) {
+      const gate = node.spec.kind === 'gate'
+      if (cmd!.type === 'answer' && !gate && typeof cmd!.text === 'string' && cmd!.text.trim()) {
         log.append({ type: 'message', from: PERSON, to: cmd!.node, body: cmd!.text, mode: 'queue' })
+      } else if (cmd!.type === 'approve' && gate && node.status === 'waiting') {
+        complete(cmd!.node, 'approved by person')
       } else if (cmd!.type === 'cancel') {
         log.append({ type: 'node.cancelled', node: cmd!.node, by: PERSON })
       }
@@ -304,7 +333,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     return r
   }
 
-  const runTurn = async (spec: NodeSpec, turn: number, prompt: string, sessionId?: string) => {
+  const runTurn = async (spec: NodeSpec, turn: number, prompt: string, sessionId?: string, recovery = false) => {
     const adapter = getAdapter(spec.harness!)
     const dir = join(runDir, 'nodes', spec.id)
     mkdirSync(dir, { recursive: true })
@@ -316,7 +345,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const mode = sessionId ? 'resume' : 'start'
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
     const { pid } = running
-    log.append({ type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, pid, outFile: turnSpec.outFile, errFile: turnSpec.errFile, prompt })
+    log.append({
+      type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, pid, startTime: procStartTime(pid),
+      outFile: turnSpec.outFile, errFile: turnSpec.errFile, prompt, ...(recovery ? { recovery } : {}),
+    })
     groups.set(pid, { node: spec.id, turn })
     let ended = false
     let session: string | undefined
@@ -370,22 +402,42 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     return { result, sessionId: session }
   }
 
+  /** A worker's question (its `needs_input` or `blocked` result) goes to its parent. */
+  const ask = (spec: NodeSpec, result: TurnResult) =>
+    log.append({ type: 'message', from: spec.id, to: spec.parent ?? PERSON, body: result.question ?? result.summary, mode: 'queue' })
+
   /** Turns of a work node until it completes, fails, or waits for a message. Messages that arrive
-   * meanwhile are delivered by resuming the session; a `done` counts only with an empty inbox. */
+   * meanwhile are delivered by resuming the session; a `done` counts only with an empty inbox.
+   * A node still `running` after a restart continues from its last turn: a `done` is checked, and a turn
+   * without a result is resumed with a recovery note (or started again from the brief without a session). */
   const runWork = async (spec: NodeSpec) => {
     const state = current()
     const node = state.nodes.get(spec.id)!
     let sessionId = node.turns.findLast((t) => t.sessionId)?.sessionId
-    let prompt = node.turns.length ? inboxPrompt(node.inbox) : composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox)
+    const brief = () => composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox)
+    let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
+    let recovery = false
+    let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
+    const last = node.turns.at(-1)
+    if (node.status === 'running' && last) {
+      if (last.result) recorded = { result: last.result, sessionId, check: last.check }
+      else {
+        const recoveries = node.turns.filter((t) => t.recovery).length
+        if (recoveries >= MAX_RECOVERIES) return fail(spec.id, `a supervisor stop cut its turn short after ${MAX_RECOVERIES} recoveries`)
+        recovery = true
+        prompt = sessionId ? recoveryPrompt(node.inbox) : brief()
+      }
+    }
     let fixRounds = 0
     let reminded = false
-    for (let turn = node.turns.length + 1; ; turn++) {
-      const t = await runTurn(spec, turn, prompt, sessionId)
+    for (;;) {
+      const turn = nodeNow(spec.id).turns.length + (recorded ? 0 : 1)
+      const t: { result?: TurnResult; sessionId?: string; check?: CheckState } = recorded ?? await runTurn(spec, turn, prompt, sessionId, recovery)
+      recorded = undefined
+      recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return
       sessionId = t.sessionId ?? sessionId
-      if (t.result && t.result.status !== 'done') {
-        log.append({ type: 'message', from: spec.id, to: spec.parent ?? PERSON, body: t.result.question ?? t.result.summary, mode: 'queue' })
-      }
+      if (t.result && t.result.status !== 'done') ask(spec, t.result)
       let inbox = nodeNow(spec.id).inbox
       if (inbox.length || t.result?.status !== 'done') {
         if (!sessionId) return fail(spec.id, `turn ${turn} cannot be resumed: the session is unknown`)
@@ -402,7 +454,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       if (t.result.status !== 'done') return // waits for a message to resume it
       if (spec.command) {
-        const c = await check(spec.id, spec.command)
+        const c = t.check ?? await check(spec.id, spec.command)
         if (stopping || isFinal(nodeNow(spec.id))) return
         // Messages that arrived during the check come first (an urgent one stopped the check); no fix round is spent.
         inbox = nodeNow(spec.id).inbox
@@ -430,11 +482,58 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     else fail(spec.id, `check exited ${c.exitCode}`)
   }
 
+  // ---- Recovery (murm resume) -----------------------------------------------------------------
+
+  /** Close a turn the last supervisor left without `turn.ended`: record its result if its output has one; stop its
+   * group if it still runs. A node left without a result is then resumed by `runWork`. */
+  const closeTurn = async (spec: NodeSpec, t: TurnState) => {
+    const adapter = getAdapter(t.harness ?? spec.harness!)
+    const read = () => {
+      try {
+        return adapter.parse(readFileSync(t.outFile, 'utf8'))
+      } catch {
+        return undefined
+      }
+    }
+    let parsed = read()
+    if (turnAlive(t)) {
+      if (!parsed?.result) log.append({ type: 'turn.interrupted', node: spec.id, turn: t.number, reason: 'still running when the run was resumed', signal: 'SIGTERM' })
+      await terminate(t.pid)
+      parsed = read()
+    }
+    if (parsed?.sessionId && !t.sessionId) log.append({ type: 'turn.session', node: spec.id, turn: t.number, sessionId: parsed.sessionId })
+    const error = !parsed?.ended ? 'the supervisor stopped during this turn' : parsed.result ? undefined : 'no parsable structured result'
+    log.append({ type: 'turn.ended', node: spec.id, turn: t.number, exitCode: null, signal: null, result: parsed?.result, usage: parsed?.usage, error })
+  }
+
+  const recover = async () => {
+    for (const n of current().nodes.values()) {
+      for (const t of n.turns) if (!t.ended) await closeTurn(n.spec, t)
+    }
+    const state = current()
+    for (const n of state.nodes.values()) {
+      // A worker's question recorded as its result but not yet sent to its parent.
+      const last = n.turns.at(-1)
+      if (isFinal(n) || !last?.result || last.result.status === 'done') continue
+      const end = log.events.findLastIndex((e) => e.type === 'turn.ended' && e.node === n.spec.id && e.turn === last.number)
+      if (!log.events.slice(end).some((e) => e.type === 'message' && e.from === n.spec.id)) ask(n.spec, last.result)
+    }
+    if (!runner) return
+    await runner.resume()
+    const answered = new Set(log.events.flatMap((e) => (e.type === 'lead.turn' ? [callKey(e.node, e.requestId)] : [])))
+    for (const e of [...log.events]) {
+      if (e.type !== 'lead.delivered' || answered.has(callKey(e.node, e.requestId))) continue
+      const lead = state.nodes.get(e.node)
+      if (lead && !isFinal(lead)) send(lead, e.requestId, e.text, e.mode)
+    }
+  }
+
   // ---- Main loop ------------------------------------------------------------------------------
 
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
   try {
+    if (opts.resume) await recover()
     for (;;) {
       const before = log.events.length
       const changed = () => log.events.length !== before
@@ -491,11 +590,16 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
 
       for (const n of nodes) if (n.spec.kind === 'lead') routeLead(state, n)
+      // A ready gate asks the person for approval and waits for `murm approve` or `murm cancel`.
+      for (const n of nodes) {
+        if (n.spec.kind === 'gate' && n.status === 'ready') log.append({ type: 'message', from: n.spec.id, to: PERSON, body: n.spec.brief ?? '', mode: 'queue' })
+      }
       if (changed()) continue
 
       for (const n of nodes) {
-        if (n.spec.kind === 'lead' || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue
-        if (n.status !== 'ready' && !(n.status === 'waiting' && n.inbox.length)) continue
+        if (n.spec.kind === 'lead' || n.spec.kind === 'gate' || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue
+        // `running` with nothing in flight: the node was running when the last supervisor stopped.
+        if (n.status !== 'ready' && n.status !== 'running' && !(n.status === 'waiting' && n.inbox.length)) continue
         const writing = !n.spec.readOnly
         if (writing && [...inFlight.values()].some((f) => !f.spec.readOnly)) continue
         const spec = n.spec
