@@ -7,239 +7,164 @@
 <title>sous</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: a tiled kitchen wall with a ticket rail (hero), then the brigade line, a service chart, and a menu card of commands. */
+/* Layout: the whole page is the kitchen. The tiled wall is the background, the pixel counter runs across the top,
+   content sits on steel plaques and a paper order pad, the footer is the counter front. One deliberate light world. */
 :root {
-  --tile: #f3f5f6;       /* white subway tile */
-  --grout: #dde2e5;
-  --steel: #e4e8eb;      /* counter and pass */
-  --ticket: #ffffff;     /* thermal paper */
-  --ink: #121417;
-  --muted: #5b636b;
-  --rule: #cfd5da;
-  --fire: #d4401f;       /* burner flame: the accent */
-  --herb: #2f7d4f;       /* served, passed */
-  --butter: #f0c64a;     /* the bell, the flame's core */
-  --font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: light;
+  --tile: #a8dde6;  --tile-hi: #c4ebf0;  --grout: #82b9c4;
+  --steel: #c2c3c7; --steel-hi: #eef0f1; --steel-dk: #5f574f;
+  --wood: #ab5236;  --wood-dk: #6e3424;
+  --cream: #fff1e8; --ink: #1d2b53;      --muted: #45507a;
+  --red: #ff004d;   --orange: #ffa300;   --yellow: #ffec27;
+  --green: #00e436; --green-dk: #008751; --blue: #29adff; --pink: #ff77a8; --lilac: #83769c;
+  --font-pixel: "Pixelify Sans", "Silkscreen", ui-monospace, monospace;
+  --font-tiny: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --tile: #141a1e; --grout: #20282e; --steel: #182024; --ticket: #1f2529; --ink: #e8ecef; --muted: #9ba5ad; --rule: #2b333a;
-    --fire: #ff6b45; --herb: #5fcf8a; --butter: #f5d36a; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --tile: #141a1e; --grout: #20282e; --steel: #182024; --ticket: #1f2529; --ink: #e8ecef; --muted: #9ba5ad; --rule: #2b333a;
-  --fire: #ff6b45; --herb: #5fcf8a; --butter: #f5d36a; color-scheme: dark;
-}
 * { box-sizing: border-box; }
-body { background: var(--steel); color: var(--ink); font: 17px/1.6 var(--font-body); }
-p { margin: 0; }
-h1, h2, h3 { margin: 0; text-wrap: balance; }
-h2 { font: 800 clamp(1.6rem, 3.6vw, 2.3rem)/1.1 var(--font-display); letter-spacing: -0.02em; }
-a { color: var(--fire); }
-a:focus-visible { outline: 2px solid var(--fire); outline-offset: 2px; }
-code { font: 0.9em var(--font-mono); background: color-mix(in srgb, var(--rule) 55%, transparent); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; }
-.eyebrow { font: 600 0.76rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fire); }
-.icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em; }
-
-/* ---- Hero: subway tiles, a rail, tickets ---- */
-.wall {
+body {
+  color: var(--ink); font: 17px/1.6 var(--font-body);
   background-color: var(--tile);
   background-image:
     linear-gradient(var(--grout) 2px, transparent 2px),
-    linear-gradient(90deg, var(--grout) 2px, transparent 2px);
-  background-size: 64px 32px, 64px 32px;
-  border-bottom: 10px solid var(--steel);
-  box-shadow: inset 0 -1px 0 var(--rule);
+    linear-gradient(90deg, var(--grout) 2px, transparent 2px),
+    linear-gradient(var(--tile-hi) 2px, transparent 2px);
+  background-size: 64px 32px, 64px 32px, 64px 32px;
+  background-position: 0 0, 0 0, 0 2px;
 }
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(24px, 4vw, 56px); align-items: center; padding-block: clamp(40px, 8vh, 88px) clamp(36px, 6vh, 64px); }
-@media (max-width: 820px) { .hero { grid-template-columns: 1fr; } }
-.intro { display: grid; gap: 20px; min-width: 0; }
-.intro .plate { background: var(--ticket); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(18px, 3vw, 28px); display: grid; gap: 18px; box-shadow: 0 10px 24px -18px rgba(0,0,0,.35); }
-h1 { font: 800 clamp(4rem, 14vw, 8rem)/0.85 var(--font-display); letter-spacing: -0.05em; display: flex; align-items: flex-end; gap: 0.12em; }
-h1 svg { width: 0.62em; height: 0.62em; color: var(--ink); margin-bottom: 0.08em; }
-.tag { font: 500 clamp(1.25rem, 2.8vw, 1.6rem)/1.3 var(--font-display); max-width: 24ch; }
-.tag em { font-style: normal; color: var(--fire); }
-pre { margin: 0; background: var(--steel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font: 0.9rem/1.6 var(--font-mono); }
-pre .p { color: var(--fire); user-select: none; }
-.stamp { justify-self: start; font: 600 0.8rem var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--herb); border: 2px solid var(--herb); border-radius: 6px; padding: 3px 10px; transform: rotate(-3deg); }
+p { margin: 0; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-family: var(--font-pixel); font-weight: 700; }
+h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.05; color: var(--cream); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink); }
+a { color: var(--ink); text-decoration-color: var(--red); text-decoration-thickness: 3px; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
+code { font: 0.9em var(--font-mono); background: rgba(29, 43, 83, 0.09); padding: 0.05em 0.35em; border-radius: 3px; overflow-wrap: anywhere; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; }
+canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.plaque { background: var(--steel-hi); border: 3px solid var(--steel-dk); box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 var(--steel), 5px 5px 0 rgba(29, 43, 83, 0.35); }
 
-.rail-area { min-width: 0; display: grid; gap: 0; }
-.rail { height: 14px; border-radius: 3px; background: linear-gradient(var(--rule), var(--steel) 45%, var(--rule)); border: 1px solid var(--rule); position: relative; z-index: 2; }
-.tickets { display: flex; gap: 14px; justify-content: center; margin-top: -6px; overflow: hidden; padding: 0 4px 18px; }
-.ticket { flex: 0 0 auto; width: 190px; background: var(--ticket); color: var(--ink); font: 0.74rem/1.5 var(--font-mono); padding: 16px 13px 14px; border: 1px solid var(--rule); border-top: 0; box-shadow: 0 10px 18px -14px rgba(0,0,0,.5); transform-origin: top center; animation: hang 1s cubic-bezier(.2,.8,.2,1) both; }
-.ticket:nth-child(1) { transform: rotate(-2.5deg); animation-delay: .05s; }
-.ticket:nth-child(2) { transform: rotate(1.2deg); width: 220px; animation-delay: .18s; font-size: 0.8rem; }
-.ticket:nth-child(3) { transform: rotate(3deg); animation-delay: .3s; }
-@keyframes hang { from { translate: 0 -10px; } to { translate: 0 0; } }
-@media (max-width: 560px) { .ticket:nth-child(1), .ticket:nth-child(3) { display: none; } }
-.ticket .row { display: flex; justify-content: space-between; gap: 8px; }
-.ticket .cut { border-top: 1px dashed var(--muted); margin: 7px 0; }
-.ticket b { font-weight: 600; }
-.ticket .big { font-weight: 600; letter-spacing: .04em; font-size: 1.05em; }
-.ticket .fire { color: var(--fire); font-weight: 600; }
-.ticket .ok { color: var(--herb); font-weight: 600; }
-.ticket .clip { width: 26px; height: 10px; margin: -16px auto 8px; background: var(--rule); border-radius: 0 0 4px 4px; }
+/* Header */
+header.wrap { padding-block: clamp(32px, 6vh, 64px) 22px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+h1 { font-size: clamp(4.5rem, 16vw, 9rem); line-height: 0.85; }
+h1 span { text-shadow: 5px 5px 0 var(--ink), -3px 0 0 var(--ink), 0 -3px 0 var(--ink), 3px 0 0 var(--ink), 0 3px 0 var(--ink); }
+h1 .s1 { color: var(--red); } h1 .s2 { color: var(--orange); } h1 .s3 { color: var(--yellow); } h1 .s4 { color: var(--green); }
+.tagline { padding: 14px 18px; display: grid; gap: 12px; max-width: 760px; }
+.tag { font: 500 clamp(1.2rem, 2.6vw, 1.55rem)/1.3 var(--font-pixel); }
+.tag b { color: var(--red); }
+pre { margin: 0; min-width: 0; background: var(--ink); color: var(--cream); padding: 10px 14px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--red); }
+pre .p { color: var(--green); user-select: none; }
 
-/* ---- Sections ---- */
-main.wrap { display: grid; gap: clamp(64px, 9vw, 104px); padding-block: clamp(56px, 8vw, 96px) 72px; }
-section { display: grid; gap: 22px; }
-.lead { max-width: 62ch; color: var(--muted); }
+/* The scene */
+.scene-box { padding: 10px; background: var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); }
+.scene-scroll { overflow-x: auto; }
+.scene-scroll canvas { margin: 0 auto; }
+.scene-note { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--cream); font-size: 0.86rem; }
+.scene-note i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: 0; border: 1px solid var(--cream); }
 
-/* the brigade line */
-.line { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; position: relative; }
-.line::before { content: ""; position: absolute; left: 6%; right: 6%; top: 38px; border-top: 3px dotted var(--rule); }
-.line li { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 0 6px; position: relative; min-width: 0; }
-.line .disc { width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center; background: var(--ticket); border: 2px solid var(--rule); color: var(--ink); }
-.line .disc svg { width: 40px; height: 40px; }
-.line li:nth-child(2) .disc { border-color: var(--fire); color: var(--fire); }
-.line li:nth-child(6) .disc { border-color: var(--herb); color: var(--herb); }
-.line h3 { font: 800 1.05rem/1.2 var(--font-display); }
-.line p { font-size: 0.88rem; color: var(--muted); }
-@media (max-width: 820px) {
-  .line { grid-template-columns: 1fr; gap: 14px; }
-  .line::before { left: 37px; right: auto; top: 20px; bottom: 20px; border-top: 0; border-left: 3px dotted var(--rule); }
-  .line li { grid-template-columns: 76px 1fr; justify-items: start; text-align: left; column-gap: 16px; row-gap: 2px; align-items: center; }
-  .line li .disc { grid-row: span 2; }
-}
+main.wrap { display: grid; gap: clamp(56px, 8vw, 96px); padding-block: clamp(48px, 7vw, 80px) 72px; grid-template-columns: minmax(0, 1fr); }
+section { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+.lead { max-width: 64ch; padding: 14px 18px; }
 
-/* the service chart */
-.service { background: var(--ticket); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(16px, 3vw, 26px); display: grid; gap: 18px; }
+/* How the chef composes */
+.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
+.card { padding: 12px 14px 10px; display: grid; justify-items: center; gap: 6px; min-width: 128px; }
+.card canvas { width: 64px; height: 96px; }
+.card b { font: 700 1rem var(--font-pixel); }
+.card span { font-size: 0.82rem; color: var(--muted); text-align: center; max-width: 16ch; line-height: 1.3; }
+.card.out { border-color: var(--green-dk); }
+.op { font: 700 2.4rem var(--font-pixel); color: var(--yellow); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.rules > div { padding: 14px 16px; display: grid; gap: 6px; align-content: start; min-width: 0; border-top: 8px solid var(--orange); }
+.rules > div:nth-child(2) { border-top-color: var(--blue); }
+.rules > div:nth-child(3) { border-top-color: var(--green-dk); }
+.rules h3 { font-size: 1.2rem; }
+.rules p { color: var(--muted); font-size: 0.97rem; }
+
+/* A real service */
+.service { padding: clamp(14px, 3vw, 22px); display: grid; gap: 16px; }
+.service > * { min-width: 0; }
 .chart-wrap { overflow-x: auto; }
-svg text { fill: var(--muted); font: 11px var(--font-mono); }
-svg .lbl { fill: var(--ink); font: 600 12px var(--font-body); }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.88rem; color: var(--muted); }
-.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border-top: 1px dashed var(--rule); }
-.counts div { display: grid; gap: 0; padding: 12px 12px 0 0; }
-.counts b { font: 800 1.8rem/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
-.counts span { color: var(--muted); font-size: 0.86rem; display: flex; align-items: center; gap: 6px; }
-.counts svg { width: 16px; height: 16px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.9rem; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--ink); }
+.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.counts div { display: grid; }
+.counts b { font: 700 2rem/1.1 var(--font-pixel); font-variant-numeric: tabular-nums; }
+.counts div:nth-child(1) b { color: var(--red); } .counts div:nth-child(2) b { color: #c87400; }
+.counts div:nth-child(3) b { color: var(--green-dk); } .counts div:nth-child(4) b { color: #0b78c4; }
+.counts span { color: var(--muted); font-size: 0.86rem; }
 
-/* the menu card */
-.menu { background: var(--ticket); border: 1px solid var(--rule); border-radius: 4px; padding: clamp(20px, 4vw, 40px); display: grid; gap: 26px; box-shadow: 0 0 0 6px var(--ticket), 0 0 0 7px var(--rule); max-width: 820px; justify-self: center; width: 100%; margin: 7px; }
+/* The menu: a paper order pad */
+.menu { background: var(--cream); border: 3px solid var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); padding: 0 clamp(18px, 4vw, 40px) clamp(20px, 4vw, 36px); display: grid; gap: 22px; max-width: 860px; justify-self: center; width: 100%; }
+.menu::before { content: ""; display: block; height: 14px; margin-inline: calc(-1 * clamp(18px, 4vw, 40px)); background: repeating-linear-gradient(90deg, var(--red) 0 16px, var(--cream) 16px 32px); border-bottom: 3px solid var(--ink); }
 .menu h2 { text-align: center; }
-.menu .course { display: grid; gap: 10px; }
-.menu h3 { font: 600 0.8rem var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--fire); text-align: center; }
+.menu h3 { font: 400 0.82rem var(--font-tiny); letter-spacing: .1em; text-transform: uppercase; color: var(--red); text-align: center; }
+.menu .course { display: grid; gap: 9px; }
 .dish { display: grid; grid-template-columns: max-content minmax(1rem, 1fr) minmax(0, max-content); align-items: baseline; gap: 10px; }
-.dish code { background: none; padding: 0; font-weight: 600; color: var(--ink); }
-.dish .dots { border-bottom: 2px dotted var(--rule); transform: translateY(-4px); min-width: 1rem; }
+.dish code { background: none; padding: 0; font-weight: 600; }
+.dish .dots { border-bottom: 3px dotted var(--lilac); transform: translateY(-4px); }
 .dish span:last-child { color: var(--muted); text-align: right; font-size: 0.95rem; }
-@media (max-width: 640px) { .dish { grid-template-columns: 1fr; gap: 0; } .dish .dots { display: none; } .dish span:last-child { text-align: left; margin-bottom: 6px; } }
 .menu .note { text-align: center; color: var(--muted); font-size: 0.92rem; max-width: 60ch; justify-self: center; }
+@media (max-width: 640px) { .dish { grid-template-columns: 1fr; gap: 0; } .dish .dots { display: none; } .dish span:last-child { text-align: left; margin-bottom: 6px; } }
 
-footer { border-top: 1px solid var(--rule); }
-footer .wrap { padding-block: 24px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; align-items: center; color: var(--muted); font-size: 0.92rem; }
-footer .bell { display: inline-flex; align-items: center; gap: 10px; font: 800 1.1rem var(--font-display); color: var(--ink); }
-footer .bell svg { width: 28px; height: 28px; color: var(--butter); }
-footer .bell:hover svg { animation: ding .5s ease; }
-@keyframes ding { 0%,100% { rotate: 0deg } 25% { rotate: -14deg } 75% { rotate: 12deg } }
-@media (prefers-reduced-motion: reduce) { .ticket { animation: none; } footer .bell:hover svg { animation: none; } }
+/* Footer: the counter front */
+footer { background-color: var(--wood); border-top: 10px solid var(--steel); box-shadow: inset 0 3px 0 var(--steel-hi); background-image: repeating-linear-gradient(90deg, transparent 0 126px, var(--wood-dk) 126px 128px); }
+footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; color: var(--cream); }
+footer a { color: var(--cream); text-decoration-color: var(--yellow); }
+.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--yellow); background: none; border: 0; cursor: pointer; padding: 0; text-shadow: 2px 2px 0 var(--ink); }
+.bell canvas { width: 44px; height: 36px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body style="margin:0">
 
-<!-- Kitchen icons, drawn with currentColor -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <symbol id="i-toque" viewBox="0 0 48 48"><path d="M14 30c-5-1-8-5-7-10 1-5 6-8 11-6 1-5 5-8 10-7 4 1 7 4 7 8 5-1 9 3 9 8s-4 8-9 7v8H14z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M14 38h22M20 30v8M28 30v8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-ticket" viewBox="0 0 48 48"><path d="M12 6h24v36l-4-3-4 3-4-3-4 3-4-3-4 3z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M17 15h14M17 21h14M17 27h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-pan" viewBox="0 0 48 48"><path d="M5 22h28c0 8-6 13-14 13S5 30 5 22z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M33 24l11-4" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M13 16c0-3 3-3 3-6M20 16c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
-    <symbol id="i-knife" viewBox="0 0 48 48"><path d="M6 34L30 10c4 4 4 10 0 14l-10 10z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 34l-6 6M24 38l-4 4" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></symbol>
-    <symbol id="i-bell" viewBox="0 0 48 48"><path d="M8 34h32c0-10-7-17-16-17S8 24 8 34z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M5 38h38M24 17v-4M20 12h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-plate" viewBox="0 0 48 48"><circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="24" cy="24" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 24l4 4 7-8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-    <symbol id="i-flame" viewBox="0 0 48 48"><path d="M24 6c2 8 12 12 12 23a12 12 0 0 1-24 0c0-6 4-9 5-14 3 4 3 7 3 9 4-4 5-11 4-18z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/></symbol>
-  </defs>
-</svg>
-
-<header class="wall">
-  <div class="wrap hero">
-    <div class="intro">
-      <div class="plate">
-        <h1><svg aria-hidden="true"><use href="#i-toque"/></svg>sous</h1>
-        <p class="tag">You call the order. <em>sous</em> runs the kitchen until it's served.</p>
-        <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
-        <span class="stamp">Yes, chef.</span>
-      </div>
-    </div>
-    <div class="rail-area" role="img" aria-label="A ticket rail with three real runs: a greeting where two Pi cooks clashed and Codex resolved it; calc, built by 41 leads, 28 cooks and 30 checks, served in 28 minutes 54 seconds; and two bug fixes done in 2 minutes">
-      <div class="rail"></div>
-      <div class="tickets">
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0141</b><span>pi ×2</span></div>
-          <div class="cut"></div>
-          <div class="big">1× GREETING</div>
-          <div>two cooks, same line</div>
-          <div class="cut"></div>
-          <div class="row"><span>clashes</span><span>1</span></div>
-          <div class="row"><span>fixed by</span><span>codex</span></div>
-          <div class="cut"></div>
-          <div class="ok">SERVED ✓</div>
-        </div>
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0142</b><span>12:36</span></div>
-          <div class="cut"></div>
-          <div class="big">1× CALC</div>
-          <div>expression calculator,</div>
-          <div>Node 22, with tests</div>
-          <div class="cut"></div>
-          <div class="row"><span>sous + stations</span><span>41</span></div>
-          <div class="row"><span>cooks</span><span>28</span></div>
-          <div class="row"><span>checks</span><span>30</span></div>
-          <div class="row"><span>sent back</span><span>0</span></div>
-          <div class="cut"></div>
-          <div class="row"><span class="ok">SERVED 13:05</span><span>166 ✓</span></div>
-        </div>
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0143</b><span>13:14</span></div>
-          <div class="cut"></div>
-          <div class="big">2× BUG FIX</div>
-          <div>calc options, --file</div>
-          <div class="cut"></div>
-          <div class="row"><span>cooks</span><span>2</span></div>
-          <div class="row"><span>clashes</span><span>0</span></div>
-          <div class="cut"></div>
-          <div class="fire">FIRE! → 2 min</div>
-        </div>
-      </div>
-    </div>
+<header class="wrap">
+  <h1><span class="s1">s</span><span class="s2">o</span><span class="s3">u</span><span class="s4">s</span></h1>
+  <div class="tagline plaque">
+    <p class="tag">You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until the plate is served.</p>
+    <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
   </div>
 </header>
 
+<figure class="wrap" style="margin-inline:auto;margin-block:0">
+  <div class="scene-box">
+    <div class="scene-scroll"><canvas id="kitchen" role="img" aria-label="A pixel-art kitchen counter. From left: a ticket rail with your orders; the sous chef in red pointing at the line and calling fire; a pantry shelf of model jars; three cooks in orange, blue and green, labelled Claude, Codex and Pi, stirring bubbling pots and catching the ingredients the chef tosses them; and the pass under a heat lamp, where finished plates arrive and the bell rings."></canvas></div>
+    <p class="scene-note"><span>Pantry jars:</span><span><i style="background:var(--pink)"></i>opus</span><span><i style="background:var(--orange)"></i>sonnet</span><span><i style="background:var(--green)"></i>gpt-5.5</span><span><i style="background:var(--blue)"></i>glm</span><span><i style="background:var(--lilac)"></i>deepseek</span><span>· the models you allow</span></p>
+  </div>
+</figure>
+
 <main class="wrap">
   <section>
-    <p class="eyebrow">The brigade</p>
-    <h2>From your order to the plate</h2>
-    <ol class="line">
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-ticket"/></svg></span><h3>You</h3><p>call the order: a goal, or a fixed menu of steps</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-toque"/></svg></span><h3>Sous</h3><p>a lead agent splits it across stations</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-pan"/></svg></span><h3>Stations</h3><p>sub-leads split again, as deep as you allow</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-knife"/></svg></span><h3>Cooks</h3><p>Claude Code, Codex or Pi, each in its own git worktree</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-bell"/></svg></span><h3>The pass</h3><p>every plate merged and checked; clashes go to an agent who fixes them</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-plate"/></svg></span><h3>Served</h3><p>on branch <code>sous/&lt;run&gt;</code>; your branch is untouched</p></li>
-    </ol>
+    <h2>How the chef composes the kitchen</h2>
+    <p class="lead plaque">You stock the pantry and hire the cooks. For each part of the order the sous picks a cook, adds an ingredient and writes the recipe. Your goal is the order; each part becomes a plate.</p>
+    <div class="recipe" aria-label="A cook, plus an ingredient, plus a recipe card, makes a new station">
+      <div class="card plaque"><canvas data-sprite="cook" width="32" height="48" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
+      <span class="op" aria-hidden="true">+</span>
+      <div class="card plaque"><canvas data-sprite="jar" width="32" height="48" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
+      <span class="op" aria-hidden="true">+</span>
+      <div class="card plaque"><canvas data-sprite="ticket" width="32" height="48" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
+      <span class="op" aria-hidden="true">=</span>
+      <div class="card plaque out"><canvas data-sprite="station" width="32" height="48" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
+    </div>
+    <div class="rules">
+      <div class="plaque"><h3>You stock the kitchen</h3><p>Hire your own cooks, and choose which models leads may use, per harness. Leads only cook with what is in the pantry; the cooks you name yourself bring their own.</p></div>
+      <div class="plaque"><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
+      <div class="plaque"><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
+    </div>
   </section>
 
   <section>
-    <p class="eyebrow">A real service</p>
-    <h2>Order #0142: a calculator, five levels deep</h2>
-    <p class="lead">One goal, four levels of leads, cooks at the fifth, all on cheap Ollama models. Every bar is a minute of the real run. The quiet stretch in the middle is one cook spending 8 m 44 s on the parser while the rest of the line waited.</p>
-    <div class="service">
-      <div class="chart-wrap"><svg id="service" role="img" aria-label="Orders fired and plates through the pass, per minute, over the 29-minute calc run"></svg></div>
-      <div class="legend"><span><i style="background:var(--fire)"></i>orders fired to cooks</span><span><i style="background:var(--herb)"></i>plates through the pass (merged)</span></div>
+    <h2>A real service: order #0142</h2>
+    <p class="lead plaque">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
+    <div class="service plaque">
+      <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Orders fired to cooks and plates through the pass, per minute, over the 29-minute calc run"></canvas></div>
+      <div class="legend"><span><i style="background:var(--red)"></i>orders fired to cooks</span><span><i style="background:var(--green)"></i>plates through the pass</span></div>
       <div class="counts">
-        <div><b>99</b><span><svg aria-hidden="true"><use href="#i-toque"/></svg>in the brigade</span></div>
-        <div><b>28</b><span><svg aria-hidden="true"><use href="#i-knife"/></svg>cooks, one turn each</span></div>
-        <div><b>27 / 0</b><span><svg aria-hidden="true"><use href="#i-bell"/></svg>plates passed / clashes</span></div>
-        <div><b>28:54</b><span><svg aria-hidden="true"><use href="#i-plate"/></svg>order to service</span></div>
+        <div><b>99</b><span>in the brigade (41 leads)</span></div>
+        <div><b>28</b><span>cooks, one turn each</span></div>
+        <div><b>27 / 0</b><span>plates merged / clashes</span></div>
+        <div><b>28:54</b><span>order to service, 166 tests ✓</span></div>
       </div>
     </div>
   </section>
@@ -247,27 +172,23 @@ footer .bell:hover svg { animation: ding .5s ease; }
   <section>
     <div class="menu">
       <h2>The menu</h2>
-      <div class="course">
-        <h3>To start</h3>
+      <div class="course"><h3>To start</h3>
         <div class="dish"><code>npm install -g @krimvp/sous</code><span class="dots"></span><span>Node 22.19+, git, and Claude Code, Codex or Pi</span></div>
       </div>
-      <div class="course">
-        <h3>Mains</h3>
+      <div class="course"><h3>Mains</h3>
         <div class="dish"><code>sous run "goal"</code><span class="dots"></span><span>let the sous plan it</span></div>
         <div class="dish"><code>sous run graph.json</code><span class="dots"></span><span>a fixed menu of steps, gates and leads</span></div>
-        <div class="dish"><code>--agents agents.json</code><span class="dots"></span><span>your own cooks, and which models leads may use</span></div>
+        <div class="dish"><code>--agents agents.json</code><span class="dots"></span><span>your cooks and pantry, for goal runs</span></div>
         <div class="dish"><code>--max-depth 4</code><span class="dots"></span><span>a taller brigade (default 3)</span></div>
       </div>
-      <div class="course">
-        <h3>During service</h3>
+      <div class="course"><h3>During service</h3>
         <div class="dish"><code>sous status</code><span class="dots"></span><span>the live brigade, and questions for you</span></div>
         <div class="dish"><code>sous answer &lt;node&gt; "…"</code><span class="dots"></span><span>answer, or steer a lead</span></div>
         <div class="dish"><code>sous approve &lt;gate&gt;</code><span class="dots"></span><span>pass a plate that needs your OK</span></div>
         <div class="dish"><code>sous cancel &lt;node&gt;</code><span class="dots"></span><span>86 it, and everything under it</span></div>
         <div class="dish"><code>sous resume</code><span class="dots"></span><span>back on after a power cut</span></div>
       </div>
-      <div class="course">
-        <h3>After</h3>
+      <div class="course"><h3>After</h3>
         <div class="dish"><code>sous export atif</code><span class="dots"></span><span>the whole service as a trace (or <code>otlp</code> to Langfuse)</span></div>
       </div>
       <p class="note">Leads plan on your Pi login (Ollama Cloud or ChatGPT). Run <code>sous</code> inside the git repository the cooks should work in.</p>
@@ -277,35 +198,200 @@ footer .bell:hover svg { animation: ding .5s ease; }
 
 <footer>
   <div class="wrap">
-    <span class="bell"><svg aria-hidden="true"><use href="#i-bell"/></svg>Service!</span>
+    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="22" height="18" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
     <span><a href="https://github.com/krimvp/sous">github.com/krimvp/sous</a> · runs on your machine</span>
   </div>
 </footer>
 
 <script>
 (function () {
-  // Per minute of the real calc run (from its event log): worker turns started, and merges done.
+  const C = {
+    ink: '#1d2b53', plum: '#7e2553', moss: '#008751', wood: '#ab5236', woodDk: '#6e3424', woodHi: '#c06a48',
+    stone: '#5f574f', steel: '#c2c3c7', steelHi: '#eef0f1', white: '#fff1e8', red: '#ff004d', redDk: '#b8003a',
+    orange: '#ffa300', orangeDk: '#c87400', yellow: '#ffec27', yellowDk: '#d4b800', green: '#00e436', greenDk: '#00a32a',
+    blue: '#29adff', blueDk: '#0b78c4', lilac: '#83769c', pink: '#ff77a8', skin: '#ffccaa', skinDk: '#e8a07a', black: '#000000',
+    tile: '#a8dde6', tileHi: '#c4ebf0', grout: '#82b9c4',
+  }
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // ---- drawing helpers ----
+  const px = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w, h) }
+  function disc(g, cx, cy, r, c, maxDy = r) { g.fillStyle = c; for (let dy = -r; dy <= maxDy; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r + r * 0.6) g.fillRect(cx + dx, cy + dy, 1, 1) }
+  const FONT = {
+    A:['.#.','#.#','###','#.#','#.#'],B:['##.','#.#','##.','#.#','##.'],C:['.##','#..','#..','#..','.##'],D:['##.','#.#','#.#','#.#','##.'],
+    E:['###','#..','##.','#..','###'],F:['###','#..','##.','#..','#..'],G:['.##','#..','#.#','#.#','.##'],H:['#.#','#.#','###','#.#','#.#'],
+    I:['###','.#.','.#.','.#.','###'],K:['#.#','#.#','##.','#.#','#.#'],L:['#..','#..','#..','#..','###'],M:['#.#','###','###','#.#','#.#'],
+    N:['##.','#.#','#.#','#.#','#.#'],O:['.#.','#.#','#.#','#.#','.#.'],P:['##.','#.#','##.','#..','#..'],R:['##.','#.#','##.','#.#','#.#'],
+    S:['.##','#..','.#.','..#','##.'],T:['###','.#.','.#.','.#.','.#.'],U:['#.#','#.#','#.#','#.#','###'],V:['#.#','#.#','#.#','#.#','.#.'],
+    W:['#.#','#.#','###','###','#.#'],X:['#.#','#.#','.#.','#.#','#.#'],Y:['#.#','#.#','.#.','.#.','.#.'],Z:['###','..#','.#.','#..','###'],
+    0:['###','#.#','#.#','#.#','###'],1:['.#.','##.','.#.','.#.','###'],2:['##.','..#','.#.','#..','###'],3:['##.','..#','.#.','..#','##.'],
+    4:['#.#','#.#','###','..#','..#'],5:['###','#..','##.','..#','##.'],6:['.##','#..','###','#.#','###'],7:['###','..#','.#.','.#.','.#.'],
+    8:['###','#.#','###','#.#','###'],9:['###','#.#','###','..#','##.'],'#':['#.#','###','#.#','###','#.#'],'!':['.#.','.#.','.#.','...','.#.'],
+    '-':['...','...','###','...','...'],':':['...','.#.','...','.#.','...'],'.':['...','...','...','...','.#.'],',':['...','...','...','.#.','#..'],' ':['...','...','...','...','...'],
+  }
+  function text(g, s, x, y, c, k = 1) { for (const ch of s) { const gl = FONT[ch] || FONT[' ']; for (let r = 0; r < 5; r++) for (let q = 0; q < 3; q++) if (gl[r][q] === '#') px(g, x + q * k, y + r * k, k, k, c); x += 4 * k } }
+  const textW = (s, k = 1) => s.length * 4 * k - k
+
+  // ---- sprites, drawn procedurally at full detail ----
+  function chef(g, x, y, coat, coatDk, o = {}) {           // about 28 x 44
+    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx + 1, y + cy + 1, r, C.steel)
+    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx, y + cy, r, C.white)
+    px(g, x + 11, y + 1, 3, 1, '#ffffff'); px(g, x + 10, y + 2, 2, 1, '#ffffff')
+    px(g, x + 6, y + 11, 17, 5, C.white); px(g, x + 6, y + 15, 17, 1, C.steel); px(g, x + 19, y + 11, 4, 4, C.steelHi)
+    px(g, x + 8, y + 16, 13, 11, C.skin); px(g, x + 18, y + 16, 3, 10, C.skinDk)
+    px(g, x + 7, y + 16, 1, 5, C.woodDk); px(g, x + 21, y + 16, 1, 5, C.woodDk)
+    px(g, x + 10, y + 19, 3, 1, C.woodDk); px(g, x + 16, y + 19, 3, 1, C.woodDk)
+    px(g, x + 11, y + 20, 2, 2, C.ink); px(g, x + 16, y + 20, 2, 2, C.ink); px(g, x + 11, y + 20, 1, 1, '#ffffff'); px(g, x + 16, y + 20, 1, 1, '#ffffff')
+    px(g, x + 9, y + 23, 2, 1, C.pink); px(g, x + 18, y + 23, 2, 1, C.pink)
+    if (o.mustache) { px(g, x + 10, y + 23, 9, 2, C.woodDk); px(g, x + 9, y + 24, 1, 1, C.woodDk); px(g, x + 19, y + 24, 1, 1, C.woodDk) }
+    px(g, x + 13, y + (o.mustache ? 25 : 24), 3, 1, C.plum)
+    px(g, x + 10, y + 27, 9, 2, o.scarf || C.white)
+    px(g, x + 5, y + 29, 19, 15, coat); px(g, x + 19, y + 30, 5, 14, coatDk)
+    px(g, x + 9, y + 29, 4, 3, C.white); px(g, x + 16, y + 29, 4, 3, C.white); px(g, x + 13, y + 29, 3, 1, C.white)
+    for (const yy of [33, 37, 41]) { px(g, x + 11, y + yy, 2, 2, C.white); px(g, x + 17, y + yy, 2, 2, C.white) }
+    px(g, x + 2, y + 31, 4, 10, coat); px(g, x + 2, y + 41, 4, 3, C.skin)
+    if (o.point) { px(g, x + 23, y + 31, 9, 4, coat); px(g, x + 23, y + 34, 9, 1, coatDk); px(g, x + 32, y + 30, 4, 4, C.skin); px(g, x + 36, y + 31, 2, 1, C.skin) }
+    else if (o.stir !== undefined) { const d = o.stir % 2; px(g, x + 23, y + 30, 4, 7, coat); px(g, x + 24, y + 27 + d, 3, 3, C.skin); for (let i = 0; i < 9; i++) px(g, x + 26 + i, y + 27 + d + i, 1, 1, C.stone); px(g, x + 34, y + 35 + d, 3, 3, C.stone) }
+    else { px(g, x + 23, y + 31, 4, 10, coat); px(g, x + 23, y + 41, 4, 3, C.skin) }
+  }
+  function pot(g, x, y, f, soup) {                           // 24 x 16, burner and flames below
+    px(g, x - 1, y + 14, 26, 2, C.black)
+    ;[[2, 3], [8, 4], [14, 3], [20, 4]].forEach(([fx, h], i) => { const hh = h - ((f + i) % 2); px(g, x + fx, y + 15 - hh, 3, hh, (f + i) % 2 ? C.orange : C.red); px(g, x + fx + 1, y + 16 - hh, 1, Math.max(1, hh - 2), C.yellow) })
+    px(g, x - 2, y + 5, 2, 3, C.stone); px(g, x + 24, y + 5, 2, 3, C.stone)
+    px(g, x + 1, y + 3, 22, 11, C.steel); px(g, x + 1, y + 11, 22, 3, C.stone); px(g, x + 3, y + 5, 2, 6, C.steelHi)
+    px(g, x, y + 2, 24, 2, C.steelHi); px(g, x, y + 3, 24, 1, C.steel)
+    px(g, x + 2, y + 1, 20, 1, soup)
+    for (let i = 0; i < 3; i++) { const bx = x + 5 + ((f * 3 + i * 7) % 14), by = y - ((f + i * 2) % 3); px(g, bx, by, 2, 2, soup); px(g, bx, by, 1, 1, C.white) }
+  }
+  function jar(g, x, y, fill) {                              // 16 x 22
+    px(g, x + 3, y, 10, 4, C.wood); px(g, x + 3, y, 10, 1, C.woodHi); px(g, x + 4, y + 1, 2, 2, C.woodHi)
+    px(g, x + 2, y + 4, 12, 2, C.steel)
+    px(g, x + 1, y + 6, 14, 16, C.steel); px(g, x + 2, y + 6, 12, 15, '#e8f6f8')
+    px(g, x + 2, y + 11, 12, 10, fill); px(g, x + 2, y + 11, 12, 1, '#ffffff')
+    px(g, x + 3, y + 13, 10, 4, C.white); px(g, x + 4, y + 14, 8, 1, fill); px(g, x + 4, y + 15, 5, 1, C.stone)
+    px(g, x + 3, y + 7, 1, 13, '#ffffff')
+  }
+  function plate(g, x, y, food) {                            // 18 x 8
+    px(g, x + 4, y + 1, 10, 3, food); px(g, x + 6, y, 6, 1, food); px(g, x + 5, y + 1, 3, 1, '#ffffff')
+    px(g, x + 8, y - 1, 2, 2, C.green); px(g, x + 10, y, 1, 1, C.greenDk)
+    px(g, x, y + 4, 18, 2, C.white); px(g, x + 2, y + 6, 14, 1, C.steel); px(g, x + 1, y + 4, 16, 1, '#ffffff')
+  }
+  function bell(g, x, y) {                                   // 20 x 17
+    px(g, x + 9, y, 2, 3, C.stone); px(g, x + 8, y, 4, 1, C.stone)
+    disc(g, x + 10, y + 12, 8, C.yellowDk, 0); disc(g, x + 10, y + 11, 8, C.yellow, 0)
+    px(g, x + 1, y + 12, 18, 2, C.yellowDk); px(g, x - 1, y + 14, 22, 3, C.stone); px(g, x - 1, y + 14, 22, 1, C.steel)
+    px(g, x + 5, y + 6, 2, 4, '#ffffff'); px(g, x + 7, y + 5, 2, 1, '#ffffff')
+  }
+  function ticket(g, x, y, lines) {                          // 24 x 32
+    px(g, x + 1, y + 1, 24, 32, 'rgba(29,43,83,0.25)')
+    px(g, x, y, 24, 32, C.white); px(g, x, y, 24, 4, C.red)
+    for (let i = 0; i < 24; i += 2) px(g, x + i, y + 31, 1, 1, C.steel)
+    lines.forEach((s, i) => text(g, s, x + 2, y + 6 + i * 7, i === 0 ? C.ink : C.stone))
+  }
+  function sign(g, cx, y, s, bg = C.ink) { const w = textW(s) + 6, x = Math.round(cx - w / 2); px(g, x, y, w, 9, bg); px(g, x, y + 8, w, 1, C.black); text(g, s, x + 3, y + 2, C.white) }
+
+  // ---- icon canvases ----
+  const icons = {
+    cook: (g) => chef(g, 1, 2, C.orange, C.orangeDk, { stir: 0 }),
+    jar: (g) => jar(g, 8, 14, C.orange),
+    ticket: (g) => ticket(g, 4, 8, ['HR', 'SPEC.', 'NOTES']),
+    station: (g) => { chef(g, 2, 0, C.pink, C.plum, {}); sign(g, 16, 38, 'HR', C.moss) },
+    bell: (g) => bell(g, 1, 0),
+  }
+  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => icons[cv.dataset.sprite](cv.getContext('2d')))
+
+  // ---- the kitchen scene: 520 x 184 ----
+  const W = 520, H = 184, TOP = 122
+  const cv = document.getElementById('kitchen'), g = cv.getContext('2d')
+  cv.width = W; cv.height = H
+  function fit() { const s = Math.max(1, Math.floor(cv.parentElement.clientWidth / W)); cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px' }
+  fit(); window.addEventListener('resize', fit)
+
+  const JARS = [C.pink, C.orange, C.green, C.blue, C.lilac].map((fill, i) => ({ fill, x: 158 + i * 24, y: 34 }))
+  const COOKS = [{ x: 290, c: C.orange, d: C.orangeDk, name: 'CLAUDE' }, { x: 338, c: C.blue, d: C.blueDk, name: 'CODEX' }, { x: 386, c: C.green, d: C.greenDk, name: 'PI' }]
+  let f = 0, plates = [{ x: 410, food: C.green }], served = 2, ding = 0, toss = null, call = 0
+
+  function wall() {
+    px(g, 0, 0, W, TOP, C.tile)
+    for (let y = 0; y < TOP; y += 8) {
+      px(g, 0, y, W, 1, C.grout); px(g, 0, y + 1, W, 1, C.tileHi)
+      for (let x = (y / 8) % 2 ? 0 : 8; x < W; x += 16) { px(g, x, y, 1, 8, C.grout); px(g, x + 1, y + 1, 1, 7, C.tileHi) }
+    }
+    for (let x = 0; x < W; x += 16) { px(g, x + 1, 89, 15, 7, [C.red, C.yellow, C.blue, C.green][(x / 16) % 4]); px(g, x + 1, 89, 15, 1, '#ffffff') }
+    px(g, 6, 8, 92, 3, C.stone); px(g, 6, 8, 92, 1, C.steelHi)
+    ticket(g, 10, 11, ['0141', 'GREET', 'CLASH', 'OK']); ticket(g, 38, 12, ['0142', 'CALC', '99 UP', '166OK']); ticket(g, 66, 11, ['0143', 'FIXES', '2 MIN', 'OK'])
+    px(g, 150, 56, 128, 4, C.wood); px(g, 150, 56, 128, 1, C.woodHi); px(g, 150, 59, 128, 1, C.woodDk)
+    px(g, 156, 60, 3, 8, C.woodDk); px(g, 270, 60, 3, 8, C.woodDk)
+    for (const j of JARS) jar(g, j.x, j.y, j.fill)
+    px(g, 440, 0, 4, TOP, C.steel); px(g, 441, 0, 1, TOP, C.steelHi)
+    px(g, 450, 2, 62, 8, C.stone); px(g, 450, 2, 62, 1, C.steel)
+    for (let i = 0; i < 4; i++) { disc(g, 460 + i * 14, 12, 3, C.orange); px(g, 459 + i * 14, 11, 2, 1, C.yellow) }
+    for (let y = 16; y < TOP; y++) for (let x = 448 + (y % 2); x < 514; x += 2) if ((x + y * 3) % 9 === 0) px(g, x, y, 1, 1, C.yellow)
+  }
+  function counter() {
+    px(g, 0, TOP, W, 8, C.steel); px(g, 0, TOP, W, 2, C.steelHi); px(g, 0, TOP + 7, W, 1, C.stone)
+    px(g, 0, TOP + 8, 440, H - TOP - 8, C.wood)
+    for (let x = 0; x < 440; x += 48) { px(g, x, TOP + 8, 2, H - TOP - 8, C.woodDk); px(g, x + 2, TOP + 8, 1, H - TOP - 8, C.woodHi) }
+    for (let i = 0; i < 70; i++) { const gx = (i * 37) % 432 + 4, gy = TOP + 12 + (i * 13) % (H - TOP - 16); px(g, gx, gy, 4 + (i % 3), 1, C.woodDk) }
+    px(g, 440, TOP + 8, 80, H - TOP - 8, C.steel); px(g, 440, TOP + 8, 80, 1, C.steelHi)
+    for (let x = 446; x < W; x += 16) { px(g, x, TOP + 14, 2, 2, C.stone); px(g, x, H - 8, 2, 2, C.stone) }
+    sign(g, 52, TOP + 26, 'ORDER'); sign(g, 124, TOP + 26, 'SOUS', C.redDk); sign(g, 214, TOP + 26, 'PANTRY')
+    COOKS.forEach((k) => sign(g, k.x + 22, TOP + 26, k.name, k.d)); sign(g, 480, TOP + 26, 'PASS', C.stone)
+  }
+  function scene() {
+    wall()
+    chef(g, 108, TOP - 44, C.red, C.redDk, { point: true, mustache: true, scarf: C.yellow })
+    const callout = toss ? 'FIRE!' : (call % 4 === 0 ? 'YES CHEF' : '')
+    if (callout) { const w = textW(callout) + 8; px(g, 92, TOP - 64, w, 11, C.white); px(g, 92, TOP - 54, w, 1, C.stone); px(g, 104, TOP - 53, 3, 2, C.white); text(g, callout, 96, TOP - 61, toss ? C.red : C.ink) }
+    COOKS.forEach((k, i) => chef(g, k.x, TOP - 44, k.c, k.d, { stir: still ? 0 : f + i }))
+    counter()
+    COOKS.forEach((k, i) => pot(g, k.x + 22, TOP - 16, still ? i : f + i, k.c))
+    if (!still) COOKS.forEach((k, i) => { for (let s = 0; s < 3; s++) { const sy = TOP - 22 - ((f * 2 + s * 6 + i * 4) % 18); px(g, k.x + 28 + s * 6 + (sy % 3), sy, 2 + (s % 2), 2, C.steelHi) } })
+    for (let i = 0; i < served; i++) plate(g, 452, TOP - 8 - i * 6, [C.green, C.orange, C.pink, C.blue][i % 4])
+    for (const p of plates) plate(g, Math.round(p.x), TOP - 8, p.food)
+    bell(g, 484 + (ding > 0 ? (ding % 2 ? 1 : -1) : 0), TOP - 17)
+    if (ding > 0) { px(g, 474, TOP - 32, 30, 11, C.yellow); text(g, 'DING!', 479, TOP - 29, C.ink) }
+    if (toss) {
+      const t = toss.t / 16, x = toss.x0 + (toss.x1 - toss.x0) * t, y = toss.y0 + (toss.y1 - toss.y0) * t - Math.sin(t * Math.PI) * 34
+      disc(g, Math.round(x), Math.round(y), 2, toss.fill); px(g, Math.round(x) - 1, Math.round(y) - 1, 1, 1, '#ffffff')
+    }
+  }
+  function step() {
+    f++; if (f % 8 === 0) call++
+    if (ding > 0) ding--
+    if (!toss && f % 24 === 0) { const j = JARS[(f / 24) % JARS.length | 0], k = COOKS[(f / 24) % COOKS.length | 0]; toss = { x0: j.x + 8, y0: j.y + 12, x1: k.x + 14, y1: TOP - 40, fill: j.fill, t: 0 } }
+    if (toss && ++toss.t > 16) toss = null
+    if (f % 30 === 0) { const k = COOKS[(f / 30) % COOKS.length | 0]; plates.push({ x: k.x + 24, food: k.c }) }
+    plates.forEach((p) => (p.x += 2.5))
+    const arrived = plates.filter((p) => p.x >= 452)
+    if (arrived.length) { plates = plates.filter((p) => p.x < 452); served = served >= 4 ? 1 : served + 1; ding = 10 }
+  }
+  scene()
+  if (!still) { let last = 0; const loop = (now) => { if (now - last > 100) { last = now; step(); scene() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
+
+  const btn = document.getElementById('ding'), txt = document.getElementById('ding-text')
+  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 12; if (still) scene(); setTimeout(() => (txt.textContent = 'Service!'), 1400) })
+
+  // ---- a real service: per minute of the calc run (from its event log) ----
   const fired = [0,0,2,2,1,0,3,1,0,0,1,0,0,0,0,0,0,0,1,0,1,3,2,1,4,1,3,1,1]
   const out   = [0,0,1,1,3,0,3,0,0,1,0,0,0,0,0,0,0,0,1,1,1,3,2,1,3,2,2,1,1]
-  const svg = document.getElementById('service'), NS = 'http://www.w3.org/2000/svg'
-  const W = 960, H = 220, L = 34, R = 10, T = 16, B = 30, n = fired.length, max = 4
-  const bw = (W - L - R) / n, y = (v) => T + (H - T - B) * (1 - v / max)
-  const el = (tag, a, text) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; return e }
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.style.width = '100%'; svg.style.minWidth = '640px'
-  for (let v = 0; v <= max; v++) {
-    svg.append(el('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: 'var(--rule)', 'stroke-dasharray': v ? '2 4' : '' }))
-    svg.append(el('text', { x: L - 8, y: y(v) + 4, 'text-anchor': 'end' }, v))
-  }
+  const ch = document.getElementById('chart'), h = ch.getContext('2d')
+  const n = fired.length, bw = 5, colw = 16, L = 16, CW = L + n * colw + 6, CH = 92, base = 74, unit = 14
+  ch.width = CW; ch.height = CH
+  const cs = () => { const s = Math.max(1, Math.floor(ch.parentElement.clientWidth / CW)); ch.style.width = CW * s + 'px'; ch.style.height = CH * s + 'px' }
+  cs(); window.addEventListener('resize', cs)
+  px(h, 0, 0, CW, CH, C.steelHi)
+  for (let v = 1; v <= 4; v++) { for (let x = L; x < CW - 4; x += 4) px(h, x, base - v * unit, 2, 1, C.steel); text(h, String(v), 4, base - v * unit - 2, C.stone) }
+  px(h, L - 2, base, CW - L - 2, 2, C.ink)
   for (let i = 0; i < n; i++) {
-    const x = L + i * bw, w = (bw - 6) / 2
-    if (fired[i]) { const r = el('rect', { x: x + 2, y: y(fired[i]), width: w, height: y(0) - y(fired[i]), rx: 2, fill: 'var(--fire)' }); r.append(el('title', {}, `minute ${i}: ${fired[i]} fired`)); svg.append(r) }
-    if (out[i]) { const r = el('rect', { x: x + 4 + w, y: y(out[i]), width: w, height: y(0) - y(out[i]), rx: 2, fill: 'var(--herb)' }); r.append(el('title', {}, `minute ${i}: ${out[i]} merged`)); svg.append(r) }
-    if (i % 5 === 0) svg.append(el('text', { x: x + bw / 2, y: H - 10, 'text-anchor': 'middle' }, `${i} min`))
+    const x = L + i * colw + 2
+    if (fired[i]) { px(h, x, base - fired[i] * unit, bw, fired[i] * unit, C.red); px(h, x, base - fired[i] * unit, bw, 1, C.pink); px(h, x + bw - 1, base - fired[i] * unit, 1, fired[i] * unit, C.redDk) }
+    if (out[i]) { px(h, x + bw + 1, base - out[i] * unit, bw, out[i] * unit, C.green); px(h, x + bw + 1, base - out[i] * unit, bw, 1, '#a8ffbe'); px(h, x + 2 * bw, base - out[i] * unit, 1, out[i] * unit, C.greenDk) }
+    if (i % 5 === 0) { px(h, x + bw, base + 2, 1, 3, C.ink); text(h, `${i}M`, x + bw - 3, base + 7, C.stone) }
   }
-  // the quiet stretch: one long parser turn
-  const x0 = L + 10 * bw, x1 = L + 18 * bw
-  svg.append(el('path', { d: `M${x0 + 4} ${y(2.6)} H${x1 - 4}`, stroke: 'var(--muted)', 'stroke-dasharray': '3 4', fill: 'none' }))
-  svg.append(el('text', { x: (x0 + x1) / 2, y: y(2.6) - 8, 'text-anchor': 'middle', class: 'lbl' }, 'one cook, one parser: 8 m 44 s'))
+  const qx = L + 10 * colw, qw = 8 * colw
+  for (let x = qx; x < qx + qw; x += 4) px(h, x, base - 2.4 * unit, 2, 1, C.orangeDk)
+  text(h, 'ONE COOK: THE PARSER, 8:44', qx + 4, base - 2.4 * unit - 8, C.orangeDk)
 })()
 </script>
 </body>
