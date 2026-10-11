@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -141,7 +141,7 @@ test('sous cancel from another terminal cancels a subtree, stops its worker and 
   assert.deepEqual(readdirSync(join(runDir, 'commands')), [])
 })
 
-test('sous answer delivers to a lead that asked the person, and sous status lists the question', async () => {
+test('sous answer delivers to a lead that asked the person, and sous status lists the question; a stray directory is no run', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const sessions = join(workspace, 'sessions')
   const goal = `Pick a database.\n${fakeLeadPlan([
@@ -151,6 +151,9 @@ test('sous answer delivers to a lead that asked the person, and sous status list
   const run = sous(['run', goal], workspace, sessions)
   await waitFor(workspace, (e) => e.type === 'lead.turn')
   assert.match(run.output(), /Question from lead:\nWhich database\?\nAnswer with: sous answer lead/)
+  // An agent may leave a directory beside the runs (a real splitter did); it sorts after them but is not the latest run.
+  const stray = join(workspace, '.sous', 'runs', 'splits')
+  mkdirSync(stray)
 
   const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
@@ -159,6 +162,7 @@ test('sous answer delivers to a lead that asked the person, and sous status list
   const answer = sous(['answer', 'lead', 'Postgres.'], workspace, sessions)
   assert.equal(await answer.exit, 0, answer.output())
   assert.equal(await run.exit, 0, run.output())
+  rmSync(stray, { recursive: true })
   const events = readEvents(runDirOf(workspace)!)
   const message = events.find((e) => e.type === 'message')!
   assert.deepEqual(message.type === 'message' && [message.from, message.to, message.body], ['person', 'lead', 'Postgres.'])

@@ -32,7 +32,9 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
      "use agent pi for workers", "end with a check that runs …").
    - A graph file (`run graph.json`): fixed steps, optionally around leads. See [EXAMPLES.md](EXAMPLES.md).
 2. **Define agents and limits when it matters** (cost, roles, models). Goal runs take `--agents agents.json`;
-   graph files carry the same `agent`, `agents`, `models` keys. See [REFERENCE.md](REFERENCE.md).
+   graph files carry the same `agent`, `agents`, `models` keys. See [REFERENCE.md](REFERENCE.md). For
+   consistent or stronger planning, define a `splitter` agent: it proposes every lead's split from the code, and
+   `--approve-splits` lets the user approve each one.
 3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
    approvals, so a foreground run can block your shell).
 4. **Watch** `run.log` for `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
@@ -40,6 +42,7 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
+   - With `--approve-splits`: `$M approve <lead>` accepts its proposed split, `$M answer <lead> "…"` changes it.
    - `$M resume`: continue after Ctrl-C or a crash; finished turns, spawns and merges are not repeated, and
      recorded check results are kept (a check still running when the supervisor stopped runs again).
 6. **Check the result yourself** on `sous/<run-id>` (run the tests, try the program) before telling the user

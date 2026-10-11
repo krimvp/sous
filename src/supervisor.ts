@@ -4,11 +4,11 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { agentFor, childAgents, defineAgent, integratorAgent, registry } from './agents.ts'
+import { agentFor, childAgents, defineAgent, hasSplitter, integratorAgent, registry } from './agents.ts'
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
-  recoveryPrompt, resultReminder,
+  recoveryPrompt, resultReminder, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
 } from './brief.ts'
 import {
   abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
@@ -16,10 +16,10 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { ancestors, callKey, childrenOf, fold, isFinal } from './state.ts'
+import { ancestors, awaitsSplitApproval, callKey, childrenOf, fold, isFinal } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
-import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON } from './types.ts'
-import type { CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
+import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, SPLITTER } from './types.ts'
+import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
 
 export interface SupervisorOptions {
   workspace: string
@@ -48,8 +48,10 @@ const MAX_REMINDERS = 2
 const MAX_RECOVERIES = 3
 /** How often `<runDir>/commands/` is checked for `sous answer`, `sous approve` and `sous cancel`. */
 const POLL_MS = 200
-/** Sender of the integrator's requests. */
+/** Sender of the integrator's and the splitter's requests. */
 const SUPERVISOR = 'supervisor'
+/** The body of the message `sous approve <lead>` sends to a lead whose split waits for approval. */
+const SPLIT_APPROVED = 'The person approved the proposed split.'
 
 /** A command file written by `sous answer`, `sous approve` or `sous cancel`. */
 export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'approve' | 'cancel'; node: string }
@@ -98,6 +100,20 @@ async function stopGroup(pid: number, graceMs: number): Promise<void> {
 }
 
 const notesFor = (state: RunState, id: string) => ancestors(state, id).flatMap((a) => a.notes)
+
+const depthOf = (state: RunState, id: string) => ({ at: ancestors(state, id).length + 1, max: state.maxDepth })
+
+/** The parts in a proposal file, or why there are none. */
+function readProposal(file: string): ChildSpec[] | string {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'))
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? `no proposal was written to ${file}` : `${file} is not valid JSON: ${(err as Error).message}`
+  }
+  const parts = (raw as { parts?: unknown })?.parts
+  return Array.isArray(parts) ? parts : `${file} must hold a JSON object {"parts": [...]}`
+}
 
 /** Why lead `node` may not make `call` now, if it may not. */
 function refusal(state: RunState, node: string, call: LeadCall): string | undefined {
@@ -291,9 +307,19 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (!runner) return fail(id, 'no lead runner is configured')
     const agent = agentOf(state, lead)
     if (typeof agent === 'string') return abandon(state, id, agent)
-    if (lead.status === 'ready') {
-      const depth = { at: ancestors(state, id).length + 1, max: state.maxDepth }
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depth, agent.instructions)
+    if (!lead.delivered.length) {
+      // With a splitter, the brief waits for its proposal, and with --approve-splits for the person's answer to it.
+      if (hasSplitter(state.agents)) {
+        const { split } = lead
+        if (!split) return void log.append({ type: 'split.requested', node: id })
+        if (split.status === 'requested') return
+        const answered = lead.inbox.some((m) => m.from === PERSON && m.seq > split.endSeq!)
+        if (state.approveSplits && split.status === 'proposed' && !answered) {
+          if (lead.status !== 'waiting') log.append({ type: 'message', from: id, to: PERSON, body: splitApproval(id, split.parts!, split.summary!), mode: 'queue' })
+          return
+        }
+      }
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depthOf(state, id), agent.instructions, lead.split)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
@@ -336,6 +362,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       log.append({ type: 'message', from: PERSON, to: cmd!.node, body: cmd!.text, mode: 'queue', command })
     } else if (cmd!.type === 'approve' && gate && node.status === 'waiting') {
       log.append({ type: 'node.completed', node: cmd!.node, summary: 'approved by person', command })
+    } else if (cmd!.type === 'approve' && awaitsSplitApproval(node)) {
+      log.append({ type: 'message', from: PERSON, to: cmd!.node, body: SPLIT_APPROVED, mode: 'queue', command })
     } else if (cmd!.type === 'cancel') {
       log.append({ type: 'node.cancelled', node: cmd!.node, by: PERSON, command })
     }
@@ -659,6 +687,82 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
 
+  // ---- Splitting ------------------------------------------------------------------------------
+
+  /** Ask the splitter for the first requested split and record its proposal once it is valid as a spawn of the lead.
+   * The splitter works in its own worktree, reset to the integration branch before each request, so what it reads is
+   * current and nothing it writes reaches the run. One retry for an invalid proposal; then, or when the splitter is
+   * blocked or cannot run, the split fails and the lead splits on its own. */
+  const splitNext = async () => {
+    const lead = [...current().nodes.values()].filter((n) => n.split?.status === 'requested').sort((a, b) => a.split!.seq - b.split!.seq)[0]
+    if (!lead) return
+    const id = lead.spec.id
+    const failed = (reason: string) => void log.append({ type: 'split.failed', node: id, reason })
+    try {
+      await split(id, failed)
+    } catch (err) {
+      if (!stopping) failed(`supervisor error: ${(err as Error).message}`)
+    }
+  }
+
+  const split = async (id: string, failed: (reason: string) => void) => {
+    if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
+    let integration: string
+    try {
+      integration = integrationTree().path
+    } catch (err) {
+      return failed((err as Error).message)
+    }
+    if (!current().nodes.has(SPLITTER)) {
+      log.append({ type: 'node.added', node: { id: SPLITTER, kind: 'work', standing: true, agent: SPLITTER, brief: SPLITTER_BRIEF }, by: SUPERVISOR })
+    }
+    const file = join(runDir, 'splits', `${id}.json`)
+    const tree = createNodeWorktree(workspace, runId, runDir, SPLITTER, head(integration))
+    if (tree.base) log.append({ type: 'worktree.created', node: SPLITTER, branch: tree.branch, path: tree.path, base: tree.base })
+    const since = nodeNow(id).split!.seq
+    const requests = () => log.events.filter((e) => e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === SPLITTER).length
+    const request = (body: string) => log.append({ type: 'message', from: SUPERVISOR, to: SPLITTER, body, mode: 'queue' })
+    if (!requests()) {
+      const commit = head(integration)
+      resetTo(tree.path, commit)
+      mkdirSync(join(runDir, 'splits'), { recursive: true })
+      rmSync(file, { force: true })
+      const state = current()
+      const used = [...state.nodes.keys()].filter((n) => n !== SPLITTER && n !== INTEGRATOR)
+      request(splitRequest(state.nodes.get(id)!.spec, notesFor(state, id), childAgents(state.agents, unavailable), depthOf(state, id),
+        { cwd: tree.path, commit, file, used, maxParts: MAX_CHILDREN - childrenOf(state, id).length }))
+    }
+    // After a restart, the splitter's last turn may have answered (or been cut short) already.
+    let first = true
+    for (;;) {
+      if (stopping) return
+      const state = current()
+      const sp = state.nodes.get(SPLITTER)!
+      if (isFinal(sp)) return failed(`the splitter ${sp.status}`)
+      const last = sp.turns.at(-1)
+      const recorded = first && !sp.inbox.length && last?.ended
+      first = false
+      let result = recorded ? last.result : undefined
+      if (!result) {
+        const agent = agentOf(state, sp)
+        if (typeof agent === 'string') return failed(agent)
+        const sessionId = sp.turns.findLast((t) => t.sessionId)?.sessionId
+        const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, sp.inbox, agent.instructions)
+          : recorded ? recoveryPrompt(sp.inbox) : inboxPrompt(sp.inbox)
+        result = (await runTurn(sp.spec, agent, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
+        if (stopping) return
+        if (nodeNow(SPLITTER).inbox.length) continue // messages that arrived meanwhile come first
+      }
+      if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
+      if (result && result.status !== 'done') return failed(`the splitter is ${result.status}: ${result.question ?? result.summary}`)
+      const parts = result ? readProposal(file) : 'your last turn ended without the required structured result'
+      const why = typeof parts === 'string' ? parts : refusal(current(), id, { tool: 'spawn', children: parts })
+      if (!why) return void log.append({ type: 'split.proposed', node: id, parts: parts as ChildSpec[], summary: result!.summary })
+      if (requests() > 1) return failed(`no valid proposal after a retry: ${why}`)
+      request(`Your proposal for lead ${id} is not valid: ${why}\n\nWrite a corrected proposal to ${file}, then report done again.`)
+    }
+  }
+
   // ---- Recovery (sous resume) -----------------------------------------------------------------
 
   /** Close a turn the last supervisor left without `turn.ended`: record its result if its output has one; stop its
@@ -711,7 +815,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // The merge in progress, if any. It and check nodes take turns in the integration worktree.
   let merging: Promise<void> | undefined
-  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : [])]
+  // The split in progress, if any: the splitter takes one request at a time.
+  let splitting: Promise<void> | undefined
+  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...(splitting ? [splitting] : [])]
 
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
@@ -783,6 +889,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       const checking = () => [...inFlight.values()].some((f) => f.spec.kind === 'check')
       if (!merging && !checking() && nodes.some((n) => n.status === 'merging')) {
         merging = mergeNext().finally(() => (merging = undefined))
+      }
+      if (!splitting && nodes.some((n) => n.split?.status === 'requested')) {
+        splitting = splitNext().finally(() => (splitting = undefined))
       }
       for (const n of nodes) {
         if (n.spec.kind === 'lead' || n.spec.kind === 'gate' || n.spec.standing || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue

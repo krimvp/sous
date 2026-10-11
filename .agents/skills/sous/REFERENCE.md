@@ -3,7 +3,7 @@
 ## Commands
 
 ```
-sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
+sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
 sous resume [run-id] [--workspace <dir>]
 sous status [run-id] [--workspace <dir>]
 sous answer <node> "text" [--workspace <dir>]
@@ -14,13 +14,15 @@ sous export atif|otlp [run-id] [--workspace <dir>]
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
 names an existing file is a graph file; anything else is a goal. `--agents` is for goal runs only.
+`--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
+`sous answer <lead> "<changes>"`.
 
 ## Definitions (graph file or `--agents` file)
 
 | Key | Meaning |
 |---|---|
 | `agent` | default agent for work nodes that name none (else the first available of `claude`, `codex`, `pi`) |
-| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`) |
+| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
@@ -33,7 +35,7 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 
 | Field | Kinds | Meaning |
 |---|---|---|
-| `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person` and `integrator` are reserved |
+| `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person`, `integrator` and `splitter` are reserved |
 | `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `sous approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
@@ -58,7 +60,8 @@ its first). New agents exist for the rest of the run.
   nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn
   leads/<node>/         each lead's durable conversation
   integration/          worktree of branch sous/<run-id> (the result)
-  worktrees/<node>/     each worker's worktree, branch sous/<run-id>.<node>
+  worktrees/<node>/     each worker's worktree, branch sous/<run-id>.<node> (and the splitter's, reset per request)
+  splits/<lead>.json    the splitter's proposal for each lead
   commands/             answer/approve/cancel requests waiting for the supervisor
   trace.atif.json       after `sous export atif`
 ```
@@ -67,4 +70,5 @@ its first). New agents exist for the rest of the run.
 
 `turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done`/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
-`person`), `node.completed`/`node.failed`/`node.cancelled`, `run.resumed`, `run.completed`/`run.failed`.
+`person`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
+`run.completed`/`run.failed`.

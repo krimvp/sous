@@ -21,6 +21,8 @@ test('nodes and the graph name built-in or defined agents; an unknown or unfit a
   rejects({ goal: 'g', nodes: [{ ...work('a'), harness: 'pi' }] }, /node a: unknown field harness/)
   rejects({ goal: 'g', nodes: [{ ...work('a'), standing: true }] }, /node a: unknown field standing/)
   rejects({ goal: 'g', nodes: [work('integrator')] }, /node integrator: id integrator is reserved/)
+  rejects({ goal: 'g', nodes: [work('splitter')] }, /node splitter: id splitter is reserved/)
+  rejects({ goal: 'g', agents: { splitter: { runs: 'lead' } }, nodes: [work('a')] }, /agent splitter: the splitter runs a CLI harness \(claude, codex or pi\), not lead/)
 })
 
 test('models lists are checked at load: strings, and provider/model names for pi and lead', () => {
