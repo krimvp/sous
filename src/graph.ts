@@ -1,8 +1,8 @@
 // Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
 import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
-import { INTEGRATOR, PERSON, ROOT, SPLITTER } from './types.ts'
-import type { AgentRuntime, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
+import { INTEGRATOR, PERSON, ROLES, ROOT } from './types.ts'
+import type { AgentRuntime, AgentSpec, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
 
 const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const DEFINITION_KEYS = ['agent', 'agents', 'models']
@@ -11,10 +11,14 @@ const AGENT_KEYS = ['runs', 'model', 'instructions']
 const NEW_AGENT_KEYS = ['name', 'runs', 'model', 'instructions']
 // Pi and lead models are named `provider/model`.
 const PROVIDER_MODEL = /^[^/\s]+\/\S+$/
-const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'agent', 'model']
-const RESERVED = [ROOT, PERSON, INTEGRATOR, SPLITTER]
+const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'agent', 'model', 'roles']
+const RESERVED: string[] = [ROOT, PERSON, INTEGRATOR, ...ROLES]
+// A role's standing nodes are `<role>.<agent>`.
+const reserved = (id: string) => RESERVED.includes(id) || ROLES.some((role) => id.startsWith(`${role}.`))
 // IDs name directories under nodes/, so keep them to safe file-name characters.
 const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
+// An agent in a role names its standing node and git branch (`sous/<run>.<role>.<agent>`), so no dots.
+const ROLE_AGENT = /^[A-Za-z0-9_-]+$/
 
 export function loadGraph(path: string): GraphFile {
   return validateGraph(readJson(path, 'graph'))
@@ -52,7 +56,7 @@ export function validateGraph(raw: unknown): GraphFile {
     if (!isObject(node)) throw new Error(`${where}: must be an object`)
     unknownKeys(node, NODE_KEYS, where)
     if (typeof node.id !== 'string' || !ID.test(node.id)) throw new Error(`${where}: id must match ${ID}`)
-    if (RESERVED.includes(node.id)) throw new Error(`${where}: id ${node.id} is reserved`)
+    if (reserved(node.id)) throw new Error(`${where}: id ${node.id} is reserved`)
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
     if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files: their nodes are top-level`)
@@ -66,7 +70,7 @@ export function validateGraph(raw: unknown): GraphFile {
     for (const key of ['brief', 'command', 'model'] as const) {
       if (node[key] !== undefined && typeof node[key] !== 'string') throw new Error(`${where}: ${key} must be a string`)
     }
-    const agent = agentError(graph, node.kind, node.agent)
+    const agent = agentError(graph, node.kind, node.agent) ?? rolesError(node.kind, node.roles, (name) => agentSpec(graph, name), 'an agent of the graph or a built-in')
     if (agent) throw new Error(`${where}: ${agent}`)
     if (node.kind === 'lead' && node.command !== undefined) throw new Error(`${where}: leads have no command; add a check node for a deterministic gate`)
     if (node.kind === 'gate' && node.command !== undefined) throw new Error(`${where}: gates have no command; the person approves them`)
@@ -101,7 +105,7 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
       for (const key of ['model', 'instructions'] as const) {
         if (agent[key] !== undefined && typeof agent[key] !== 'string') throw new Error(`${where}: ${key} must be a string`)
       }
-      if (name === SPLITTER && agent.runs === 'lead') throw new Error(`${where}: the splitter runs a CLI harness (claude, codex or pi), not lead`)
+      if ((ROLES as readonly string[]).includes(name) && agent.runs === 'lead') throw new Error(`${where}: the ${name} runs a CLI harness (claude, codex or pi), not lead`)
     }
   }
   if (raw.models !== undefined) {
@@ -131,11 +135,30 @@ function agentError(defs: Pick<Definitions, 'agents'> | undefined, kind: string,
   return undefined
 }
 
+/** Why a lead of `kind` may not have `roles`, if it may not: each names a role and an agent `lookup` finds that does not
+ * run lead. */
+function rolesError(kind: string, roles: unknown, lookup: (name: string) => AgentSpec | undefined, known: string): string | undefined {
+  if (roles === undefined) return undefined
+  if (kind !== 'lead') return 'only leads have roles'
+  if (!isObject(roles)) return 'roles must be an object of agent names by role'
+  for (const [role, agent] of Object.entries(roles)) {
+    if (!(ROLES as readonly string[]).includes(role)) return `unknown role ${role} (known: ${ROLES.join(', ')})`
+    if (typeof agent !== 'string') return `roles.${role} must be an agent name`
+    if (agent === INTEGRATOR) return `roles.${role}: the integrator cannot fill a role`
+    if (!ROLE_AGENT.test(agent)) return `roles.${role}: an agent in a role needs a name of letters, digits, _ and - (it names a node and a branch)`
+    const spec = lookup(agent)
+    if (!spec) return `roles.${role}: ${agent} is not ${known}`
+    if (spec.runs === 'lead') return `roles.${role}: agent ${agent} runs lead; a ${role} runs a CLI harness`
+  }
+  return undefined
+}
+
 /** Why a lead's child spec is invalid, if it is. `siblings` are the IDs it may name in `needs`; `defs` holds the run's
- * agents, those leads defined so far included, and its model lists. */
-export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], defs?: Definitions): string | undefined {
+ * agents, those leads defined so far included, and its model lists; `person` the agents the person defined, the only
+ * ones a lead may give a role. */
+export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], defs?: Definitions, person?: Pick<Definitions, 'agents'>): string | undefined {
   if (!isObject(c)) return 'must be an object'
-  if (typeof c.id !== 'string' || !ID.test(c.id) || RESERVED.includes(c.id)) return `id must match ${ID} and not be ${RESERVED.join(', ')}`
+  if (typeof c.id !== 'string' || !ID.test(c.id) || reserved(c.id)) return `id must match ${ID}, not be ${RESERVED.join(', ')}, nor start with a role and a dot`
   if (used(c.id)) return 'id is already used'
   if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
   if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; spawn a check child for a deterministic gate'
@@ -143,6 +166,8 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
   const agent = isObject(c.agent) ? newAgentError(defs, c.kind, c.agent) : agentError(defs, c.kind, c.agent)
   if (agent) return agent
+  const roles = rolesError(c.kind, c.roles, (name) => (Object.hasOwn(person?.agents ?? {}, name) ? person!.agents![name] : undefined), 'an agent the run defines')
+  if (roles) return roles
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
   const model = childModelError(defs, c)
   if (model) return model
@@ -156,9 +181,7 @@ function newAgentError(defs: Definitions | undefined, kind: string, d: Record<st
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   const extra = Object.keys(d).filter((k) => !NEW_AGENT_KEYS.includes(k))
   if (extra.length) return `agent: unknown field ${extra.join(', ')}`
-  if (typeof d.name !== 'string' || !ID.test(d.name) || d.name === INTEGRATOR || d.name === SPLITTER) {
-    return `agent.name must match ${ID} and not be ${INTEGRATOR} or ${SPLITTER}`
-  }
+  if (typeof d.name !== 'string' || !ID.test(d.name) || RESERVED.includes(d.name)) return `agent.name must match ${ID} and not be ${RESERVED.join(', ')}`
   if (agentSpec(defs, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
   if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
   if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'

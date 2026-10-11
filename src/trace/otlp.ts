@@ -180,6 +180,7 @@ export function toOtlp(run: LoadedRun): object {
         span(`split/${spec.id}/${e.seq}`, nodeSpan, 'split', 'span', requested?.at ?? e.at, e.at, {
           'langfuse.observation.output': e.type === 'split.proposed' ? e.parts : undefined,
           'sous.split.summary': e.type === 'split.proposed' ? e.summary : undefined,
+          'sous.split.agent': requested?.type === 'split.requested' ? requested.agent : undefined,
         }, e.type === 'split.failed' ? e.reason : undefined, 'WARNING')
       } else if (e.type === 'lead.delivered') {
         span(`chain/${spec.id}/${e.requestId}`, nodeSpan, `delivery ${e.requestId}`, 'chain', e.at, e.at, {

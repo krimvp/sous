@@ -135,6 +135,46 @@ test('a sub-lead gets its split from the same splitter session, on a worktree re
   assert.match(briefOf(events, 'sub'), /The run's splitter proposed this split of your task: b alone/)
 })
 
+test('subtrees have their own splitters: a sub-lead inherits its lead\'s, roles override it, and splitters run in parallel', async () => {
+  const sub = (id: string) => ({ id, kind: 'lead' as const, brief: `Do ${id}.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [task(`${id}-w`, [{ result: done(id) }])] }] },
+    { calls: [{ tool: 'complete', summary: `${id} done` }] },
+  ])}` })
+  const top: NodeSpec = { ...lead([
+    { calls: [
+      { tool: 'spawn', children: [{ ...sub('bad'), roles: { splitter: 'claude' } }] },
+      { tool: 'spawn', children: [{ ...sub('fe'), roles: { splitter: 'planner-b' } }, sub('be')] },
+    ] },
+    {}, {},
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ]), roles: { splitter: 'planner-a' } }
+  const slow = (id: string, parts: unknown[]): FakeStep => ({ sleepMs: 400, write: propose(id, parts), result: done(`${id} split`) })
+  const { outcome, events, state, prompts } = await runGraph([top], { agents: {
+    'planner-a': { runs: 'codex', instructions: fakePlan([{ write: propose('lead', [task('top-w', [])]), result: done('top split') }, slow('be', [task('be-w', [])])]) },
+    'planner-b': { runs: 'claude', instructions: fakePlan([slow('fe', [task('fe-w', [])])]) },
+  } })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(splitEvents(events).flatMap((e) => (e.type === 'split.requested' ? [[e.node, e.agent]] : [])), [
+    ['lead', 'planner-a'], ['fe', 'planner-b'], ['be', 'planner-a'],
+  ])
+  // Only an agent the run defines may fill a role a lead gives; the child keeps the parent's splitter otherwise.
+  assert.deepEqual(events.flatMap((e) => (e.type === 'lead.call' && e.node === 'lead' ? [e.result] : [])).slice(0, 2), [
+    'refused: child bad: roles.splitter: claude is not an agent the run defines',
+    'spawned fe, be; their outcomes will be delivered to you',
+  ])
+  // One standing node per splitter agent, each in its own session; fe's and be's splits overlap.
+  assert.deepEqual([...state.nodes.values()].filter((n) => n.spec.standing).map((n) => [n.spec.id, n.spec.agent, n.turns.length]), [
+    ['splitter.planner-a', 'planner-a', 2], ['splitter.planner-b', 'planner-b', 1],
+  ])
+  const span = (node: string, turn: number) => ['turn.started', 'turn.ended'].map((type) =>
+    events.find((e) => e.type === type && 'turn' in e && e.node === node && e.turn === turn)!.seq)
+  const [a, b] = [span('splitter.planner-a', 2), span('splitter.planner-b', 1)]
+  assert.ok(a[0] < b[1] && b[0] < a[1], 'the two splitters ran at the same time')
+  assert.match(prompts('splitter.planner-b')[0], /Propose a split for lead fe\./)
+  assert.match(briefOf(events), /A lead child may take roles \{"splitter": "<agent>"\}: [^]*\(yours: planner-a; without roles a child keeps yours\)\. Agents for roles: planner-a, planner-b\./)
+  assert.match(prompts('splitter.planner-a')[0], /A lead part may set roles \{"splitter": "<agent>"\} to give its subtree another splitter, one of planner-a, planner-b/)
+})
+
 test('leads ready together get one request each, in order, even when the first needs a retry', async () => {
   const steps = (id: string): FakeLeadStep[] => [
     { calls: [{ tool: 'spawn', children: [task(`${id}-w`, [{ result: done(id) }])] }] },
@@ -178,7 +218,7 @@ test('a splitter turn that took the request but was cut short before starting ge
   ])], splitter([{ write: propose('lead', [task('a', [])]), result: done('recovered split') }]), {
     resume: true,
     more: [
-      { type: 'split.requested', node: 'lead' },
+      { type: 'split.requested', node: 'lead', agent: SPLITTER },
       { type: 'node.added', node: { id: SPLITTER, kind: 'work', standing: true, agent: SPLITTER, brief: 'Split.' }, by: 'supervisor' },
       { type: 'message', from: 'supervisor', to: SPLITTER, body: request, mode: 'queue' },
       { type: 'turn.started', node: SPLITTER, turn: 1, mode: 'start', harness: 'codex', agent: SPLITTER, pid: 999_999_999, outFile: '/nonexistent/turn-1.jsonl', errFile: '/nonexistent/turn-1.err' },
@@ -187,6 +227,30 @@ test('a splitter turn that took the request but was cut short before starting ge
   assert.equal(outcome, 'completed')
   assert.match(prompts(SPLITTER)[0], new RegExp(`Message from supervisor:\n${request.replace(/[.()]/g, '\\$&')}`))
   assert.deepEqual(splitEvents(events).map((e) => e.type), ['split.requested', 'split.proposed'])
+})
+
+test('on resume, a request already sent to one splitter is not sent again because another splitter settled since', async () => {
+  const leadOf = (id: string): NodeSpec => ({ ...lead([
+    { calls: [{ tool: 'spawn', children: [task(`${id}-w`, [{ result: done(id) }])] }] },
+    { calls: [{ tool: 'complete', summary: `${id} done` }] },
+  ], id), roles: { splitter: `p${id}` } })
+  const request = 'Propose a split for lead l1. (sent before the stop)'
+  const { outcome, events, prompts } = await runGraph([leadOf('l1'), leadOf('l2')], { agents: {
+    pl1: { runs: 'codex', instructions: fakePlan([{ write: propose('l1', [task('l1-w', [])]), result: done('l1 split') }]) },
+    pl2: { runs: 'codex', instructions: fakePlan([]) },
+  } }, {
+    resume: true,
+    more: [
+      { type: 'split.requested', node: 'l1', agent: 'pl1' },
+      { type: 'split.requested', node: 'l2', agent: 'pl2' },
+      { type: 'node.added', node: { id: 'splitter.pl1', kind: 'work', standing: true, agent: 'pl1', brief: 'Split.' }, by: 'supervisor' },
+      { type: 'message', from: 'supervisor', to: 'splitter.pl1', body: request, mode: 'queue' },
+      { type: 'split.proposed', node: 'l2', parts: [task('l2-w', [])], summary: 'l2 split' },
+    ],
+  })
+  assert.equal(outcome, 'completed')
+  assert.equal(events.filter((e) => e.type === 'message' && e.to === 'splitter.pl1').length, 1)
+  assert.ok(prompts('splitter.pl1')[0].includes(request))
 })
 
 test('an invalid proposal goes back to the splitter once with the reason; the corrected one is proposed', async () => {

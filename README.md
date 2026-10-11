@@ -80,7 +80,9 @@ splitting strategy as its `instructions`, e.g. `"splitter": { "runs": "claude", 
 "One part per module, tests first." }`. Before each lead (sub-leads included) gets its brief, the splitter reads the
 code merged so far in a throwaway worktree and proposes the lead's children; the lead receives the proposal and
 spawns it, adjusts it or ignores it. With `run --approve-splits`, each proposal waits for you: `sous approve <lead>`
-or `sous answer <lead> "<changes>"`.
+or `sous answer <lead> "<changes>"`. A subtree can have its own splitter: give a lead `"roles": { "splitter":
+"<agent>" }` in a graph file (a lead may do the same for a child lead, naming an agent you defined); its sub-leads
+inherit it.
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker

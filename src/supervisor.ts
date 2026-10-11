@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { agentFor, childAgents, defineAgent, hasSplitter, integratorAgent, registry } from './agents.ts'
+import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoices } from './agents.ts'
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
@@ -16,9 +16,9 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { ancestors, awaitsSplitApproval, callKey, childrenOf, fold, isFinal } from './state.ts'
+import { ancestors, awaitsSplitApproval, callKey, childrenOf, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
-import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, SPLITTER } from './types.ts'
+import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
 import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
 
 export interface SupervisorOptions {
@@ -134,7 +134,7 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
       // The run's agents with those defined by earlier children of this call, as the fold will have them.
       const agents = { ...state.agents, agents: registry(state.agents.agents) }
       for (const c of call.children) {
-        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, agents)
+        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, agents, state.definitions)
           ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > state.maxDepth ? `leads may nest at most ${state.maxDepth} deep` : undefined)
         if (why) return `child ${String(c?.id)}: ${why}`
         if (typeof c.agent === 'object') agents.agents[c.agent.name] = defineAgent(agents, c.agent)
@@ -309,9 +309,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (typeof agent === 'string') return abandon(state, id, agent)
     if (!lead.delivered.length) {
       // With a splitter, the brief waits for its proposal, and with --approve-splits for the person's answer to it.
-      if (hasSplitter(state.agents)) {
+      const splitter = roleAgent(state, id, SPLITTER)
+      if (splitter !== undefined) {
         const { split } = lead
-        if (!split) return void log.append({ type: 'split.requested', node: id })
+        if (!split) return void log.append({ type: 'split.requested', node: id, agent: splitter })
         if (split.status === 'requested') return
         const answered = lead.inbox.some((m) => m.from === PERSON && m.seq > split.endSeq!)
         if (state.approveSplits && split.status === 'proposed' && !answered) {
@@ -319,7 +320,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
           return
         }
       }
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depthOf(state, id), agent.instructions, lead.split)
+      const roles = { splitter, choices: roleChoices(state.definitions, unavailable) }
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depthOf(state, id), agent.instructions, lead.split, roles)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
@@ -689,26 +691,27 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // ---- Splitting ------------------------------------------------------------------------------
 
-  // The lead whose split the splitter's running turn works on: the turn stops when that lead finishes.
-  let splitFor: string | undefined
+  // By splitter node, the lead whose split its running turn works on: the turn stops when that lead finishes.
+  const splitFor = new Map<string, string>()
 
-  /** Ask the splitter for the first requested split and record its proposal once it is valid as a spawn of the lead.
-   * The splitter works in its own worktree, reset to the integration branch before each request, so what it reads is
-   * current and nothing it writes reaches the run. One retry for an invalid proposal; then, or when the splitter is
-   * blocked or cannot run, the split fails and the lead splits on its own. */
-  const splitNext = async () => {
-    const lead = [...current().nodes.values()].filter((n) => n.split?.status === 'requested').sort((a, b) => a.split!.seq - b.split!.seq)[0]
+  /** Ask splitter `agent` for its first requested split and record its proposal once it is valid as a spawn of the lead.
+   * Each splitter agent is its own standing node with its own worktree, reset to the integration branch before each
+   * request, so what it reads is current and nothing it writes reaches the run. One retry for an invalid proposal;
+   * then, or when the splitter is blocked or cannot run, the split fails and the lead splits on its own. */
+  const splitNext = async (agent: string) => {
+    const lead = [...current().nodes.values()].filter((n) => n.split?.status === 'requested' && n.split.agent === agent)
+      .sort((a, b) => a.split!.seq - b.split!.seq)[0]
     if (!lead) return
     const id = lead.spec.id
     const failed = (reason: string) => void log.append({ type: 'split.failed', node: id, reason })
     try {
-      await split(id, failed)
+      await split(id, agent, roleNode(SPLITTER, agent), failed)
     } catch (err) {
       if (!stopping) failed(`supervisor error: ${(err as Error).message}`)
     }
   }
 
-  const split = async (id: string, failed: (reason: string) => void) => {
+  const split = async (id: string, agent: string, node: string, failed: (reason: string) => void) => {
     if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
     let integration: string
     try {
@@ -716,59 +719,61 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     } catch (err) {
       return failed((err as Error).message)
     }
-    if (!current().nodes.has(SPLITTER)) {
-      log.append({ type: 'node.added', node: { id: SPLITTER, kind: 'work', standing: true, agent: SPLITTER, brief: SPLITTER_BRIEF }, by: SUPERVISOR })
+    if (!current().nodes.has(node)) {
+      log.append({ type: 'node.added', node: { id: node, kind: 'work', standing: true, agent, brief: SPLITTER_BRIEF }, by: SUPERVISOR })
     }
     const file = join(runDir, 'splits', `${id}.json`)
-    const tree = createNodeWorktree(workspace, runId, runDir, SPLITTER, head(integration))
-    if (tree.base) log.append({ type: 'worktree.created', node: SPLITTER, branch: tree.branch, path: tree.path, base: tree.base })
-    // Splits run one at a time in request order, so this one's messages are those after it was requested and after every
-    // other split settled: a lead requested while an earlier split ran must not count that split's messages.
+    const tree = createNodeWorktree(workspace, runId, runDir, node, head(integration))
+    if (tree.base) log.append({ type: 'worktree.created', node, branch: tree.branch, path: tree.path, base: tree.base })
+    // A splitter takes its splits one at a time in request order, so this one's messages are those after it was requested
+    // and after every other split of this splitter settled: a lead requested while an earlier split ran must not count
+    // that split's messages.
     const before = current()
-    const since = Math.max(before.nodes.get(id)!.split!.seq, ...[...before.nodes.values()].flatMap((n) => n.split?.endSeq ?? []))
+    const since = Math.max(before.nodes.get(id)!.split!.seq,
+      ...[...before.nodes.values()].flatMap((n) => (n.split?.agent === agent ? n.split.endSeq ?? [] : [])))
     const ours = (): InboxMessage[] => log.events.flatMap((e) =>
-      e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === SPLITTER ? [{ seq: e.seq, from: e.from, body: e.body, mode: e.mode }] : [])
+      e.seq > since && e.type === 'message' && e.from === SUPERVISOR && e.to === node ? [{ seq: e.seq, from: e.from, body: e.body, mode: e.mode }] : [])
     const requests = () => ours().length
-    const request = (body: string) => log.append({ type: 'message', from: SUPERVISOR, to: SPLITTER, body, mode: 'queue' })
+    const request = (body: string) => log.append({ type: 'message', from: SUPERVISOR, to: node, body, mode: 'queue' })
     mkdirSync(join(runDir, 'splits'), { recursive: true })
     if (!requests()) {
       const commit = head(integration)
       resetTo(tree.path, commit)
       rmSync(file, { force: true })
       const state = current()
-      const used = [...state.nodes.keys()].filter((n) => n !== SPLITTER && n !== INTEGRATOR)
+      const used = [...state.nodes.values()].filter((n) => !n.spec.standing).map((n) => n.spec.id)
       request(splitRequest(state.nodes.get(id)!.spec, notesFor(state, id), childAgents(state.agents, unavailable), depthOf(state, id),
-        { cwd: tree.path, commit, file, used, maxParts: MAX_CHILDREN - childrenOf(state, id).length }))
+        { cwd: tree.path, commit, file, used, maxParts: MAX_CHILDREN - childrenOf(state, id).length, roleChoices: roleChoices(state.definitions, unavailable) }))
     }
     // After a restart, the splitter's last turn may have answered (or been cut short) already.
     let first = true
     for (;;) {
       if (stopping) return
       const state = current()
-      const sp = state.nodes.get(SPLITTER)!
-      if (isFinal(sp)) return failed(`the splitter ${sp.status}`)
+      const sp = state.nodes.get(node)!
+      if (isFinal(sp)) return failed(`splitter ${node} ${sp.status}`)
       const last = sp.turns.at(-1)
       const recorded = first && !sp.inbox.length && last?.ended
       first = false
       let result = recorded ? last.result : undefined
       if (!result) {
-        const agent = agentOf(state, sp)
-        if (typeof agent === 'string') return failed(agent)
+        const runs = agentOf(state, sp)
+        if (typeof runs === 'string') return failed(runs)
         const sessionId = sp.turns.findLast((t) => t.sessionId)?.sessionId
         // A turn cut short may have stopped before the splitter read its prompt: a recovery turn repeats this split's
         // messages, and so does a first prompt whose request a cut-short turn already took from the inbox.
         const inbox = recorded || !sp.inbox.length ? ours() : sp.inbox
-        const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, agent.instructions)
+        const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, runs.instructions)
           : recorded ? recoveryPrompt(inbox) : inboxPrompt(inbox)
-        splitFor = id
+        splitFor.set(node, id)
         try {
-          result = (await runTurn(sp.spec, agent, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
+          result = (await runTurn(sp.spec, runs, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
         } finally {
-          splitFor = undefined
+          splitFor.delete(node)
         }
         if (stopping) return
         if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
-        if (nodeNow(SPLITTER).inbox.length) continue // messages that arrived meanwhile come first
+        if (nodeNow(node).inbox.length) continue // messages that arrived meanwhile come first
       }
       if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
       if (result && result.status !== 'done') return failed(`the splitter is ${result.status}: ${result.question ?? result.summary}`)
@@ -832,9 +837,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // The merge in progress, if any. It and check nodes take turns in the integration worktree.
   let merging: Promise<void> | undefined
-  // The split in progress, if any: the splitter takes one request at a time.
-  let splitting: Promise<void> | undefined
-  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...(splitting ? [splitting] : [])]
+  // The split in progress of each splitter agent: a splitter takes one request at a time, splitters run in parallel.
+  const splitting = new Map<string, Promise<void>>()
+  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...splitting.values()]
 
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
@@ -857,7 +862,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       for (const [pid, g] of groups) {
         const n = state.nodes.get(g.node)!
         const urgent = n.inbox.find((m) => m.mode === 'interrupt')
-        const orphaned = g.node === SPLITTER && splitFor !== undefined && isFinal(state.nodes.get(splitFor)) ? splitFor : undefined
+        const serving = splitFor.get(g.node)
+        const orphaned = serving !== undefined && isFinal(state.nodes.get(serving)) ? serving : undefined
         if (!isFinal(n) && !urgent && !orphaned) continue
         if (g.turn === undefined && !isFinal(n)) {
           // The worker's acceptance check: stop it, and the worker resumes with the message.
@@ -908,8 +914,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!merging && !checking() && nodes.some((n) => n.status === 'merging')) {
         merging = mergeNext().finally(() => (merging = undefined))
       }
-      if (!splitting && nodes.some((n) => n.split?.status === 'requested')) {
-        splitting = splitNext().finally(() => (splitting = undefined))
+      for (const agent of new Set(nodes.flatMap((n) => (n.split?.status === 'requested' ? [n.split.agent] : [])))) {
+        if (!splitting.has(agent)) splitting.set(agent, splitNext(agent).finally(() => splitting.delete(agent)))
       }
       for (const n of nodes) {
         if (n.spec.kind === 'lead' || n.spec.kind === 'gate' || n.spec.standing || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue

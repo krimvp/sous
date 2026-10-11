@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, hasSplitter, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './agents.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
@@ -16,7 +16,7 @@ import { runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
-import { PERSON } from './types.ts'
+import { PERSON, SPLITTER } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
@@ -94,7 +94,9 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
   const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
-  if (approveSplits && !hasSplitter(graph)) throw new Error('--approve-splits needs a splitter: define an agent named splitter')
+  // A lead may give a subtree a splitter from the agents the person defined, so any defined worker agent may become one.
+  const splitters = defines(graph, SPLITTER) || graph.nodes.some((n) => n.roles?.splitter) || Object.values(graph.agents ?? {}).some((a) => a.runs !== 'lead')
+  if (approveSplits && !splitters) throw new Error('--approve-splits needs a splitter: define an agent named splitter, or agents leads may give the splitter role')
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.sous', 'runs', id)
@@ -211,7 +213,7 @@ function printEvent(e: Event): void {
     case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
     case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
     case 'merge.failed': text = `${e.node}: ${e.reason}`; break
-    case 'split.requested': text = `${e.node} waits for the splitter`; break
+    case 'split.requested': text = `${e.node} waits for splitter ${e.agent}`; break
     case 'split.proposed': text = `${e.node}: ${e.parts.map((p) => p.id).join(', ')}: ${e.summary}`; break
     case 'split.failed': text = `${e.node}: ${e.reason}`; break
     case 'run.completed': text = e.summary; break

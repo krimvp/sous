@@ -3,7 +3,7 @@
 // or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, SPLITTER, WORKER_AGENT_PREFERENCE } from './types.ts'
+import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
 import type { AgentRuntime, AgentSpec, Definitions, NewAgent, HarnessName, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
@@ -111,15 +111,24 @@ export function integratorAgent(defs: AgentDefs, unavailable: Unavailable): stri
   return INTEGRATOR_AGENT_PREFERENCE.find((name) => availableWorker(defs, name, unavailable))
 }
 
-/** Whether the run defines a splitter, which proposes each lead's split. */
-export function hasSplitter(defs: AgentDefs): boolean {
-  return own(defs?.agents, SPLITTER)
+/** Whether `defs` define an agent named `name` (built-ins do not count). */
+export function defines(defs: AgentDefs, name: string): boolean {
+  return own(defs?.agents, name)
+}
+
+/** The agents a lead may give a role in a child's subtree: those the person defined (graph or agents file) on a CLI
+ * harness, available, named as role agents must be, and not the integrator. */
+export function roleChoices(person: AgentDefs, unavailable: Unavailable): string[] {
+  return Object.keys(person?.agents ?? {}).filter((name) => {
+    const spec = person!.agents![name]
+    return name !== INTEGRATOR && /^[A-Za-z0-9_-]+$/.test(name) && spec.runs !== 'lead' && !whyUnavailable(spec.runs, spec.model, unavailable)
+  })
 }
 
 /** The available agents a lead's children may name, by the kind of node they can do, the runtime of each, and the
- * models a lead may choose. The splitter is not one: its instructions are a splitting strategy. */
+ * models a lead may choose. Agents named after a role are not among them: their instructions are for the role. */
 export function childAgents(defs: Defs, unavailable: Unavailable) {
-  const specs = agentNames(defs).filter((name) => name !== SPLITTER).map((name) => [name, agentSpec(defs, name)!] as const)
+  const specs = agentNames(defs).filter((name) => !(ROLES as readonly string[]).includes(name)).map((name) => [name, agentSpec(defs, name)!] as const)
     .filter(([, spec]) => !whyUnavailable(spec.runs, spec.model, unavailable))
   const names = (lead: boolean) => specs.filter(([, spec]) => (spec.runs === 'lead') === lead).map(([name]) => name)
   const runs = Object.fromEntries(specs.map(([name, spec]) => [name, spec.runs]))

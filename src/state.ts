@@ -1,7 +1,7 @@
 // Run state as a pure fold of the event log.
 import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
  * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
@@ -56,8 +56,10 @@ export interface MergeState {
 
 /** A lead's split, proposed by the run's splitter before the lead's brief. */
 export interface SplitState {
-  /** Seq of its `split.requested`: the order in which the splitter takes requests. */
+  /** Seq of its `split.requested`: the order in which its splitter takes requests. */
   seq: number
+  /** The splitter agent asked. */
+  agent: string
   status: 'requested' | 'proposed' | 'failed'
   /** Seq of the `split.proposed` or `split.failed`. */
   endSeq?: number
@@ -107,6 +109,8 @@ export interface RunState {
   graph?: GraphFile
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
+  /** The agent definitions the person wrote (the graph's, or the agents file's), without those leads defined. */
+  definitions: Definitions
   status: 'running' | 'completed' | 'failed'
   summary?: string
   reason?: string
@@ -132,7 +136,7 @@ export const awaitsSplitApproval = (lead: NodeState) =>
  * parent's agent and model; a work child that names none gets the default worker when it starts. */
 export function childNode(c: ChildSpec, lead: NodeSpec): NodeSpec {
   const node: NodeSpec = { id: c.id, kind: c.kind, parent: lead.id }
-  for (const key of ['brief', 'command', 'acceptance', 'needs', 'model'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
+  for (const key of ['brief', 'command', 'acceptance', 'needs', 'model', 'roles'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
   if (c.agent !== undefined) node.agent = typeof c.agent === 'string' ? c.agent : c.agent.name
   if (c.kind === 'lead' && c.agent === undefined) {
     if (lead.agent !== undefined) node.agent = lead.agent
@@ -161,13 +165,23 @@ export function ancestors(state: RunState, id: string): NodeState[] {
   return out
 }
 
+/** The agent in `role` for lead `id`: the nearest `roles` entry from the lead up through its ancestors, else the run's
+ * agent named after the role, if the run defines one. */
+export function roleAgent(state: RunState, id: string, role: Role): string | undefined {
+  for (const n of [state.nodes.get(id)!, ...ancestors(state, id).reverse()]) {
+    const agent = n.spec.roles?.[role]
+    if (agent !== undefined) return agent
+  }
+  return Object.hasOwn(state.agents.agents ?? {}, role) ? role : undefined
+}
+
 export function childrenOf(state: RunState, id: string | undefined): NodeState[] {
   return [...state.nodes.values()].filter((n) => n.spec.parent === id)
 }
 
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
-    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
+    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
@@ -206,6 +220,7 @@ export function fold(events: readonly Event[]): RunState {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
         Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
         state.agents = { agent, agents: registry(agents), models }
+        state.definitions = { agent, agents: registry(agents), models }
         break
       }
       case 'node.added':
@@ -289,7 +304,7 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'split.requested': {
         const node = state.nodes.get(e.node)
-        if (node) node.split = { seq: e.seq, status: 'requested' }
+        if (node) node.split = { seq: e.seq, agent: e.agent, status: 'requested' }
         break
       }
       case 'split.proposed':
