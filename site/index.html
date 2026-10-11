@@ -7,239 +7,171 @@
 <title>sous</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: a tiled kitchen wall with a ticket rail (hero), then the brigade line, a service chart, and a menu card of commands. */
+/* Layout: an arcade kitchen at night. A pixel-art counter runs across the page (order → sous → pantry → cooks → pass),
+   then three short strips: how the chef composes, a real service, and the menu. One deliberate dark world (no light theme). */
 :root {
-  --tile: #f3f5f6;       /* white subway tile */
-  --grout: #dde2e5;
-  --steel: #e4e8eb;      /* counter and pass */
-  --ticket: #ffffff;     /* thermal paper */
-  --ink: #121417;
-  --muted: #5b636b;
-  --rule: #cfd5da;
-  --fire: #d4401f;       /* burner flame: the accent */
-  --herb: #2f7d4f;       /* served, passed */
-  --butter: #f0c64a;     /* the bell, the flame's core */
-  --font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: dark;
+  --night: #1d2b53;     /* PICO-8 navy: the page */
+  --deep: #141e3d;      /* panels */
+  --cream: #fff1e8;     /* text, paper */
+  --steel: #c2c3c7;
+  --muted: #a9b1d6;
+  --red: #ff004d;       /* the sous's coat, "fire" */
+  --orange: #ffa300;    /* claude, the heat lamp */
+  --yellow: #ffec27;    /* the bell */
+  --green: #00e436;     /* pi, served */
+  --blue: #29adff;      /* codex */
+  --pink: #ff77a8;
+  --lilac: #83769c;
+  --font-pixel: "Pixelify Sans", "Silkscreen", ui-monospace, monospace;
+  --font-tiny: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --tile: #141a1e; --grout: #20282e; --steel: #182024; --ticket: #1f2529; --ink: #e8ecef; --muted: #9ba5ad; --rule: #2b333a;
-    --fire: #ff6b45; --herb: #5fcf8a; --butter: #f5d36a; color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --tile: #141a1e; --grout: #20282e; --steel: #182024; --ticket: #1f2529; --ink: #e8ecef; --muted: #9ba5ad; --rule: #2b333a;
-  --fire: #ff6b45; --herb: #5fcf8a; --butter: #f5d36a; color-scheme: dark;
-}
 * { box-sizing: border-box; }
-body { background: var(--steel); color: var(--ink); font: 17px/1.6 var(--font-body); }
+body { background: var(--night); color: var(--cream); font: 17px/1.6 var(--font-body); }
 p { margin: 0; }
-h1, h2, h3 { margin: 0; text-wrap: balance; }
-h2 { font: 800 clamp(1.6rem, 3.6vw, 2.3rem)/1.1 var(--font-display); letter-spacing: -0.02em; }
-a { color: var(--fire); }
-a:focus-visible { outline: 2px solid var(--fire); outline-offset: 2px; }
-code { font: 0.9em var(--font-mono); background: color-mix(in srgb, var(--rule) 55%, transparent); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; }
-.eyebrow { font: 600 0.76rem/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fire); }
-.icon { width: 1em; height: 1em; display: inline-block; vertical-align: -0.14em; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-family: var(--font-pixel); font-weight: 700; }
+h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.05; }
+a { color: var(--yellow); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+code { font: 0.9em var(--font-mono); background: rgba(255, 241, 232, 0.1); padding: 0.05em 0.35em; border-radius: 3px; overflow-wrap: anywhere; color: var(--cream); }
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; }
+.tiny { font: 400 0.78rem/1 var(--font-tiny); letter-spacing: 0.06em; text-transform: uppercase; }
+canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
 
-/* ---- Hero: subway tiles, a rail, tickets ---- */
-.wall {
-  background-color: var(--tile);
-  background-image:
-    linear-gradient(var(--grout) 2px, transparent 2px),
-    linear-gradient(90deg, var(--grout) 2px, transparent 2px);
-  background-size: 64px 32px, 64px 32px;
-  border-bottom: 10px solid var(--steel);
-  box-shadow: inset 0 -1px 0 var(--rule);
-}
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: clamp(24px, 4vw, 56px); align-items: center; padding-block: clamp(40px, 8vh, 88px) clamp(36px, 6vh, 64px); }
-@media (max-width: 820px) { .hero { grid-template-columns: 1fr; } }
-.intro { display: grid; gap: 20px; min-width: 0; }
-.intro .plate { background: var(--ticket); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(18px, 3vw, 28px); display: grid; gap: 18px; box-shadow: 0 10px 24px -18px rgba(0,0,0,.35); }
-h1 { font: 800 clamp(4rem, 14vw, 8rem)/0.85 var(--font-display); letter-spacing: -0.05em; display: flex; align-items: flex-end; gap: 0.12em; }
-h1 svg { width: 0.62em; height: 0.62em; color: var(--ink); margin-bottom: 0.08em; }
-.tag { font: 500 clamp(1.25rem, 2.8vw, 1.6rem)/1.3 var(--font-display); max-width: 24ch; }
-.tag em { font-style: normal; color: var(--fire); }
-pre { margin: 0; background: var(--steel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font: 0.9rem/1.6 var(--font-mono); }
-pre .p { color: var(--fire); user-select: none; }
-.stamp { justify-self: start; font: 600 0.8rem var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--herb); border: 2px solid var(--herb); border-radius: 6px; padding: 3px 10px; transform: rotate(-3deg); }
+/* Header */
+header.wrap { padding-block: clamp(36px, 7vh, 72px) 26px; display: grid; gap: 18px; }
+header.wrap, main.wrap, section { grid-template-columns: minmax(0, 1fr); }
+h1 { font-size: clamp(4.5rem, 16vw, 9rem); line-height: 0.85; letter-spacing: 0.01em; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.1em 0.25em; }
+h1 .s1 { color: var(--red); } h1 .s2 { color: var(--orange); } h1 .s3 { color: var(--yellow); } h1 .s4 { color: var(--green); }
+h1 .hat { width: 0.7em; height: 0.7em; margin-bottom: 0.06em; }
+.tag { font: 500 clamp(1.25rem, 2.8vw, 1.65rem)/1.3 var(--font-pixel); max-width: 30ch; }
+.tag b { color: var(--yellow); font-weight: 700; }
+.order { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+pre { margin: 0; min-width: 0; background: var(--deep); border: 3px solid var(--cream); box-shadow: 5px 5px 0 var(--red); padding: 10px 14px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); max-width: 100%; }
+pre .p { color: var(--green); user-select: none; }
 
-.rail-area { min-width: 0; display: grid; gap: 0; }
-.rail { height: 14px; border-radius: 3px; background: linear-gradient(var(--rule), var(--steel) 45%, var(--rule)); border: 1px solid var(--rule); position: relative; z-index: 2; }
-.tickets { display: flex; gap: 14px; justify-content: center; margin-top: -6px; overflow: hidden; padding: 0 4px 18px; }
-.ticket { flex: 0 0 auto; width: 190px; background: var(--ticket); color: var(--ink); font: 0.74rem/1.5 var(--font-mono); padding: 16px 13px 14px; border: 1px solid var(--rule); border-top: 0; box-shadow: 0 10px 18px -14px rgba(0,0,0,.5); transform-origin: top center; animation: hang 1s cubic-bezier(.2,.8,.2,1) both; }
-.ticket:nth-child(1) { transform: rotate(-2.5deg); animation-delay: .05s; }
-.ticket:nth-child(2) { transform: rotate(1.2deg); width: 220px; animation-delay: .18s; font-size: 0.8rem; }
-.ticket:nth-child(3) { transform: rotate(3deg); animation-delay: .3s; }
-@keyframes hang { from { translate: 0 -10px; } to { translate: 0 0; } }
-@media (max-width: 560px) { .ticket:nth-child(1), .ticket:nth-child(3) { display: none; } }
-.ticket .row { display: flex; justify-content: space-between; gap: 8px; }
-.ticket .cut { border-top: 1px dashed var(--muted); margin: 7px 0; }
-.ticket b { font-weight: 600; }
-.ticket .big { font-weight: 600; letter-spacing: .04em; font-size: 1.05em; }
-.ticket .fire { color: var(--fire); font-weight: 600; }
-.ticket .ok { color: var(--herb); font-weight: 600; }
-.ticket .clip { width: 26px; height: 10px; margin: -16px auto 8px; background: var(--rule); border-radius: 0 0 4px 4px; }
+/* The scene */
+.scene { margin-top: 8px; }
+.scene-scroll { overflow-x: auto; padding-bottom: 6px; }
+.scene-inner { margin: 0 auto; position: relative; }
+.zones { display: grid; margin-top: 10px; gap: 0; }
+.zones div { padding: 8px 8px 0; border-top: 4px solid; min-width: 0; }
+.zones b { display: block; font: 700 1.05rem/1.15 var(--font-pixel); }
+.zones span { display: block; font-size: 0.86rem; color: var(--muted); line-height: 1.35; margin-top: 3px; }
+.legend-jars { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
+.legend-jars i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: 0; }
 
-/* ---- Sections ---- */
-main.wrap { display: grid; gap: clamp(64px, 9vw, 104px); padding-block: clamp(56px, 8vw, 96px) 72px; }
+main.wrap { display: grid; gap: clamp(64px, 9vw, 104px); padding-block: clamp(56px, 8vw, 88px) 72px; }
 section { display: grid; gap: 22px; }
-.lead { max-width: 62ch; color: var(--muted); }
+.lead { max-width: 64ch; color: var(--muted); }
 
-/* the brigade line */
-.line { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; position: relative; }
-.line::before { content: ""; position: absolute; left: 6%; right: 6%; top: 38px; border-top: 3px dotted var(--rule); }
-.line li { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 0 6px; position: relative; min-width: 0; }
-.line .disc { width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center; background: var(--ticket); border: 2px solid var(--rule); color: var(--ink); }
-.line .disc svg { width: 40px; height: 40px; }
-.line li:nth-child(2) .disc { border-color: var(--fire); color: var(--fire); }
-.line li:nth-child(6) .disc { border-color: var(--herb); color: var(--herb); }
-.line h3 { font: 800 1.05rem/1.2 var(--font-display); }
-.line p { font-size: 0.88rem; color: var(--muted); }
-@media (max-width: 820px) {
-  .line { grid-template-columns: 1fr; gap: 14px; }
-  .line::before { left: 37px; right: auto; top: 20px; bottom: 20px; border-top: 0; border-left: 3px dotted var(--rule); }
-  .line li { grid-template-columns: 76px 1fr; justify-items: start; text-align: left; column-gap: 16px; row-gap: 2px; align-items: center; }
-  .line li .disc { grid-row: span 2; }
-}
+/* How the chef composes */
+.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
+.card { background: var(--deep); border: 3px solid var(--cream); padding: 12px 14px 10px; display: grid; justify-items: center; gap: 6px; min-width: 120px; box-shadow: 4px 4px 0 var(--lilac); }
+.card canvas { width: 64px; height: 64px; }
+.card b { font: 700 1rem var(--font-pixel); }
+.card span { font-size: 0.82rem; color: var(--muted); text-align: center; max-width: 16ch; line-height: 1.3; }
+.op { font: 700 2.2rem var(--font-pixel); color: var(--yellow); }
+.card.out { border-color: var(--green); box-shadow: 4px 4px 0 var(--green); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; }
+.rules > div { display: grid; gap: 6px; border-left: 4px solid var(--orange); padding-left: 14px; min-width: 0; }
+.rules > div:nth-child(2) { border-color: var(--blue); }
+.rules > div:nth-child(3) { border-color: var(--green); }
+.rules h3 { font-size: 1.2rem; }
+.rules p { color: var(--muted); font-size: 0.97rem; }
 
-/* the service chart */
-.service { background: var(--ticket); border: 1px solid var(--rule); border-radius: 14px; padding: clamp(16px, 3vw, 26px); display: grid; gap: 18px; }
-.chart-wrap { overflow-x: auto; }
-svg text { fill: var(--muted); font: 11px var(--font-mono); }
-svg .lbl { fill: var(--ink); font: 600 12px var(--font-body); }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.88rem; color: var(--muted); }
-.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; border-top: 1px dashed var(--rule); }
-.counts div { display: grid; gap: 0; padding: 12px 12px 0 0; }
-.counts b { font: 800 1.8rem/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
-.counts span { color: var(--muted); font-size: 0.86rem; display: flex; align-items: center; gap: 6px; }
-.counts svg { width: 16px; height: 16px; }
+/* A real service */
+.service { background: var(--deep); border: 3px solid var(--cream); box-shadow: 6px 6px 0 var(--blue); padding: clamp(14px, 3vw, 24px); display: grid; gap: 16px; }
+.chart-wrap { overflow-x: auto; min-width: 0; }
+.service > * { min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.9rem; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.counts div { display: grid; }
+.counts b { font: 700 2rem/1.1 var(--font-pixel); font-variant-numeric: tabular-nums; }
+.counts div:nth-child(1) b { color: var(--red); } .counts div:nth-child(2) b { color: var(--orange); }
+.counts div:nth-child(3) b { color: var(--green); } .counts div:nth-child(4) b { color: var(--yellow); }
+.counts span { color: var(--muted); font-size: 0.86rem; }
 
-/* the menu card */
-.menu { background: var(--ticket); border: 1px solid var(--rule); border-radius: 4px; padding: clamp(20px, 4vw, 40px); display: grid; gap: 26px; box-shadow: 0 0 0 6px var(--ticket), 0 0 0 7px var(--rule); max-width: 820px; justify-self: center; width: 100%; margin: 7px; }
-.menu h2 { text-align: center; }
-.menu .course { display: grid; gap: 10px; }
-.menu h3 { font: 600 0.8rem var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--fire); text-align: center; }
+/* The menu */
+.menu { background: var(--cream); color: #1d2b53; border: 4px solid #1d2b53; box-shadow: 0 0 0 4px var(--cream), 8px 8px 0 4px var(--red); padding: clamp(20px, 4vw, 40px); display: grid; gap: 24px; max-width: 840px; justify-self: center; width: calc(100% - 16px); }
+.menu h2 { text-align: center; color: var(--red); }
+.menu h3 { font: 400 0.82rem var(--font-tiny); letter-spacing: .1em; text-transform: uppercase; color: #7e2553; text-align: center; }
+.menu .course { display: grid; gap: 9px; }
 .dish { display: grid; grid-template-columns: max-content minmax(1rem, 1fr) minmax(0, max-content); align-items: baseline; gap: 10px; }
-.dish code { background: none; padding: 0; font-weight: 600; color: var(--ink); }
-.dish .dots { border-bottom: 2px dotted var(--rule); transform: translateY(-4px); min-width: 1rem; }
-.dish span:last-child { color: var(--muted); text-align: right; font-size: 0.95rem; }
+.dish code { background: none; padding: 0; font-weight: 600; color: #1d2b53; }
+.dish .dots { border-bottom: 3px dotted #83769c; transform: translateY(-4px); }
+.dish span:last-child { color: #5f574f; text-align: right; font-size: 0.95rem; }
+.menu .note { text-align: center; color: #5f574f; font-size: 0.92rem; max-width: 60ch; justify-self: center; }
+.menu .note code { color: #1d2b53; background: rgba(29, 43, 83, 0.08); }
 @media (max-width: 640px) { .dish { grid-template-columns: 1fr; gap: 0; } .dish .dots { display: none; } .dish span:last-child { text-align: left; margin-bottom: 6px; } }
-.menu .note { text-align: center; color: var(--muted); font-size: 0.92rem; max-width: 60ch; justify-self: center; }
 
-footer { border-top: 1px solid var(--rule); }
-footer .wrap { padding-block: 24px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; align-items: center; color: var(--muted); font-size: 0.92rem; }
-footer .bell { display: inline-flex; align-items: center; gap: 10px; font: 800 1.1rem var(--font-display); color: var(--ink); }
-footer .bell svg { width: 28px; height: 28px; color: var(--butter); }
-footer .bell:hover svg { animation: ding .5s ease; }
-@keyframes ding { 0%,100% { rotate: 0deg } 25% { rotate: -14deg } 75% { rotate: 12deg } }
-@media (prefers-reduced-motion: reduce) { .ticket { animation: none; } footer .bell:hover svg { animation: none; } }
+footer { border-top: 4px solid var(--deep); }
+footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; color: var(--muted); }
+.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--yellow); background: none; border: 0; cursor: pointer; padding: 0; }
+.bell canvas { width: 40px; height: 36px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body style="margin:0">
 
-<!-- Kitchen icons, drawn with currentColor -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <defs>
-    <symbol id="i-toque" viewBox="0 0 48 48"><path d="M14 30c-5-1-8-5-7-10 1-5 6-8 11-6 1-5 5-8 10-7 4 1 7 4 7 8 5-1 9 3 9 8s-4 8-9 7v8H14z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M14 38h22M20 30v8M28 30v8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-ticket" viewBox="0 0 48 48"><path d="M12 6h24v36l-4-3-4 3-4-3-4 3-4-3-4 3z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M17 15h14M17 21h14M17 27h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-pan" viewBox="0 0 48 48"><path d="M5 22h28c0 8-6 13-14 13S5 30 5 22z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M33 24l11-4" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><path d="M13 16c0-3 3-3 3-6M20 16c0-3 3-3 3-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
-    <symbol id="i-knife" viewBox="0 0 48 48"><path d="M6 34L30 10c4 4 4 10 0 14l-10 10z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 34l-6 6M24 38l-4 4" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></symbol>
-    <symbol id="i-bell" viewBox="0 0 48 48"><path d="M8 34h32c0-10-7-17-16-17S8 24 8 34z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M5 38h38M24 17v-4M20 12h8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
-    <symbol id="i-plate" viewBox="0 0 48 48"><circle cx="24" cy="24" r="17" fill="none" stroke="currentColor" stroke-width="2.6"/><circle cx="24" cy="24" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 24l4 4 7-8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-    <symbol id="i-flame" viewBox="0 0 48 48"><path d="M24 6c2 8 12 12 12 23a12 12 0 0 1-24 0c0-6 4-9 5-14 3 4 3 7 3 9 4-4 5-11 4-18z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/></symbol>
-  </defs>
-</svg>
+<header class="wrap">
+  <h1><canvas class="hat" data-sprite="toque" width="24" height="24" aria-hidden="true"></canvas><span><span class="s1">s</span><span class="s2">o</span><span class="s3">u</span><span class="s4">s</span></span></h1>
+  <p class="tag">You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until the plate is served.</p>
+  <div class="order"><pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre><span class="tiny" style="color:var(--green)">yes, chef!</span></div>
+</header>
 
-<header class="wall">
-  <div class="wrap hero">
-    <div class="intro">
-      <div class="plate">
-        <h1><svg aria-hidden="true"><use href="#i-toque"/></svg>sous</h1>
-        <p class="tag">You call the order. <em>sous</em> runs the kitchen until it's served.</p>
-        <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
-        <span class="stamp">Yes, chef.</span>
-      </div>
-    </div>
-    <div class="rail-area" role="img" aria-label="A ticket rail with three real runs: a greeting where two Pi cooks clashed and Codex resolved it; calc, built by 41 leads, 28 cooks and 30 checks, served in 28 minutes 54 seconds; and two bug fixes done in 2 minutes">
-      <div class="rail"></div>
-      <div class="tickets">
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0141</b><span>pi ×2</span></div>
-          <div class="cut"></div>
-          <div class="big">1× GREETING</div>
-          <div>two cooks, same line</div>
-          <div class="cut"></div>
-          <div class="row"><span>clashes</span><span>1</span></div>
-          <div class="row"><span>fixed by</span><span>codex</span></div>
-          <div class="cut"></div>
-          <div class="ok">SERVED ✓</div>
-        </div>
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0142</b><span>12:36</span></div>
-          <div class="cut"></div>
-          <div class="big">1× CALC</div>
-          <div>expression calculator,</div>
-          <div>Node 22, with tests</div>
-          <div class="cut"></div>
-          <div class="row"><span>sous + stations</span><span>41</span></div>
-          <div class="row"><span>cooks</span><span>28</span></div>
-          <div class="row"><span>checks</span><span>30</span></div>
-          <div class="row"><span>sent back</span><span>0</span></div>
-          <div class="cut"></div>
-          <div class="row"><span class="ok">SERVED 13:05</span><span>166 ✓</span></div>
-        </div>
-        <div class="ticket" aria-hidden="true">
-          <div class="clip"></div>
-          <div class="row"><b>#0143</b><span>13:14</span></div>
-          <div class="cut"></div>
-          <div class="big">2× BUG FIX</div>
-          <div>calc options, --file</div>
-          <div class="cut"></div>
-          <div class="row"><span>cooks</span><span>2</span></div>
-          <div class="row"><span>clashes</span><span>0</span></div>
-          <div class="cut"></div>
-          <div class="fire">FIRE! → 2 min</div>
-        </div>
+<figure class="scene wrap" style="margin-inline:auto;margin-block:0">
+  <div class="scene-scroll">
+    <div class="scene-inner" id="scene-inner">
+      <canvas id="kitchen" role="img" aria-label="A pixel-art kitchen counter. From left: a ticket rail with your order; the sous chef in red pointing at the line; a pantry shelf of model jars; three cooks in orange, blue and green at bubbling pots, catching ingredients the chef tosses them; and the pass under a heat lamp, where finished plates slide in and the bell rings."></canvas>
+      <div class="zones" id="zones">
+        <div style="border-color:var(--cream)"><b>The order</b><span>your goal, on the ticket rail</span></div>
+        <div style="border-color:var(--red)"><b>The sous</b><span>a lead agent: splits the order, picks cooks</span></div>
+        <div style="border-color:var(--pink)"><b>The pantry</b><span>the models you allow</span>
+          <span class="legend-jars"><span><i style="background:var(--pink)"></i>opus</span><span><i style="background:var(--orange)"></i>sonnet</span><span><i style="background:var(--green)"></i>gpt-5.5</span><span><i style="background:var(--blue)"></i>glm</span><span><i style="background:var(--lilac)"></i>deepseek</span></span></div>
+        <div style="border-color:var(--orange)"><b>The cooks</b><span>agents on Claude Code, Codex and Pi, each at its own station (a git worktree)</span></div>
+        <div style="border-color:var(--yellow)"><b>The pass</b><span>each plate merged and tasted (checks); a clash goes to an agent; ding!</span></div>
       </div>
     </div>
   </div>
-</header>
+</figure>
 
 <main class="wrap">
   <section>
-    <p class="eyebrow">The brigade</p>
-    <h2>From your order to the plate</h2>
-    <ol class="line">
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-ticket"/></svg></span><h3>You</h3><p>call the order: a goal, or a fixed menu of steps</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-toque"/></svg></span><h3>Sous</h3><p>a lead agent splits it across stations</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-pan"/></svg></span><h3>Stations</h3><p>sub-leads split again, as deep as you allow</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-knife"/></svg></span><h3>Cooks</h3><p>Claude Code, Codex or Pi, each in its own git worktree</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-bell"/></svg></span><h3>The pass</h3><p>every plate merged and checked; clashes go to an agent who fixes them</p></li>
-      <li><span class="disc"><svg aria-hidden="true"><use href="#i-plate"/></svg></span><h3>Served</h3><p>on branch <code>sous/&lt;run&gt;</code>; your branch is untouched</p></li>
-    </ol>
+    <h2 style="color:var(--orange)">How the chef composes the kitchen</h2>
+    <p class="lead">You stock the pantry and hire the cooks. The sous cooks with what is there: for each part of the order it picks a cook, adds an ingredient and writes the recipe.</p>
+    <div class="recipe" aria-label="A cook, plus an ingredient, plus a recipe card, makes a new station">
+      <div class="card"><canvas data-sprite="cook-orange" width="24" height="24" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
+      <span class="op" aria-hidden="true">+</span>
+      <div class="card"><canvas data-sprite="jar-orange" width="24" height="24" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
+      <span class="op" aria-hidden="true">+</span>
+      <div class="card"><canvas data-sprite="ticket" width="24" height="24" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
+      <span class="op" aria-hidden="true">=</span>
+      <div class="card out"><canvas data-sprite="station" width="24" height="24" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
+    </div>
+    <div class="rules">
+      <div><h3>You stock the kitchen</h3><p>Define your own cooks and the models leads may use, per harness. Nothing outside the pantry gets cooked.</p></div>
+      <div><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
+      <div><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
+    </div>
   </section>
 
   <section>
-    <p class="eyebrow">A real service</p>
-    <h2>Order #0142: a calculator, five levels deep</h2>
-    <p class="lead">One goal, four levels of leads, cooks at the fifth, all on cheap Ollama models. Every bar is a minute of the real run. The quiet stretch in the middle is one cook spending 8 m 44 s on the parser while the rest of the line waited.</p>
+    <h2 style="color:var(--green)">A real service: order #0142</h2>
+    <p class="lead">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
     <div class="service">
-      <div class="chart-wrap"><svg id="service" role="img" aria-label="Orders fired and plates through the pass, per minute, over the 29-minute calc run"></svg></div>
-      <div class="legend"><span><i style="background:var(--fire)"></i>orders fired to cooks</span><span><i style="background:var(--herb)"></i>plates through the pass (merged)</span></div>
+      <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Orders fired to cooks and plates through the pass, per minute, over the 29-minute calc run"></canvas></div>
+      <div class="legend"><span><i style="background:var(--red)"></i>orders fired to cooks</span><span><i style="background:var(--green)"></i>plates through the pass</span></div>
       <div class="counts">
-        <div><b>99</b><span><svg aria-hidden="true"><use href="#i-toque"/></svg>in the brigade</span></div>
-        <div><b>28</b><span><svg aria-hidden="true"><use href="#i-knife"/></svg>cooks, one turn each</span></div>
-        <div><b>27 / 0</b><span><svg aria-hidden="true"><use href="#i-bell"/></svg>plates passed / clashes</span></div>
-        <div><b>28:54</b><span><svg aria-hidden="true"><use href="#i-plate"/></svg>order to service</span></div>
+        <div><b>99</b><span>in the brigade (41 leads)</span></div>
+        <div><b>28</b><span>cooks, one turn each</span></div>
+        <div><b>27 / 0</b><span>plates merged / clashes</span></div>
+        <div><b>28:54</b><span>order to service, 166 tests ✓</span></div>
       </div>
     </div>
   </section>
@@ -247,27 +179,23 @@ footer .bell:hover svg { animation: ding .5s ease; }
   <section>
     <div class="menu">
       <h2>The menu</h2>
-      <div class="course">
-        <h3>To start</h3>
+      <div class="course"><h3>To start</h3>
         <div class="dish"><code>npm install -g @krimvp/sous</code><span class="dots"></span><span>Node 22.19+, git, and Claude Code, Codex or Pi</span></div>
       </div>
-      <div class="course">
-        <h3>Mains</h3>
+      <div class="course"><h3>Mains</h3>
         <div class="dish"><code>sous run "goal"</code><span class="dots"></span><span>let the sous plan it</span></div>
         <div class="dish"><code>sous run graph.json</code><span class="dots"></span><span>a fixed menu of steps, gates and leads</span></div>
-        <div class="dish"><code>--agents agents.json</code><span class="dots"></span><span>your own cooks, and which models leads may use</span></div>
+        <div class="dish"><code>--agents agents.json</code><span class="dots"></span><span>your cooks and pantry, for goal runs</span></div>
         <div class="dish"><code>--max-depth 4</code><span class="dots"></span><span>a taller brigade (default 3)</span></div>
       </div>
-      <div class="course">
-        <h3>During service</h3>
+      <div class="course"><h3>During service</h3>
         <div class="dish"><code>sous status</code><span class="dots"></span><span>the live brigade, and questions for you</span></div>
         <div class="dish"><code>sous answer &lt;node&gt; "…"</code><span class="dots"></span><span>answer, or steer a lead</span></div>
         <div class="dish"><code>sous approve &lt;gate&gt;</code><span class="dots"></span><span>pass a plate that needs your OK</span></div>
         <div class="dish"><code>sous cancel &lt;node&gt;</code><span class="dots"></span><span>86 it, and everything under it</span></div>
         <div class="dish"><code>sous resume</code><span class="dots"></span><span>back on after a power cut</span></div>
       </div>
-      <div class="course">
-        <h3>After</h3>
+      <div class="course"><h3>After</h3>
         <div class="dish"><code>sous export atif</code><span class="dots"></span><span>the whole service as a trace (or <code>otlp</code> to Langfuse)</span></div>
       </div>
       <p class="note">Leads plan on your Pi login (Ollama Cloud or ChatGPT). Run <code>sous</code> inside the git repository the cooks should work in.</p>
@@ -277,35 +205,169 @@ footer .bell:hover svg { animation: ding .5s ease; }
 
 <footer>
   <div class="wrap">
-    <span class="bell"><svg aria-hidden="true"><use href="#i-bell"/></svg>Service!</span>
+    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="20" height="18" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
     <span><a href="https://github.com/krimvp/sous">github.com/krimvp/sous</a> · runs on your machine</span>
   </div>
 </footer>
 
 <script>
 (function () {
-  // Per minute of the real calc run (from its event log): worker turns started, and merges done.
+  const P = { K: '#000000', N: '#1d2b53', M: '#7e2553', D: '#008751', B: '#ab5236', G: '#5f574f', S: '#c2c3c7', W: '#fff1e8',
+              R: '#ff004d', O: '#ffa300', Y: '#ffec27', L: '#00e436', U: '#29adff', V: '#83769c', P: '#ff77a8', F: '#ffccaa' }
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // ---- sprites: one character per pixel; '.' is transparent, 'C' is the coat colour, 'X' the contents ----
+  const CHEF = [
+    '....WWWW....', '..WWWWWWWW..', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '..WWWWWWWW..', '...SSSSSS...',
+    '...FFFFFF...', '...FKFFKF...', '...FFFFFF...', '....FMMF....', '..CCCCCCCC..', '.CCCWCCWCCC.',
+    '.CCCCCCCCCC.', 'FCCCCCCCCCCF', '..CCCCCCCC..', '..CCCCCCCC..']
+  const SOUS = [
+    '...WWWWWW...', '..WWWWWWWW..', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '..WWWWWWWW..', '...SSSSSS...',
+    '...FFFFFF...', '...FKFFKF...', '...FFFFFF...', '....FMMF....', '..CCCCCCCC..', '.CCCWCCWCCC.',
+    '.CCCCCCCCCC.', '.CCCCCCCCCC.', '..CCCCCCCC..']
+  const JAR = ['.BBBBBB.', '.BBBBBB.', 'SSSSSSSS', 'SWWWWWWS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', '.SSSSSS.']
+  const POT = ['.SSSSSSSSSSSS.', 'SSWWSSSSSSSSSS', 'GSSSSSSSSSSSSG', '.SSSSSSSSSSSS.', '.SSSSSSSSSSSS.', '..SSSSSSSSSS..']
+  const PLATE = ['...XXXXXX...', '..XXLXXXXX..', 'WWWWWWWWWWWW', '.WWWWWWWWWW.', '..SSSSSSSS..']
+  const BELL = ['....YY....', '....YY....', '...YYYY...', '..YYWYYY..', '.YYWYYYYY.', '.YYYYYYYY.', 'YYYYYYYYYY', 'GGGGGGGGGG', '.GGGGGGGG.']
+  const TICKET = ['RRRRRRRRRR', 'WWWWWWWWWW', 'WGGGGGGGWW', 'WWWWWWWWWW', 'WGGGGGWWWW', 'WWWWWWWWWW', 'WGGGGGGGWW', 'WWWWWWWWWW', 'WGGGWWWWWW', 'WWWWWWWWWW', 'WVWVWVWVWV']
+
+  function sprite(ctx, rows, x, y, s, map) {
+    for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
+      const ch = rows[r][c]; if (ch === '.') continue
+      ctx.fillStyle = (map && map[ch]) || P[ch] || ch
+      ctx.fillRect(x + c * s, y + r * s, s, s)
+    }
+  }
+  const rect = (ctx, x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h) }
+
+  // ---- small icon canvases ----
+  const icons = {
+    toque: (c) => sprite(c, CHEF.slice(0, 6), 0, 2, 2, {}),
+    'cook-orange': (c) => sprite(c, CHEF, 0, 0, 2, { C: P.O }),
+    'jar-orange': (c) => sprite(c, JAR, 4, 2, 2, { X: P.O }),
+    ticket: (c) => sprite(c, TICKET, 2, 1, 2),
+    station: (c) => { sprite(c, CHEF.slice(0, 11), 0, 0, 2, { C: P.P }); rect(c, 0, 22, 24, 2, P.S) },
+    bell: (c) => sprite(c, BELL, 0, 0, 2),
+  }
+  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => { const c = cv.getContext('2d'); c.imageSmoothingEnabled = false; icons[cv.dataset.sprite](c) })
+
+  // ---- the kitchen scene: 400 x 128 logical pixels ----
+  const W = 400, H = 128, TOP = 84
+  const cv = document.getElementById('kitchen'), ctx = cv.getContext('2d')
+  cv.width = W; cv.height = H
+  const inner = document.getElementById('scene-inner'), zones = document.getElementById('zones')
+  const ZONES = [[0, 70], [70, 106], [106, 200], [200, 326], [326, 400]]
+  zones.style.gridTemplateColumns = ZONES.map(([a, b]) => `${b - a}fr`).join(' ')
+  function fit() {
+    const avail = inner.parentElement.clientWidth
+    const scale = Math.max(2, Math.min(4, avail / W))
+    const w = Math.round(W * scale)
+    cv.style.width = w + 'px'; cv.style.height = Math.round(H * scale) + 'px'; inner.style.width = w + 'px'
+  }
+  fit(); window.addEventListener('resize', fit)
+
+  const JARS = [[P.P, 'opus'], [P.O, 'sonnet'], [P.L, 'gpt-5.5'], [P.U, 'glm'], [P.V, 'deepseek']].map(([col], i) => ({ col, x: 112 + i * 17, y: 16 }))
+  const COOKS = [{ x: 206, col: P.O }, { x: 246, col: P.U }, { x: 286, col: P.L }]
+  let t = 0, plates = [], served = 0, ding = 0, toss = null, arm = 0
+
+  function background() {
+    // tiled wall
+    rect(ctx, 0, 0, W, TOP, '#a8dde6')                                // teal subway tiles, so the white toques stand out
+    for (let y = 0; y < TOP; y += 8) rect(ctx, 0, y, W, 1, '#82b9c4')
+    for (let y = 0; y < TOP; y += 8) for (let x = (y / 8) % 2 ? 0 : 8; x < W; x += 16) rect(ctx, x, y, 1, 8, '#82b9c4')
+    for (let x = 0; x < W; x += 16) { rect(ctx, x + 1, 49, 15, 7, (x / 16) % 2 ? P.R : P.U) }   // a band of coloured tiles
+    // ticket rail with three orders
+    rect(ctx, 4, 6, 62, 3, P.G); rect(ctx, 4, 6, 62, 1, P.S)
+    sprite(ctx, TICKET, 8, 9, 1); sprite(ctx, TICKET, 26, 10, 1); sprite(ctx, TICKET, 46, 9, 1)
+    rect(ctx, 26, 9, 10, 1, P.O)
+    // pantry shelf
+    rect(ctx, 106, 36, 92, 3, P.B); rect(ctx, 106, 36, 92, 1, P.O); rect(ctx, 110, 39, 2, 6, P.B); rect(ctx, 192, 39, 2, 6, P.B)
+    for (const j of JARS) sprite(ctx, JAR, j.x, j.y + 10, 1, { X: j.col })
+    // heat lamp over the pass
+    rect(ctx, 334, 0, 60, 6, P.G); rect(ctx, 340, 6, 48, 3, P.N)
+    ctx.globalAlpha = 0.18; rect(ctx, 336, 9, 56, TOP - 9, P.O); ctx.globalAlpha = 1
+    // a pass window frame
+    rect(ctx, 326, 0, 3, TOP, P.S)
+  }
+  function counter() {
+    rect(ctx, 0, TOP, W, 6, P.S); rect(ctx, 0, TOP, W, 1, P.W)
+    rect(ctx, 0, TOP + 6, W, H - TOP - 6, P.B)
+    for (let x = 0; x < W; x += 40) { rect(ctx, x, TOP + 10, 1, H - TOP - 14, P.M); rect(ctx, x + 18, TOP + 22, 4, 2, P.O) }
+    rect(ctx, 326, TOP + 6, 74, H - TOP - 6, P.S)                     // the pass is steel
+    for (let x = 330; x < W; x += 12) rect(ctx, x, TOP + 12, 8, 1, P.G)
+  }
+  function people() {
+    // the sous chef, pointing at the line
+    sprite(ctx, SOUS, 76, TOP - 32, 2, { C: P.R })
+    const hx = arm % 2 ? 100 : 98, hy = arm % 2 ? TOP - 12 : TOP - 16
+    rect(ctx, 98, TOP - 8, 4, 4, P.R); rect(ctx, hx, hy, 4, 4, P.F)
+    // cooks at their pots
+    COOKS.forEach((k) => sprite(ctx, CHEF, k.x, TOP - 32, 2, { C: k.col }))
+  }
+  function pots() {
+    COOKS.forEach((k, i) => {
+      const px = k.x + 23, flick = (t + i) % 2
+      rect(ctx, px - 1, TOP - 2, 16, 2, P.K)                       // the burner
+      sprite(ctx, POT, px, TOP - 9, 1, { S: k.col === P.L ? P.S : P.S })
+      rect(ctx, px + 1, TOP - 3, 3, 1, flick ? P.O : P.Y); rect(ctx, px + 6, TOP - 3, 3, 1, flick ? P.Y : P.R); rect(ctx, px + 11, TOP - 3, 3, 1, flick ? P.R : P.O)
+      for (let s = 0; s < 2; s++) { const sy = TOP - 12 - ((t * 2 + s * 6 + i * 3) % 12); rect(ctx, px + 3 + s * 6 + (sy % 2), sy, 2, 2, P.S) }
+    })
+  }
+  function pass() {
+    for (let i = 0; i < served; i++) sprite(ctx, PLATE, 340, TOP - 5 - i * 4, 1, { X: [P.L, P.O, P.P][i % 3] })
+    const shake = ding > 0 ? (ding % 2 ? 1 : -1) : 0
+    sprite(ctx, BELL, 370 + shake, TOP - 18, 2)
+    if (ding > 0) { ctx.fillStyle = P.Y; ctx.font = 'bold 9px monospace'; ctx.fillText('DING!', 368, TOP - 24) }
+    for (const p of plates) sprite(ctx, PLATE, Math.round(p.x), TOP - 5, 1, { X: p.col })
+  }
+  function flying() {
+    if (!toss) return
+    const f = toss.f / 18
+    const x = toss.x0 + (toss.x1 - toss.x0) * f, y = toss.y0 + (toss.y1 - toss.y0) * f - Math.sin(f * Math.PI) * 26
+    rect(ctx, Math.round(x), Math.round(y), 3, 3, toss.col); rect(ctx, Math.round(x), Math.round(y), 1, 1, P.W)
+  }
+  function draw() { background(); people(); counter(); pots(); pass(); flying() }
+  function step() {
+    t++
+    if (t % 6 === 0) arm++
+    if (ding > 0) ding--
+    if (!toss && t % 22 === 0) {
+      const j = JARS[(t / 22) % JARS.length | 0], k = COOKS[(t / 22) % COOKS.length | 0]
+      toss = { x0: j.x + 3, y0: j.y + 10, x1: k.x + 10, y1: TOP - 24, col: j.col, f: 0, k }
+    }
+    if (toss && ++toss.f > 18) toss = null
+    if (t % 34 === 0) { const k = COOKS[(t / 34) % COOKS.length | 0]; plates.push({ x: k.x + 12, col: [P.L, P.O, P.P][(t / 34) % 3 | 0] }) }
+    plates.forEach((p) => (p.x += 2.2))
+    const arrived = plates.filter((p) => p.x >= 336)
+    if (arrived.length) { plates = plates.filter((p) => p.x < 336); served = served >= 3 ? 1 : served + arrived.length; ding = 8 }
+  }
+  plates.push({ x: 300, col: P.L }); served = 2
+  draw()
+  if (!still) { let last = 0; const loop = (now) => { if (now - last > 110) { last = now; step(); draw() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
+
+  // ---- the bell in the footer ----
+  const btn = document.getElementById('ding'), txt = document.getElementById('ding-text')
+  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 10; setTimeout(() => (txt.textContent = 'Service!'), 1400) })
+
+  // ---- a real service: per minute of the calc run (from its event log) ----
   const fired = [0,0,2,2,1,0,3,1,0,0,1,0,0,0,0,0,0,0,1,0,1,3,2,1,4,1,3,1,1]
   const out   = [0,0,1,1,3,0,3,0,0,1,0,0,0,0,0,0,0,0,1,1,1,3,2,1,3,2,2,1,1]
-  const svg = document.getElementById('service'), NS = 'http://www.w3.org/2000/svg'
-  const W = 960, H = 220, L = 34, R = 10, T = 16, B = 30, n = fired.length, max = 4
-  const bw = (W - L - R) / n, y = (v) => T + (H - T - B) * (1 - v / max)
-  const el = (tag, a, text) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; return e }
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.style.width = '100%'; svg.style.minWidth = '640px'
-  for (let v = 0; v <= max; v++) {
-    svg.append(el('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: 'var(--rule)', 'stroke-dasharray': v ? '2 4' : '' }))
-    svg.append(el('text', { x: L - 8, y: y(v) + 4, 'text-anchor': 'end' }, v))
-  }
+  const ch = document.getElementById('chart'), c2 = ch.getContext('2d')
+  const n = fired.length, bar = 4, gap = 2, col = bar * 2 + gap * 2, CW = 8 + n * col + 4, CH = 70, base = 58, unit = 11
+  ch.width = CW; ch.height = CH; ch.style.width = '100%'; ch.style.minWidth = '620px'; ch.style.height = 'auto'
+  c2.fillStyle = P.N; c2.fillRect(0, 0, CW, CH)
+  for (let v = 1; v <= 4; v++) for (let x = 6; x < CW - 4; x += 4) rect(c2, x, base - v * unit, 2, 1, '#2a3a6b')
+  rect(c2, 6, base, CW - 10, 1, P.S)
   for (let i = 0; i < n; i++) {
-    const x = L + i * bw, w = (bw - 6) / 2
-    if (fired[i]) { const r = el('rect', { x: x + 2, y: y(fired[i]), width: w, height: y(0) - y(fired[i]), rx: 2, fill: 'var(--fire)' }); r.append(el('title', {}, `minute ${i}: ${fired[i]} fired`)); svg.append(r) }
-    if (out[i]) { const r = el('rect', { x: x + 4 + w, y: y(out[i]), width: w, height: y(0) - y(out[i]), rx: 2, fill: 'var(--herb)' }); r.append(el('title', {}, `minute ${i}: ${out[i]} merged`)); svg.append(r) }
-    if (i % 5 === 0) svg.append(el('text', { x: x + bw / 2, y: H - 10, 'text-anchor': 'middle' }, `${i} min`))
+    const x = 8 + i * col
+    if (fired[i]) rect(c2, x, base - fired[i] * unit, bar, fired[i] * unit, P.R)
+    if (out[i]) rect(c2, x + bar + 1, base - out[i] * unit, bar, out[i] * unit, P.L)
+    if (i % 5 === 0) rect(c2, x + bar, base + 2, 1, 3, P.S)
   }
-  // the quiet stretch: one long parser turn
-  const x0 = L + 10 * bw, x1 = L + 18 * bw
-  svg.append(el('path', { d: `M${x0 + 4} ${y(2.6)} H${x1 - 4}`, stroke: 'var(--muted)', 'stroke-dasharray': '3 4', fill: 'none' }))
-  svg.append(el('text', { x: (x0 + x1) / 2, y: y(2.6) - 8, 'text-anchor': 'middle', class: 'lbl' }, 'one cook, one parser: 8 m 44 s'))
+  c2.fillStyle = P.S; c2.font = '6px monospace'
+  for (let i = 0; i < n; i += 5) c2.fillText(`${i}m`, 8 + i * col, base + 11)
+  for (let x = 8 + 10 * col; x < 8 + 18 * col; x += 4) rect(c2, x, base - 2.6 * unit, 2, 1, P.Y)
+  c2.fillStyle = P.Y; c2.fillText('one cook, the parser: 8m44s', 8 + 10 * col + 4, base - 2.6 * unit - 3)
 })()
 </script>
 </body>
