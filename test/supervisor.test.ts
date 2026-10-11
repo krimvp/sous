@@ -18,12 +18,12 @@ import type { FakeStep } from './fixtures/fake-worker.ts'
 const done = (summary: string) => ({ status: 'done' as const, summary })
 
 /** Runs `nodes` as a graph that defines `agents`. `started` lists the harness and model of every turn started. */
-async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = [], agents?: GraphFile['agents']) {
+async function runGraph(nodes: NodeSpec[], graceMs?: number, extra: Partial<SupervisorOptions> = {}, more: EventBody[] = [], agents?: GraphFile['agents'], maxDepth?: number) {
   const workspace = gitWorkspace('murm-ws-')
   const runDir = join(workspace, 'run')
   mkdirSync(runDir)
   const log = openLog(runDir)
-  log.append({ type: 'run.created', goal: 'test goal', workspace, ...(agents ? { graph: { goal: 'test goal', agents, nodes } } : {}) })
+  log.append({ type: 'run.created', goal: 'test goal', workspace, ...(agents ? { graph: { goal: 'test goal', agents, nodes } } : {}), ...(maxDepth ? { maxDepth } : {}) })
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
   for (const body of more) log.append(body)
   log.close()
@@ -167,12 +167,12 @@ const lead = (steps: FakeLeadStep[], extra: Partial<NodeSpec> = {}): NodeSpec =>
   ({ id: 'lead', kind: 'lead', brief: `Lead the test goal.\n${fakeLeadPlan(steps)}`, ...extra })
 
 /** Runs one top-level lead with the scripted fake lead runner; `onHost` gets the host and every event. */
-async function runLead(steps: FakeLeadStep[], onEvent?: (e: Event, host: LeadHost) => void, more: EventBody[] = []) {
+async function runLead(steps: FakeLeadStep[], onEvent?: (e: Event, host: LeadHost) => void, more: EventBody[] = [], maxDepth?: number) {
   let host: LeadHost
   return runGraph([lead(steps)], undefined, {
     createLeadRunner: (o) => ((host = o.host), fakeLeadRunner(o)),
     onEvent: onEvent && ((e) => onEvent(e, host)),
-  }, more)
+  }, more, undefined, maxDepth)
 }
 
 const delivered = (events: Event[], node = 'lead') =>
@@ -254,6 +254,23 @@ test('policy refuses a lead with a command, a fourth lead level, completing with
   ])
   assert.equal(state.nodes.has('l4'), false)
   assert.equal(state.nodes.get('l3')!.spec.model, 'other/model')
+})
+
+test('a run with --max-depth 4 lets leads nest four deep and tells each lead its depth', async () => {
+  // Each level spawns one lead child, then completes; level 4 tries a fifth level, which is refused.
+  const level = (n: number): string => fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [{ id: `l${n + 1}`, kind: 'lead', brief: n < 4 ? `Level ${n + 1}.\n${level(n + 1)}` : 'too deep' }] }] },
+    ...(n < 4 ? [{ calls: [{ tool: 'complete' as const, summary: `l${n} done` }] }] : [{ calls: [{ tool: 'complete' as const, summary: 'l4 done' }] }]),
+  ])
+  const { outcome, events, state } = await runLead([
+    { calls: [{ tool: 'spawn', children: [{ id: 'l2', kind: 'lead', brief: `Level 2.\n${level(2)}` }] }] },
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ], undefined, [], 4)
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(calls(events).filter((c) => !c.ok).map((c) => [c.node, c.result]), [['l4', 'refused: child l5: leads may nest at most 4 deep']])
+  assert.deepEqual(['l2', 'l3', 'l4'].map((id) => state.nodes.get(id)?.status), ['completed', 'completed', 'completed'])
+  assert.match(delivered(events, 'l3')[0].text, /You are a lead at depth 3; leads may nest 4 deep/)
+  assert.match(delivered(events, 'l4')[0].text, /You are a lead at depth 4, the deepest allowed: spawn no lead children\./)
 })
 
 test('a repeated callId returns the recorded result and applies nothing', async () => {

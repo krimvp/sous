@@ -20,7 +20,7 @@ import { PERSON } from './types.ts'
 import type { Event, GraphFile, HarnessName, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
-  murm run <graph.json | "goal"> [--workspace <dir>]
+  murm run <graph.json | "goal"> [--max-depth <n>] [--workspace <dir>]
   murm resume [run-id] [--workspace <dir>]
   murm status [run-id] [--workspace <dir>]
   murm answer <node> "text" [--workspace <dir>]
@@ -39,7 +39,7 @@ export interface CliDeps {
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { workspace: { type: 'string' } } })
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { workspace: { type: 'string' }, 'max-depth': { type: 'string' } } })
   } catch (err) {
     console.error(`${(err as Error).message}\n${USAGE}`)
     return 2
@@ -48,9 +48,16 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   const workspace = resolve(parsed.values.workspace ?? process.cwd())
   try {
     switch (command) {
-      case 'run':
+      case 'run': {
         if (args.length !== 1) break
-        return await run(args[0], workspace, deps)
+        const raw = parsed.values['max-depth']
+        const maxDepth = raw === undefined ? undefined : Number(raw)
+        if (maxDepth !== undefined && !(Number.isInteger(maxDepth) && maxDepth >= 1 && maxDepth <= 8)) {
+          console.error('murm: --max-depth must be a whole number from 1 to 8')
+          return 2
+        }
+        return await run(args[0], workspace, deps, maxDepth)
+      }
       case 'resume':
         if (args.length > 1) break
         return await resumeRun(workspace, deps, args[0])
@@ -77,7 +84,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`. */
-async function run(arg: string, workspace: string, deps: CliDeps): Promise<number> {
+async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: number): Promise<number> {
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
@@ -92,7 +99,7 @@ async function run(arg: string, workspace: string, deps: CliDeps): Promise<numbe
   const unavailable = await agents(graph, deps)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : {}) })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : {}), ...(maxDepth ? { maxDepth } : {}) })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 

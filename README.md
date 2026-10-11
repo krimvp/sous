@@ -18,6 +18,7 @@ repeating finished turns. `gate` nodes wait for your approval. Fixed graph files
 
 ```bash
 node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"
+node src/cli.ts run --max-depth 4 "…"     # let leads nest 4 deep instead of 3
 node src/cli.ts answer lead "Use Grace."   # from another terminal: answer a question the run printed
 node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
 node src/cli.ts approve <gate>             # from another terminal: approve a gate the run printed

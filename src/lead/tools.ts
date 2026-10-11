@@ -48,7 +48,7 @@ const role = `You are a lead in Murmuration. You cannot do work yourself: you ha
 - After acting, end your turn by answering briefly. Each child's outcome, question or message wakes you as a new message.
 - Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.
 - Answer your children's questions; escalate the ones you cannot answer.
-- Limits: at most 12 children over your lifetime; leads nest at most 3 deep; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
+- Limits: at most 12 children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
 
 /** The orchestration extension of lead `node`. Every call goes to the host, which is idempotent per call ID, so a call
  * replayed after a crash returns exactly the original result: a different replay text made a model stop early. */

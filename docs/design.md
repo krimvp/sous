@@ -190,7 +190,7 @@ settings:
 
 | Rule | Value |
 |---|---|
-| Lead depth (a top-level lead is depth 1) | at most 3 |
+| Lead depth (a top-level lead is depth 1) | at most 3, or `murm run --max-depth <n>` (1–8) for the run; each lead's brief states its depth and the limit |
 | Children per lead, over its lifetime | at most 12 |
 | `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
 | `cancel` targets | the lead's own children |
