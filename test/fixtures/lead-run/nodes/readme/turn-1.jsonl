@@ -1,0 +1,20 @@
+{
+ "sessionId": "01a12a00-5f3c-7d21-a0e4-3c2b1a090807",
+ "model": "gpt-5.1-codex",
+ "ended": false,
+ "items": [
+  {
+   "kind": "tool_call",
+   "id": "item_1",
+   "name": "command_execution",
+   "arguments": "cat README.md",
+   "at": "2026-10-11T11:00:10.000Z"
+  },
+  {
+   "kind": "tool_result",
+   "callId": "item_1",
+   "content": "# demo\n",
+   "at": "2026-10-11T11:00:10.100Z"
+  }
+ ]
+}

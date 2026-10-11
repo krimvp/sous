@@ -36,6 +36,11 @@ export function readEvents(file: string): Event[] {
   return events
 }
 
+/** Nodes a lead's `spawn` call added: children of the calling lead. */
+function spawned(e: Event): NodeSpec[] {
+  return e.type === 'lead.call' && e.ok && e.call.tool === 'spawn' ? e.call.children.map((c) => ({ ...c, parent: e.node })) : []
+}
+
 export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
   const events = readEvents(resolve(runDir, 'events.jsonl'))
   const graph = events.find((e) => e.type === 'run.created')?.graph
@@ -43,6 +48,7 @@ export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
   const turns: Record<string, ParsedTurn> = {}
   for (const e of events) {
     if (e.type === 'node.added') specs.set(e.node.id, e.node)
+    for (const spec of spawned(e)) specs.set(spec.id, spec)
     if (e.type !== 'turn.started') continue
     const harness = e.harness ?? specs.get(e.node)?.harness ?? graph?.harness
     const file = resolve(runDir, e.outFile)
@@ -73,15 +79,22 @@ export interface TurnView {
 
 export interface NodeView {
   spec: NodeSpec
+  /** Who added the node: `graph`, the person, or the lead that spawned it. */
   by: string
+  /** The `lead.call` that spawned this node, if a lead did. */
+  spawnCall?: string
   addedAt: string
   endedAt: string
   status: 'completed' | 'failed' | 'unfinished'
   /** Completion summary or failure reason. */
   outcome?: string
-  /** This node's events in log order (node.added excluded). */
+  /** Set when this node or an ancestor was cancelled while it was unfinished. */
+  cancelledBy?: string
+  /** This node's events in log order: its own node.added excluded; `node.added` of a child it did not spawn
+   * and a `node.cancelled` for an ancestor included. */
   events: Event[]
   turns: Map<number, TurnView>
+  children: NodeView[]
 }
 
 export interface RunView {
@@ -92,7 +105,18 @@ export interface RunView {
   createdAt: string
   endedAt: string
   end?: EventOf<'run.completed'> | EventOf<'run.failed'>
+  /** Every node in the order it was added. */
   nodes: NodeView[]
+  /** Nodes without a parent node: children of the implicit root. */
+  top: NodeView[]
+}
+
+/** Model usage of one node: its worker turns and its lead turns. */
+export function usagesOf(node: NodeView): (Usage | undefined)[] {
+  return [
+    ...[...node.turns.values()].map((t) => t.usage),
+    ...node.events.map((e) => (e.type === 'lead.turn' ? e.usage : undefined)),
+  ]
 }
 
 function nodeOf(e: Event): string | undefined {
@@ -111,9 +135,32 @@ export function viewRun(run: LoadedRun): RunView {
     createdAt: created?.at ?? run.events[0]?.at ?? lastAt,
     endedAt: lastAt,
     nodes: [],
+    top: [],
   }
   const nodes = new Map<string, NodeView>()
   const inbox = new Map<string, string[]>()
+  const add = (spec: NodeSpec, by: string, e: Event, spawnCall?: string) => {
+    if (nodes.has(spec.id)) return
+    const node: NodeView = { spec, by, spawnCall, addedAt: e.at, endedAt: e.at, status: 'unfinished', events: [], turns: new Map(), children: [] }
+    nodes.set(spec.id, node)
+    view.nodes.push(node)
+    const parent = spec.parent === undefined ? undefined : nodes.get(spec.parent)
+    if (!parent) return void view.top.push(node)
+    parent.children.push(node)
+    if (spawnCall === undefined) parent.events.push(e)
+  }
+  // Cancelling fails every unfinished node of the subtree; each gets the event, so its trace shows why it stopped.
+  const cancel = (e: EventOf<'node.cancelled'>) => {
+    const visit = (node: NodeView) => {
+      if (node.status === 'unfinished') {
+        Object.assign(node, { status: 'failed', outcome: `cancelled by ${e.by}`, cancelledBy: e.by, endedAt: e.at })
+        node.events.push(e)
+      }
+      node.children.forEach(visit)
+    }
+    const node = nodes.get(e.node)
+    if (node) visit(node)
+  }
   for (const e of run.events) {
     if (e.type === 'run.completed' || e.type === 'run.failed') {
       view.end = e
@@ -121,14 +168,18 @@ export function viewRun(run: LoadedRun): RunView {
       continue
     }
     if (e.type === 'node.added') {
-      const node: NodeView = { spec: e.node, by: e.by, addedAt: e.at, endedAt: e.at, status: 'unfinished', events: [], turns: new Map() }
-      nodes.set(e.node.id, node)
-      view.nodes.push(node)
+      add(e.node, e.by, e)
+      continue
+    }
+    if (e.type === 'node.cancelled') {
+      cancel(e)
       continue
     }
     const id = nodeOf(e)
     const node = id === undefined ? undefined : nodes.get(id)
     if (!node || !id) continue
+    // A cancelled node's failure repeats the cancellation, which its events already show.
+    if (e.type === 'node.failed' && node.cancelledBy) continue
     node.events.push(e)
     node.endedAt = e.at
     const turn = 'turn' in e ? node.turns.get(e.turn) : undefined
@@ -169,6 +220,17 @@ export function viewRun(run: LoadedRun): RunView {
       case 'node.failed':
         Object.assign(node, { status: 'failed', outcome: e.reason })
         break
+      case 'lead.call': {
+        // A call's effects follow from the call itself; a refused call changed nothing.
+        if (!e.ok) break
+        const { call } = e
+        for (const spec of spawned(e)) add(spec, id, e, e.callId)
+        if (call.tool === 'send') inbox.set(call.to, [...(inbox.get(call.to) ?? []), call.body])
+        if (call.tool === 'cancel') cancel({ type: 'node.cancelled', node: call.node, by: id, seq: e.seq, at: e.at })
+        if (call.tool === 'complete') Object.assign(node, { status: 'completed', outcome: call.summary })
+        if (call.tool === 'fail') Object.assign(node, { status: 'failed', outcome: call.reason })
+        break
+      }
     }
   }
   return view

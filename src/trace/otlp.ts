@@ -1,4 +1,5 @@
-// OTLP/JSON export for Langfuse: one trace per run with run → node → turn → generation/tool spans.
+// OTLP/JSON export for Langfuse: one trace per run with run → node → turn → generation/tool spans. A lead's
+// node holds a chain per delivery with its tool calls and its answer; a spawned node hangs under its spawn call.
 
 import { createHash } from 'node:crypto'
 import type { Usage } from '../types.ts'
@@ -93,7 +94,7 @@ export function toOtlp(run: LoadedRun): object {
     'murm.workspace': view.workspace,
   }, view.end?.type === 'run.failed' ? view.end.reason : undefined)
 
-  const addTurn = (nodeId: string, parent: string, t: TurnView) => {
+  const addTurn = (nodeId: string, parent: string, t: TurnView, cancelled: boolean) => {
     const key = `${nodeId}/${t.turn}`
     const interrupted = t.interrupted && `interrupted (${t.interrupted.signal}): ${t.interrupted.reason}`
     const turnSpan = span(`turn/${key}`, parent, `turn ${t.turn}`, 'chain', t.startedAt, t.endedAt, {
@@ -103,7 +104,7 @@ export function toOtlp(run: LoadedRun): object {
       'murm.turn.harness': t.harness,
       'murm.turn.session_id': t.sessionId,
       'murm.turn.exit_code': t.ended?.exitCode,
-    }, t.ended?.error ?? interrupted, t.ended?.error ? 'ERROR' : 'WARNING')
+    }, t.ended?.error ?? interrupted, t.ended?.error && !cancelled ? 'ERROR' : 'WARNING')
     const items = t.parsed.items
     const lastGeneration = items.findLastIndex((i) => i.kind === 'message' && i.role === 'assistant')
     const usage = t.usage && {
@@ -137,31 +138,78 @@ export function toOtlp(run: LoadedRun): object {
     }
   }
 
+  // Lead answers: a chain per delivery, from lead.delivered to the lead.turn with its requestId. An interrupt steers
+  // the answer in progress, so it joins it and ends with it; a queued delivery waits for the answer to end.
+  interface Chain { requestId: string; span: Span; lastAt: string }
+  const nodeSpans = new Map<string, string>()
+  const callSpans = new Map<string, string>()
   for (const node of view.nodes) {
     const { spec } = node
+    const parent = (node.spawnCall && callSpans.get(`${spec.parent}/${node.spawnCall}`)) || (spec.parent && nodeSpans.get(spec.parent)) || root
     const check = node.events.findLast((e) => e.type === 'check.ended')
-    const nodeSpan = span(`node/${spec.id}`, root, `${spec.kind} ${spec.id}`, spec.kind === 'check' ? 'span' : 'agent', node.addedAt, node.endedAt, {
+    const nodeSpan = span(`node/${spec.id}`, parent, `${spec.kind} ${spec.id}`, spec.kind === 'check' ? 'span' : 'agent', node.addedAt, node.endedAt, {
       'langfuse.observation.input': spec.kind === 'check' ? spec.command : spec.brief,
       'langfuse.observation.output': spec.kind === 'check' && check?.type === 'check.ended' ? check.output : node.outcome,
       'murm.node.id': spec.id,
       'murm.node.kind': spec.kind,
       'murm.node.status': node.status,
       'murm.check.exit_code': spec.kind === 'check' && check?.type === 'check.ended' ? check.exitCode : undefined,
-    }, node.status === 'failed' ? node.outcome : undefined)
+    }, node.status === 'failed' ? node.outcome : undefined, node.cancelledBy ? 'WARNING' : 'ERROR')
+    nodeSpans.set(spec.id, nodeSpan)
+    let running: Chain[] = []
+    let queued: Chain[] = []
     let prevAt = node.addedAt
     for (const e of node.events) {
       if (e.type === 'turn.started') {
         const turn = node.turns.get(e.turn)
-        if (turn) addTurn(spec.id, nodeSpan, turn)
+        if (turn) addTurn(spec.id, nodeSpan, turn, node.cancelledBy !== undefined)
       } else if (e.type === 'check.ended' && spec.kind !== 'check') {
         span(`check/${spec.id}/${e.seq}`, nodeSpan, 'acceptance check', 'span', prevAt, e.at, {
           'langfuse.observation.input': e.command,
           'langfuse.observation.output': e.output,
           'murm.check.exit_code': e.exitCode,
         }, e.exitCode === 0 ? undefined : `exit code ${e.exitCode}`)
+      } else if (e.type === 'lead.delivered') {
+        span(`chain/${spec.id}/${e.requestId}`, nodeSpan, `delivery ${e.requestId}`, 'chain', e.at, e.at, {
+          'langfuse.observation.input': e.text,
+          'murm.lead.request_id': e.requestId,
+          'murm.lead.mode': e.mode,
+        })
+        const chain = { requestId: e.requestId, span: spans.at(-1)!, lastAt: e.at }
+        if (!running.length) running = [chain]
+        else if (e.mode === 'interrupt') running.push(chain)
+        else queued.push(chain)
+      } else if (e.type === 'lead.call') {
+        const { tool, ...args } = e.call
+        const chain = running.at(-1)
+        if (chain) chain.lastAt = e.at
+        callSpans.set(`${spec.id}/${e.callId}`, span(`call/${spec.id}/${e.callId}`, chain?.span.spanId ?? nodeSpan, tool, 'tool', e.at, e.at, {
+          'langfuse.observation.input': args,
+          'langfuse.observation.output': e.result,
+          'murm.tool.call_id': e.callId,
+          'murm.tool.ok': e.ok,
+        }, e.ok ? undefined : 'call refused', 'WARNING'))
+      } else if (e.type === 'lead.turn') {
+        const inRunning = running.some((c) => c.requestId === e.requestId)
+        const ended = inRunning ? running : queued.filter((c) => c.requestId === e.requestId)
+        for (const c of ended) c.span.endTimeUnixNano = nanos(e.at)
+        const chain = ended.find((c) => c.requestId === e.requestId)
+        chain?.span.attributes.push(...attributes({ 'langfuse.observation.output': e.text, 'murm.lead.status': e.status }))
+        // The answer's generation runs from the answer's last delivery or tool call to the lead.turn.
+        const from = ended.map((c) => c.lastAt).sort().at(-1) ?? prevAt
+        span(`generation/${spec.id}/${e.seq}`, chain?.span.spanId ?? nodeSpan, 'generation', 'generation', from, e.at, {
+          'gen_ai.request.model': e.model,
+          'langfuse.observation.output': e.text,
+          'langfuse.observation.usage_details': e.usage && usageDetails(e.usage),
+          'langfuse.observation.cost_details': e.usage?.costUsd === undefined ? undefined : { total: e.usage.costUsd },
+        })
+        if (inRunning) running = queued.splice(0, 1)
+        else queued = queued.filter((c) => !ended.includes(c))
       }
       prevAt = e.at
     }
+    // Deliveries never answered (a cancelled or unfinished lead) end with the node.
+    for (const c of [...running, ...queued]) c.span.endTimeUnixNano = nanos(node.endedAt)
   }
 
   return {

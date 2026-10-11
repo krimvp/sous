@@ -1,0 +1,29 @@
+{"seq":1,"at":"2026-10-11T11:00:00.000Z","type":"run.created","goal":"Add greet() with user docs","workspace":"/tmp/demo"}
+{"seq":2,"at":"2026-10-11T11:00:00.010Z","type":"node.added","node":{"id":"lead","kind":"lead","brief":"Add greet() with user docs"},"by":"person"}
+{"seq":3,"at":"2026-10-11T11:00:00.020Z","type":"lead.delivered","node":"lead","requestId":"lead:brief","text":"Your brief: Add greet() with user docs","mode":"queue"}
+{"seq":4,"at":"2026-10-11T11:00:03.000Z","type":"lead.call","node":"lead","callId":"call_1","ok":true,"result":"Spawned impl, docs.","call":{"tool":"spawn","children":[{"id":"impl","kind":"work","brief":"Create greet.js exporting greet(name).","command":"node test.js","harness":"claude"},{"id":"docs","kind":"lead","brief":"Document greet() for users."}]}}
+{"seq":5,"at":"2026-10-11T11:00:03.500Z","type":"lead.call","node":"lead","callId":"call_2","ok":true,"result":"Noted.","call":{"tool":"note","text":"greet.js is an ES module."}}
+{"seq":6,"at":"2026-10-11T11:00:04.000Z","type":"lead.turn","node":"lead","requestId":"lead:brief","status":"done","text":"Split into impl and docs.","model":"ollama-cloud/deepseek-v4.1-flash","usage":{"inputTokens":1200,"outputTokens":90,"cachedTokens":0}}
+{"seq":7,"at":"2026-10-11T11:00:04.010Z","type":"lead.delivered","node":"docs","requestId":"docs:brief","text":"Your brief: Document greet() for users.\n\nNotes:\n- greet.js is an ES module.","mode":"queue"}
+{"seq":8,"at":"2026-10-11T11:00:04.020Z","type":"turn.started","node":"impl","turn":1,"mode":"start","harness":"claude","pid":5101,"outFile":"nodes/impl/turn-1.jsonl","errFile":"nodes/impl/turn-1.err","prompt":"Create greet.js exporting greet(name).\n\nNotes:\n- greet.js is an ES module."}
+{"seq":9,"at":"2026-10-11T11:00:04.030Z","type":"turn.session","node":"impl","turn":1,"sessionId":"6a0c1f7e-3b8e-4c55-9d0b-0b9d8f1d2e01"}
+{"seq":10,"at":"2026-10-11T11:00:06.000Z","type":"lead.call","node":"docs","callId":"call_d1","ok":true,"result":"Spawned readme.","call":{"tool":"spawn","children":[{"id":"readme","kind":"work","brief":"Add a greet() section to README.md.","harness":"codex"}]}}
+{"seq":11,"at":"2026-10-11T11:00:06.500Z","type":"lead.call","node":"docs","callId":"call_d2","ok":false,"result":"Refused: child readme is pending or running.","call":{"tool":"complete","summary":"README section requested."}}
+{"seq":12,"at":"2026-10-11T11:00:07.000Z","type":"lead.turn","node":"docs","requestId":"docs:brief","status":"done","text":"Waiting for readme.","model":"ollama-cloud/deepseek-v4.1-flash","usage":{"inputTokens":800,"outputTokens":60,"cachedTokens":500}}
+{"seq":13,"at":"2026-10-11T11:00:07.010Z","type":"turn.started","node":"readme","turn":1,"mode":"start","harness":"codex","pid":5150,"outFile":"nodes/readme/turn-1.jsonl","errFile":"nodes/readme/turn-1.err","prompt":"Add a greet() section to README.md.\n\nNotes:\n- greet.js is an ES module."}
+{"seq":14,"at":"2026-10-11T11:00:08.000Z","type":"turn.session","node":"readme","turn":1,"sessionId":"01a12a00-5f3c-7d21-a0e4-3c2b1a090807"}
+{"seq":15,"at":"2026-10-11T11:00:15.000Z","type":"turn.ended","node":"impl","turn":1,"exitCode":0,"signal":null,"result":{"status":"done","summary":"Added greet.js"},"usage":{"inputTokens":3000,"outputTokens":200,"cachedTokens":2000,"cacheWriteTokens":400,"costUsd":0.009}}
+{"seq":16,"at":"2026-10-11T11:00:15.400Z","type":"check.ended","node":"impl","command":"node test.js","exitCode":0,"output":"ok\n"}
+{"seq":17,"at":"2026-10-11T11:00:15.410Z","type":"node.completed","node":"impl","summary":"Added greet.js"}
+{"seq":18,"at":"2026-10-11T11:00:15.420Z","type":"lead.delivered","node":"lead","requestId":"evt-17","text":"Child impl completed: Added greet.js","mode":"queue"}
+{"seq":19,"at":"2026-10-11T11:00:16.000Z","type":"message","from":"person","to":"lead","body":"Drop the docs; the README is generated elsewhere.","mode":"interrupt"}
+{"seq":20,"at":"2026-10-11T11:00:16.010Z","type":"lead.delivered","node":"lead","requestId":"evt-19","text":"Message from person: Drop the docs; the README is generated elsewhere.","mode":"interrupt"}
+{"seq":21,"at":"2026-10-11T11:00:18.000Z","type":"lead.call","node":"lead","callId":"call_3","ok":true,"result":"Cancelled docs.","call":{"tool":"cancel","node":"docs"}}
+{"seq":22,"at":"2026-10-11T11:00:18.010Z","type":"lead.delivered","node":"lead","requestId":"evt-21","text":"Child docs failed: cancelled by lead","mode":"queue"}
+{"seq":23,"at":"2026-10-11T11:00:18.020Z","type":"turn.interrupted","node":"readme","turn":1,"reason":"cancelled by lead","signal":"SIGTERM"}
+{"seq":24,"at":"2026-10-11T11:00:18.300Z","type":"turn.ended","node":"readme","turn":1,"exitCode":null,"signal":"SIGTERM","error":"no turn result: interrupted"}
+{"seq":25,"at":"2026-10-11T11:00:18.310Z","type":"node.failed","node":"readme","reason":"cancelled by lead"}
+{"seq":26,"at":"2026-10-11T11:00:19.000Z","type":"lead.turn","node":"lead","requestId":"evt-17","status":"done","text":"Cancelled docs as the person asked.","model":"ollama-cloud/deepseek-v4.1-flash","usage":{"inputTokens":1500,"outputTokens":40,"cachedTokens":1100}}
+{"seq":27,"at":"2026-10-11T11:00:21.000Z","type":"lead.call","node":"lead","callId":"call_4","ok":true,"result":"Completed.","call":{"tool":"complete","summary":"greet() added; docs dropped at the person's request."}}
+{"seq":28,"at":"2026-10-11T11:00:22.000Z","type":"lead.turn","node":"lead","requestId":"evt-21","status":"done","text":"Completed.","model":"ollama-cloud/deepseek-v4.1-flash","usage":{"inputTokens":1600,"outputTokens":30,"cachedTokens":1400}}
+{"seq":29,"at":"2026-10-11T11:00:22.010Z","type":"run.completed","summary":"greet() added; docs dropped at the person's request."}

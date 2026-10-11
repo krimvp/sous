@@ -10,8 +10,9 @@ import type { HarnessName, ParsedTurn } from '../src/types.ts'
 import { exportOtlp, postOtlp, toOtlp } from '../src/trace/otlp.ts'
 import { loadRun } from '../src/trace/run.ts'
 
-// See trace-atif.test.ts for what the fixture run contains.
+// See trace-atif.test.ts for what the fixture runs contain.
 const RUN_DIR = join(import.meta.dirname, 'fixtures', 'trace-run')
+const LEAD_RUN_DIR = join(import.meta.dirname, 'fixtures', 'lead-run')
 const parseTurn = (_: HarnessName, raw: string): ParsedTurn => JSON.parse(raw)
 
 interface Received { method?: string; url?: string; headers: IncomingHttpHeaders; body: string }
@@ -36,6 +37,13 @@ type Span = Record<string, any>
 const attr = (span: Span, key: string) => {
   const value = span.attributes.find((a: Span) => a.key === key)?.value
   return value && Object.values(value)[0]
+}
+
+/** Renders the span tree as "type name" lines indented by depth. */
+function render(spans: Span[], id?: string, depth = 0): string[] {
+  return spans.filter((s) => s.parentSpanId === id).flatMap((s) => [
+    `${'  '.repeat(depth)}${attr(s, 'langfuse.observation.type')} ${s.name}`, ...render(spans, s.spanId, depth + 1),
+  ])
 }
 
 test('exportOtlp posts one deterministic Langfuse trace with a run → node → turn → generation/tool tree', async (t) => {
@@ -71,12 +79,8 @@ test('exportOtlp posts one deterministic Langfuse trace with a run → node → 
   }
   assert.equal(new Set(spans.map((s) => s.spanId)).size, spans.length)
 
-  // Render the tree as "type name" lines indented by depth.
   const children = (id?: string) => spans.filter((s) => s.parentSpanId === id)
-  const render = (id?: string, depth = 0): string[] => children(id).flatMap((s) => [
-    `${'  '.repeat(depth)}${attr(s, 'langfuse.observation.type')} ${s.name}`, ...render(s.spanId, depth + 1),
-  ])
-  assert.deepEqual(render(), [
+  assert.deepEqual(render(spans), [
     'span murm run trace-run',
     '  agent work impl',
     '    chain turn 1',
@@ -145,4 +149,74 @@ test('a turn without assistant text keeps its usage and cost', () => {
     .map((s) => attr(s, key)).filter(Boolean).reduce((n, v) => n + JSON.parse(v)[field], 0)
   assert.equal(sum('langfuse.observation.usage_details', 'total'), 4510 + 5220)
   assert.equal(sum('langfuse.observation.cost_details', 'total'), 0.0123 + 0.0061)
+})
+
+test('a lead run nests child nodes under the spawn call, inside a chain per delivery', () => {
+  const payload = toOtlp(loadRun(LEAD_RUN_DIR, parseTurn)) as Span
+  const spans: Span[] = payload.resourceSpans[0].scopeSpans[0].spans
+  assert.equal(new Set(spans.map((s) => s.spanId)).size, spans.length)
+  for (const s of spans) assert.ok(BigInt(s.endTimeUnixNano) >= BigInt(s.startTimeUnixNano), s.name)
+  assert.deepEqual(render(spans), [
+    'span murm run lead-run',
+    '  agent lead lead',
+    '    chain delivery lead:brief',
+    '      tool spawn',
+    '        agent work impl',
+    '          chain turn 1',
+    '            generation generation',
+    '            tool Write',
+    '            generation generation',
+    '          span acceptance check',
+    '        agent lead docs',
+    '          chain delivery docs:brief',
+    '            tool spawn',
+    '              agent work readme',
+    '                chain turn 1',
+    '                  tool command_execution',
+    '            tool complete',
+    '            generation generation',
+    '      tool note',
+    '      generation generation',
+    // The person's interrupt steers the answer to evt-17: both end with it; the queued evt-21 is answered next.
+    '    chain delivery evt-17',
+    '      generation generation',
+    '    chain delivery evt-19',
+    '      tool cancel',
+    '    chain delivery evt-21',
+    '      tool complete',
+    '      generation generation',
+  ])
+
+  const byName = (name: string) => spans.filter((s) => s.name === name)
+  const time = (s: Span, end = false) => new Date(Number(BigInt(end ? s.endTimeUnixNano : s.startTimeUnixNano) / 1_000_000n)).toISOString()
+  const [brief, evt17, evt19, evt21] = ['lead:brief', 'evt-17', 'evt-19', 'evt-21'].map((r) => byName(`delivery ${r}`)[0])
+  assert.deepEqual([brief, evt17, evt19, evt21].map((s) => [time(s), time(s, true)]), [
+    ['2026-10-11T11:00:00.020Z', '2026-10-11T11:00:04.000Z'],
+    ['2026-10-11T11:00:15.420Z', '2026-10-11T11:00:19.000Z'],
+    ['2026-10-11T11:00:16.010Z', '2026-10-11T11:00:19.000Z'],
+    ['2026-10-11T11:00:18.010Z', '2026-10-11T11:00:22.000Z'],
+  ])
+  assert.equal(attr(evt19, 'murm.lead.mode'), 'interrupt')
+  assert.equal(attr(evt17, 'langfuse.observation.output'), 'Cancelled docs as the person asked.')
+
+  const generation = spans.find((s) => s.parentSpanId === brief.spanId && attr(s, 'langfuse.observation.type') === 'generation')!
+  assert.equal(attr(generation, 'gen_ai.request.model'), 'ollama-cloud/deepseek-v4.1-flash')
+  assert.deepEqual(JSON.parse(attr(generation, 'langfuse.observation.usage_details')), { input: 1200, output: 90, input_cache_read: 0, total: 1290 })
+
+  const spawn = byName('spawn')[0]
+  assert.deepEqual(JSON.parse(attr(spawn, 'langfuse.observation.input')).children.map((c: Span) => c.id), ['impl', 'docs'])
+  assert.equal(attr(spawn, 'langfuse.observation.output'), 'Spawned impl, docs.')
+  assert.equal(attr(spawn, 'murm.tool.call_id'), 'call_1')
+  const refused = byName('complete').find((s) => attr(s, 'murm.tool.ok') === false)!
+  assert.deepEqual([attr(refused, 'langfuse.observation.level'), refused.status], ['WARNING', undefined])
+
+  // Cancelled nodes and the turn the cancel stopped are warnings with the reason, not errors.
+  for (const name of ['lead docs', 'work readme']) {
+    const node = byName(name)[0]
+    assert.deepEqual([attr(node, 'langfuse.observation.level'), attr(node, 'langfuse.observation.status_message'), node.status],
+      ['WARNING', 'cancelled by lead', undefined])
+  }
+  const readmeTurn = spans.find((s) => s.parentSpanId === byName('work readme')[0].spanId)!
+  assert.equal(attr(readmeTurn, 'langfuse.observation.level'), 'WARNING')
+  assert.ok(spans.every((s) => !s.status), 'a completed run with a cancelled branch has no error spans')
 })

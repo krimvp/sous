@@ -2,7 +2,7 @@
 // ATIF rejects unknown keys, so everything Murmuration-specific goes in `extra`.
 
 import type { HarnessName, Usage } from '../types.ts'
-import { loadRun, MURM_VERSION, viewRun } from './run.ts'
+import { loadRun, MURM_VERSION, usagesOf, viewRun } from './run.ts'
 import type { LoadedRun, NodeView, ParseTurn, TurnView } from './run.ts'
 
 export const ATIF_VERSION = 'ATIF-v1.8'
@@ -113,6 +113,26 @@ function addTurn(add: (s: StepInput) => Step, t: TurnView): void {
   ;(last ?? add({ source: 'agent', timestamp: t.endedAt, model_name: t.model, message: '' })).metrics = metrics(t.usage)
 }
 
+const subtreeUsages = (node: NodeView): (Usage | undefined)[] => [...usagesOf(node), ...node.children.flatMap(subtreeUsages)]
+
+const refTo = (runId: string, node: NodeView) => ({ trajectory_id: `${runId}/${node.spec.id}`, session_id: runId })
+
+/** A deterministic dispatch of a node that no lead spawned (a graph node), with a reference to its trajectory. */
+function addDispatch(add: (s: StepInput) => Step, runId: string, node: NodeView): void {
+  const callId = `run-${node.spec.id}`
+  add({
+    source: 'agent',
+    timestamp: node.addedAt,
+    llm_call_count: 0,
+    message: `Run ${node.spec.kind} node ${node.spec.id}`,
+    tool_calls: [{ tool_call_id: callId, function_name: 'run_node', arguments: node.spec }],
+    observation: {
+      results: [{ source_call_id: callId, content: node.outcome ?? node.status, subagent_trajectory_ref: [refTo(runId, node)], extra: { status: node.status } }],
+    },
+    extra: { added_by: node.by },
+  })
+}
+
 function nodeTrajectory(runId: string, node: NodeView): object {
   const { steps, add } = stepList()
   const { spec } = node
@@ -140,25 +160,64 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       })
     } else if (e.type === 'node.failed') {
       add({ source: 'system', timestamp: e.at, message: `Node failed: ${e.reason}` })
+    } else if (e.type === 'node.cancelled') {
+      const what = e.node === spec.id ? 'Node' : `Node's ancestor ${e.node}`
+      add({ source: 'system', timestamp: e.at, message: `${what} cancelled by ${e.by}`, extra: { cancelled_node: e.node, by: e.by } })
+    } else if (e.type === 'node.added') {
+      const child = node.children.find((c) => c.spec.id === e.node.id)
+      if (child) addDispatch(add, runId, child)
+    } else if (e.type === 'lead.delivered') {
+      add({ source: 'user', timestamp: e.at, message: e.text, extra: { request_id: e.requestId, mode: e.mode } })
+    } else if (e.type === 'lead.call') {
+      // A lead's tool call is model output; the model's usage sits on the lead.turn step that ends the answer.
+      const { tool, ...args } = e.call
+      const refs = node.children.filter((c) => c.spawnCall === e.callId).map((c) => refTo(runId, c))
+      add({
+        source: 'agent',
+        timestamp: e.at,
+        message: '',
+        tool_calls: [{ tool_call_id: e.callId, function_name: tool, arguments: args }],
+        observation: {
+          results: [{
+            source_call_id: e.callId,
+            content: e.result,
+            subagent_trajectory_ref: refs.length ? refs : undefined,
+            extra: e.ok ? undefined : { ok: false },
+          }],
+        },
+      })
+    } else if (e.type === 'lead.turn') {
+      add({
+        source: 'agent',
+        timestamp: e.at,
+        model_name: e.model,
+        message: e.text,
+        metrics: e.usage && metrics(e.usage),
+        extra: { request_id: e.requestId, status: e.status },
+      })
     }
   }
   if (!steps.length) add({ source: 'system', timestamp: node.addedAt, message: `Node ${spec.id} did not run` })
 
   const turns = [...node.turns.values()]
   const harness = turns[0]?.harness ?? spec.harness
+  const leadModel = node.events.find((e) => e.type === 'lead.turn')?.model ?? spec.model
   return {
     schema_version: ATIF_VERSION,
     session_id: runId,
     trajectory_id: `${runId}/${spec.id}`,
-    agent: spec.kind === 'check' || !harness
-      ? { name: 'murmuration', version: MURM_VERSION }
-      : { name: AGENT_NAMES[harness], version: 'unknown', model_name: turns[0]?.model },
+    agent: spec.kind === 'lead'
+      ? { name: 'murmuration-lead', version: MURM_VERSION, model_name: leadModel }
+      : spec.kind === 'check' || !harness
+        ? { name: 'murmuration', version: MURM_VERSION }
+        : { name: AGENT_NAMES[harness], version: 'unknown', model_name: turns[0]?.model },
     steps,
-    final_metrics: finalMetrics(turns.map((t) => t.usage), steps.length),
+    final_metrics: finalMetrics(subtreeUsages(node), steps.length),
     extra: {
       node: spec,
       status: node.status,
       outcome: node.outcome,
+      cancelled_by: node.cancelledBy,
       turns: turns.map((t) => ({
         turn: t.turn,
         mode: t.mode,
@@ -173,6 +232,7 @@ function nodeTrajectory(runId: string, node: NodeView): object {
         interrupted: t.interrupted?.reason,
       })),
     },
+    subagent_trajectories: node.children.length ? node.children.map((c) => nodeTrajectory(runId, c)) : undefined,
   }
 }
 
@@ -180,25 +240,7 @@ export function toAtif(run: LoadedRun): object {
   const view = viewRun(run)
   const { steps, add } = stepList()
   add({ source: 'user', timestamp: view.createdAt, message: view.goal })
-  for (const node of view.nodes) {
-    const callId = `run-${node.spec.id}`
-    add({
-      source: 'agent',
-      timestamp: node.addedAt,
-      llm_call_count: 0,
-      message: `Run ${node.spec.kind} node ${node.spec.id}`,
-      tool_calls: [{ tool_call_id: callId, function_name: 'run_node', arguments: node.spec }],
-      observation: {
-        results: [{
-          source_call_id: callId,
-          content: node.outcome ?? node.status,
-          subagent_trajectory_ref: [{ trajectory_id: `${view.runId}/${node.spec.id}`, session_id: view.runId }],
-          extra: { status: node.status },
-        }],
-      },
-      extra: { added_by: node.by },
-    })
-  }
+  for (const node of view.top) addDispatch(add, view.runId, node)
   if (view.end) {
     const text = view.end.type === 'run.completed' ? `Run completed: ${view.end.summary}` : `Run failed: ${view.end.reason}`
     add({ source: 'agent', timestamp: view.end.at, llm_call_count: 0, message: text })
@@ -209,14 +251,14 @@ export function toAtif(run: LoadedRun): object {
     trajectory_id: view.runId,
     agent: { name: 'murmuration', version: MURM_VERSION },
     steps,
-    notes: 'Root trajectory is the Murmuration supervisor; each node is an embedded subagent trajectory. final_metrics totals include the subagents.',
-    final_metrics: finalMetrics(view.nodes.flatMap((n) => [...n.turns.values()].map((t) => t.usage)), steps.length),
+    notes: 'Root trajectory is the Murmuration supervisor; each node is an embedded subagent trajectory, nested under the lead that spawned it. final_metrics totals include the subagents.',
+    final_metrics: finalMetrics(view.nodes.flatMap(usagesOf), steps.length),
     extra: {
       goal: view.goal,
       workspace: view.workspace,
       status: view.end?.type === 'run.completed' ? 'completed' : view.end ? 'failed' : 'unfinished',
     },
-    subagent_trajectories: view.nodes.map((n) => nodeTrajectory(view.runId, n)),
+    subagent_trajectories: view.top.map((n) => nodeTrajectory(view.runId, n)),
   }
   // Drop undefined fields so the document has only keys with values.
   return JSON.parse(JSON.stringify(doc))
