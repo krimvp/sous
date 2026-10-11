@@ -19,7 +19,7 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
     const out = openSync(spec.outFile, 'w')
     const err = openSync(spec.errFile, 'w')
     const child = spawn(process.execPath, [WORKER, join(sessionDir, `${sessionId}.json`)], {
-      cwd: spec.cwd, detached: true, stdio: ['pipe', out, err],
+      cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...process.env, ...spec.env },
     })
     closeSync(out)
     closeSync(err)

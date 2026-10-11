@@ -155,8 +155,9 @@ supervisor's event log stays the source of truth for the tree; pi-durable holds 
 
 Agents address nodes, not processes, and the supervisor is the only router.
 
-- **Workers have no send tool.** Their only outgoing message is the turn result. Incoming messages arrive
-  through `resume`.
+- **Workers send sideways and up, never down or across.** A worker's turn result is its answer to its lead; while it
+  works it may also `send` to a sibling or to its own lead (see Worker messages). Incoming messages arrive through
+  `resume`.
 - **Leads may message their children and their parent.** Anything crossing branches goes up to the nearest
   shared ancestor and back down.
 - **Delivery:** append a `message` event, add it to the recipient's inbox, then wake the recipient: start a
@@ -166,6 +167,34 @@ Agents address nodes, not processes, and the supervisor is the only router.
 Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
 things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
 later, when an agent the supervisor did not launch needs to take part.
+
+### Worker messages
+
+A worker that learns something a sibling or its lead must know while it works (an interface it settled, a file it
+moved, a change of plan) tells them with `send`, without stopping.
+
+- **Two ways in, one way through.** Claude and Codex workers have a `send` tool from sous's MCP server
+  (`src/mcp.ts`, stdio JSON-RPC on Node built-ins), which their harness starts for the turn; every worker can also run
+  `sous send <to> "text"`, whose full command its brief gives (Pi workers use only this). Both check the message and
+  write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
+  a `message` with `sent: true`. It stays the only writer.
+- **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR` and `SOUS_NODE`
+  (`TurnSpec.env`), which both ways read. This is attribution, not authentication: workers run as the person.
+- **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
+  parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
+  lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
+  only a lead stops a worker.
+- **Delivery** follows the usual rules: the recipient reads it when its current turn ends, and a worker's `done`
+  counts only with an empty inbox, so a sibling cannot finish without having read it; a waiting worker resumes with
+  it; a pending one gets it in its brief. The sender's lead gets every message: what it is told ("Child a tells you
+  while it works (no answer needed)") and a copy of what its children tell each other. A message refused when the
+  supervisor applies it (the run moved on) comes back to its sender from `supervisor`.
+- **Only through sous.** Workers load no MCP server but sous's: Claude runs with `--strict-mcp-config` (and
+  `--mcp-config` for sous's server), Codex with every server of the person's configuration disabled by name (`codex mcp
+  list --json`, once per process; `-c mcp_servers=…` merges rather than replaces) and sous's added, Pi with
+  `--exclude-tools mcp__*`. So the channels a worker is offered all go through the run's log. A worker still has a
+  shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
+  determined one from reaching another service; that needs sandboxed workers.
 
 ## Leads
 

@@ -43,6 +43,10 @@ export interface InboxMessage {
   from: string
   body: string
   mode: 'queue' | 'interrupt'
+  /** A worker's `send`, which expects no answer. */
+  sent?: true
+  /** Leads: this is a copy of a child's `send` to its sibling `copyOf`. */
+  copyOf?: string
 }
 
 /** A work node's place in the merge queue. */
@@ -120,6 +124,8 @@ export interface RunState {
   questions: { seq: number; from: string; body: string }[]
   /** Recorded results of lead tool calls by callKey(node, callId). */
   calls: Map<string, string>
+  /** Messages each worker sent with `send`, by node. */
+  sent: Map<string, number>
   /** The run's integration branch, once created. */
   integration?: { branch: string; path: string }
 }
@@ -181,7 +187,7 @@ export function childrenOf(state: RunState, id: string | undefined): NodeState[]
 
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
-    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
+    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(), sent: new Map(),
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
@@ -210,9 +216,16 @@ export function fold(events: readonly Event[]): RunState {
       if (message.to === PERSON) state.questions.push({ seq: e.seq, from: message.from, body: message.body })
       if (message.from === PERSON) state.questions = state.questions.filter((q) => q.from !== message.to)
       const to = state.nodes.get(message.to)
+      const sent = e.type === 'message' && e.sent ? { sent: true as const } : {}
       if (to) {
-        to.inbox.push({ seq: e.seq, from: message.from, body: message.body, mode: message.mode })
+        to.inbox.push({ seq: e.seq, from: message.from, body: message.body, mode: message.mode, ...sent })
         if (message.from === (to.spec.parent ?? PERSON)) to.escalated = false
+      }
+      if (e.type === 'message' && e.sent) {
+        state.sent.set(e.from, (state.sent.get(e.from) ?? 0) + 1)
+        // The lead sees what its children tell each other.
+        const lead = state.nodes.get(parentOf(e.from) ?? '')
+        if (lead && lead.spec.id !== e.to) lead.inbox.push({ seq: e.seq, from: e.from, body: e.body, mode: 'queue', sent: true, copyOf: e.to })
       }
     }
     switch (e.type) {

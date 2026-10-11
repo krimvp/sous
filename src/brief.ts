@@ -1,4 +1,5 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
+import { fileURLToPath } from 'node:url'
 import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
 import type { InboxMessage, NodeState, SplitState } from './state.ts'
@@ -20,9 +21,24 @@ const messages = (inbox: InboxMessage[]) => inbox.map((m) => `Message from ${m.f
 
 const standing = (instructions?: string) => (instructions?.trim() ? [`Your standing instructions:\n${instructions.trim()}`] : [])
 
-/** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes and any messages
- * already waiting. */
-export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string): string {
+/** The command a worker runs to send a message, when its harness has no MCP tool for it. */
+const SEND_COMMAND = `${process.execPath} ${fileURLToPath(new URL('./cli.ts', import.meta.url))} send`
+
+/** Whom a worker may message while it works, and how. */
+function contactsSection(contacts: { lead?: string; siblings: string[]; max: number }): string[] {
+  if (!contacts.lead && !contacts.siblings.length) return []
+  const whom = [contacts.lead && `your lead ${contacts.lead}`, contacts.siblings.length && `your siblings ${contacts.siblings.join(', ')}`]
+  return [[
+    `When you learn something ${contacts.lead ? 'your lead or ' : ''}a sibling must know while you work (an interface you settled, a file you`,
+    `moved, a change of plan), tell them: with the send tool if you have it, else run ${SEND_COMMAND} <to> "<text>".`,
+    `You may send to ${whom.filter(Boolean).join(' and ')}${contacts.lead ? '; your lead sees every message' : ''}. At most ${contacts.max}`,
+    'messages; they are read when the recipient\'s turn ends, so do not wait for an answer. Messages to you arrive the same way.',
+  ].join(' ')]
+}
+
+/** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes, any messages already
+ * waiting, and whom it may message while it works. */
+export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number }): string {
   const parts = [
     `You are one worker on a larger goal.\n\nGoal: ${goal}`,
     ...standing(instructions),
@@ -30,7 +46,7 @@ export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: s
   ]
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   if (node.command) parts.push(`After you report done, this check runs in ${cwd} and must exit 0:\n${node.command}`)
-  parts.push(...fromLeads(notes), ...messages(inbox), `Work in the directory ${cwd}. Do only this task.`, RESULT)
+  parts.push(...fromLeads(notes), ...messages(inbox), `Work in the directory ${cwd}. Do only this task.`, ...(contacts ? contactsSection(contacts) : []), RESULT)
   return parts.join('\n\n') + '\n'
 }
 
@@ -137,8 +153,11 @@ export function outcomeText(child: NodeState): string {
   return child.status === 'completed' ? `Child ${child.spec.id} completed: ${child.summary}` : `Child ${child.spec.id} failed: ${child.reason}`
 }
 
-/** A message delivered to a lead; `fromChild` when a child asks. */
+/** A message delivered to a lead; `fromChild` when it comes from a child: a question, or what it tells the lead or a
+ * sibling while it works. */
 export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
+  if (m.copyOf) return `Child ${m.from} told its sibling ${m.copyOf} (a copy for you; no answer needed):\n${m.body}`
+  if (fromChild && m.sent) return `Child ${m.from} tells you while it works (no answer needed):\n${m.body}`
   return fromChild
     ? `Child ${m.from} is waiting for your answer:\n${m.body}\n\nAnswer with send to ${m.from}.`
     : `Message from ${m.from}:\n${m.body}`

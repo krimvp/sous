@@ -1,11 +1,12 @@
 // Codex: `codex exec --json`. The structured result is the last `agent_message`, constrained by
 // `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
 
+import { spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, spawnTurn, toTurnResult } from './common.ts'
+import { jsonLines, sousServer, spawnTurn, toTurnResult } from './common.ts'
 import type { Exit, Json } from './common.ts'
 
 // OpenAI's strict structured output requires every property to be listed in `required`;
@@ -20,13 +21,39 @@ const STRICT_SCHEMA = {
   ),
 }
 
+let configured: string[] | undefined
+/** The MCP servers the user's Codex configuration loads, listed once per process. */
+function configuredServers(): string[] {
+  if (!configured) {
+    try {
+      const list: unknown = JSON.parse(spawnSync('codex', ['mcp', 'list', '--json'], { encoding: 'utf8' }).stdout)
+      configured = Array.isArray(list) ? list.map((s) => s?.name).filter((n): n is string => typeof n === 'string') : []
+    } catch {
+      configured = []
+    }
+  }
+  return configured
+}
+
+/** Config overrides that disable every MCP server the user configured and add sous's for a worker of the tree:
+ * Codex merges `-c mcp_servers=…` into its configuration rather than replacing it. */
+function mcpConfig(spec: TurnSpec): string[] {
+  const q = (value: string) => JSON.stringify(value) // a TOML basic string
+  const server = sousServer(spec)
+  const env = server && Object.entries(server.env).map(([k, v]) => `${k}=${q(v)}`).join(',')
+  return [
+    ...configuredServers().filter((name) => name !== 'sous').flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]),
+    ...(server ? ['-c', `mcp_servers.sous={command=${q(server.command)},args=[${server.args.map(q).join(',')}],env={${env}}}`] : []),
+  ]
+}
+
 function run(spec: TurnSpec, args: string[]) {
   // Absolute, because Codex runs in spec.cwd.
   const schemaFile = resolve(`${spec.outFile.replace(/\.jsonl$/, '')}.schema.json`)
   mkdirSync(dirname(schemaFile), { recursive: true })
   writeFileSync(schemaFile, JSON.stringify(STRICT_SCHEMA))
   return spawnTurn('codex', [
-    ...args, '--json', '--skip-git-repo-check', '--output-schema', schemaFile,
+    ...args, ...mcpConfig(spec), '--json', '--skip-git-repo-check', '--output-schema', schemaFile,
     ...(spec.model ? ['-m', spec.model] : []),
     '-',
   ], spec)

@@ -29,6 +29,10 @@ node src/cli.ts approve <gate>             # from another terminal: approve a ga
 node src/cli.ts resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
 
+While they work, workers may tell a sibling or their lead what the others must know (an interface they settled, a file
+they moved) with a `send` tool (sous's own MCP server, for Claude and Codex) or `sous send <to> "text"`. Their lead
+sees every message. Workers load no other MCP server, so what they tell each other stays in the run's log.
+
 `sous resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
 stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
 interrupted more than 3 times fails.
