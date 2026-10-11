@@ -33,12 +33,12 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 
 | Field | Kinds | Meaning |
 |---|---|---|
-| `id` | all | unique; letters, digits, `.`, `_`, `-` |
+| `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person` and `integrator` are reserved |
 | `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `murm approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
 | `command` | check, work | a check's command, or a work node's acceptance check |
-| `needs` | all | earlier node IDs that must complete first (work nodes: once merged) |
+| `needs` | all | node IDs that must complete first (work nodes: once merged); any nodes in the file, without cycles. A lead's children may only need earlier siblings |
 | `agent`, `model` | work, lead | which agent; a model for this node only |
 
 Leads have no `command`; a deterministic gate under a lead is a `check` child.
