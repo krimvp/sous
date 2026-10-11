@@ -316,7 +316,10 @@ $('runs').addEventListener('click', (e) => {
 })
 
 async function openRun(id, keepNode) {
-  if (id !== ui.runId) { ui.shut = new Set(); ui.foldedOnce = false; ui.run = null }
+  if (id !== ui.runId) {
+    ui.shut = new Set(); ui.foldedOnce = false; ui.run = null
+    $('run').innerHTML = '<div class="blank">Loading…</div>'
+  }
   ui.runId = id
   if (!keepNode) { ui.nodeId = null; ui.node = null; renderDetail() }
   writeHash()
@@ -372,7 +375,7 @@ function team(n) {
 function redraw(el, draw) {
   const f = el.contains(document.activeElement) ? document.activeElement : null
   const attr = f && ['data-fold', 'data-copy', 'data-node', 'data-close', 'data-more', 'data-run'].find((a) => f.hasAttribute(a))
-  const sel = attr && `[${attr}="${CSS.escape(f.getAttribute(attr))}"]`
+  const sel = attr ? `[${attr}="${CSS.escape(f.getAttribute(attr))}"]` : f?.tagName === 'SUMMARY' ? 'summary' : null
   const nth = sel ? [...el.querySelectorAll(sel)].indexOf(f) : -1
   draw()
   if (sel) el.querySelectorAll(sel)[nth]?.focus({ preventScroll: true })
@@ -473,7 +476,7 @@ $('run').addEventListener('click', (e) => {
   const copy = e.target.closest('[data-copy]')
   if (copy) { navigator.clipboard?.writeText(copy.dataset.copy); copy.textContent = 'copied'; setTimeout(() => (copy.textContent = 'copy'), 1200); return }
   const fold = e.target.closest('[data-fold]')
-  if (fold) {
+  if (fold && ui.run) {
     const id = fold.dataset.fold
     ui.shut.has(id) ? ui.shut.delete(id) : ui.shut.add(id)
     renderRun()
@@ -538,11 +541,14 @@ function renderDetail(keep) {
     </div>` : ''}
     ${d.notes.length ? `<div class="sec"><h3 class="side-h">Notes for the subtree</h3><ul class="notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h3 class="side-h">${s.kind === 'lead' ? 'Decisions' : s.kind === 'check' ? 'Runs' : 'Trajectory'}</h3><div class="steps">${trajectory(d, t0) || '<p class="muted">Nothing yet.</p>'}</div></div>`
-  redraw(el, () => (el.innerHTML = html))
-  if (!keep) return
-  el.querySelectorAll('details').forEach((x, i) => { if (opened[i]) x.open = true })
-  el.querySelectorAll('.long').forEach((x, i) => { if (expanded[i]) { x.classList.remove('clamp'); x.nextElementSibling?.remove() } })
-  el.scrollTop = scroll
+  // Restored inside the redraw, so focus returns to a control that is visible and where it was.
+  redraw(el, () => {
+    el.innerHTML = html
+    if (!keep) return
+    el.querySelectorAll('details').forEach((x, i) => { if (opened[i]) x.open = true })
+    el.querySelectorAll('.long').forEach((x, i) => { if (expanded[i]) { x.classList.remove('clamp'); x.nextElementSibling?.remove() } })
+  })
+  if (keep) el.scrollTop = scroll
 }
 
 function long(text, mono) {
