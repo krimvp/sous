@@ -15,8 +15,8 @@ const Child = Type.Object({
   command: Type.Optional(Type.String({ description: 'Shell command; exit code 0 passes (check)' })),
   acceptance: Type.Optional(Type.Array(Type.String(), { description: 'Criteria the result must meet' })),
   needs: Type.Optional(Type.Array(Type.String(), { description: 'Ids of earlier siblings that must complete first' })),
-  harness: Type.Optional(StringEnum(['claude', 'codex', 'pi'] as const, { description: 'Worker agent for work nodes; default claude' })),
-  model: Type.Optional(Type.String({ description: "The harness's model; for a lead provider/model" })),
+  agent: Type.Optional(Type.String({ description: 'Agent that does a work or lead child, from the agents your brief lists; default: the first available worker for work, your own agent for leads' })),
+  model: Type.Optional(Type.String({ description: "Overrides the agent's model: the harness's model name for work, provider/model for a lead" })),
 }, strict)
 
 const schemas = {

@@ -81,7 +81,7 @@ test('the root trajectory dispatches each node to an embedded subagent trajector
 
 test('a resumed work node continues one trajectory with the check failure and the delivered message', () => {
   const impl = sub('impl')
-  assert.deepEqual(impl.agent, { name: 'claude-code', version: 'unknown', model_name: 'claude-sonnet-4-5' })
+  assert.deepEqual(impl.agent, { name: 'claude', version: 'unknown', model_name: 'claude-sonnet-4-5' })
   assert.deepEqual(impl.steps.map((s: Obj) => [s.step_id, s.source, s.tool_calls?.map((c: Obj) => c.function_name)]), [
     [1, 'user', undefined],
     [2, 'agent', ['Write', 'Bash']],
@@ -100,7 +100,7 @@ test('a resumed work node continues one trajectory with the check failure and th
   ])
   assert.equal(check.message, 'Acceptance check exited 1: node test.js')
   assert.match(resume.message, /^The acceptance check `node test.js` failed/)
-  assert.deepEqual(resume.extra, { turn: 2, mode: 'resume', harness: 'claude', session_id: '3df9cda7-cba8-49aa-b743-232bec523140' })
+  assert.deepEqual(resume.extra, { turn: 2, mode: 'resume', agent: 'claude', session_id: '3df9cda7-cba8-49aa-b743-232bec523140' })
   // Turn usage is per turn, so it sits on each turn's last agent step.
   assert.deepEqual(impl.steps.filter((s: Obj) => s.metrics).map((s: Obj) => [s.step_id, s.metrics]), [
     [3, { prompt_tokens: 4200, completion_tokens: 310, cached_tokens: 3000, cost_usd: 0.0123, extra: { scope: 'turn', cache_creation_input_tokens: 800 } }],
@@ -240,14 +240,14 @@ test('a cancellation by the person comes from node.cancelled, and the lead\'s la
   assert.equal(readme.extra.outcome, 'cancelled by person')
 })
 
-test('spawned children get the design\'s defaults: a work child runs on claude, a child lead takes its parent\'s model', () => {
+test('a spawned work child shows the agent its turns ran on, parsed by that agent\'s harness; a child lead takes its parent\'s model', () => {
   const dir = mkdtempSync(join(tmpdir(), 'murm-atif-'))
   cpSync(LEAD_RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'events.jsonl')
   const events = readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   for (const e of events) {
     if (e.type === 'node.added') e.node.model = 'ollama-cloud/glm-5.3'
-    if (e.callId === 'call_1') delete e.call.children[0].harness
+    if (e.callId === 'call_1') delete e.call.children[0].agent
     if (e.type === 'turn.started' && e.node === 'impl') delete e.harness
   }
   writeFileSync(file, events.map((e) => JSON.stringify(e)).join('\n') + '\n')
@@ -255,7 +255,7 @@ test('spawned children get the design\'s defaults: a work child runs on claude, 
   const find = (node: string) => trajectories(out).find((t) => t.trajectory_id.endsWith(`/${node}`))!
   const impl = find('impl')
   assert.deepEqual(impl.steps.map((s: Obj) => s.source), leadSub('impl').steps.map((s: Obj) => s.source))
-  assert.equal(impl.agent.name, 'claude-code')
+  assert.equal(impl.agent.name, 'claude')
   assert.equal(impl.final_metrics.total_prompt_tokens, 3000)
   assert.equal(find('docs').extra.node.model, 'ollama-cloud/glm-5.3')
 })

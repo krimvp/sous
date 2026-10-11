@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { agentFor, childAgents } from './agents.ts'
+import type { Agent, Unavailable } from './agents.ts'
 import { composeBrief, fixPrompt, idleReminder, inboxPrompt, leadBrief, leadMessageText, outcomeText, recoveryPrompt, resultReminder } from './brief.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
@@ -24,6 +26,8 @@ export interface SupervisorOptions {
   graceMs?: number
   /** `murm resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
   resume?: boolean
+  /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
+  unavailable?: Unavailable
 }
 
 export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
@@ -104,7 +108,7 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
       }
       const siblings = children.map((c) => c.spec.id)
       for (const c of call.children) {
-        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings)
+        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, state.graph)
           ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > MAX_LEAD_DEPTH ? `leads may nest at most ${MAX_LEAD_DEPTH} deep` : undefined)
         if (why) return `child ${String(c?.id)}: ${why}`
         siblings.push(c.id)
@@ -151,6 +155,7 @@ function accepted(call: LeadCall, parent: string): string {
 
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
   const { workspace, runDir, getAdapter } = opts
+  const unavailable = opts.unavailable ?? { commands: [], leadProviders: [] }
   const graceMs = opts.graceMs ?? 5000
   const log = openLog(runDir, opts.onEvent, { takeOver: opts.resume })
   if (opts.resume) {
@@ -183,6 +188,14 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   let wakeUp = () => {}
   const current = () => fold(log.events)
   const nodeNow = (id: string) => current().nodes.get(id)!
+  /** The agent of a node, or why it has none: a work node keeps the agent of its earlier turns. */
+  const agentOf = (state: RunState, node: NodeState): Agent | string => {
+    try {
+      return agentFor(state.graph, { ...node.spec, agent: node.spec.agent ?? node.turns.findLast((t) => t.agent)?.agent }, unavailable)
+    } catch (err) {
+      return (err as Error).message
+    }
+  }
 
   const stop = () => {
     if (stopping) return
@@ -235,14 +248,14 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
 
-  const deliver = (lead: NodeState, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
+  const deliver = (lead: NodeState, agent: Agent, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
     log.append({ type: 'lead.delivered', node: lead.spec.id, requestId, text, mode })
-    send(lead, requestId, text, mode)
+    send(lead, agent, requestId, text, mode)
   }
   /** Hand a recorded delivery to the runner; a repeated requestId is ignored there. */
-  const send = (lead: NodeState, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
+  const send = (lead: NodeState, agent: Agent, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
     const node = lead.spec.id
-    runner!.deliver(node, text, { requestId, mode, model: lead.spec.model ?? DEFAULT_LEAD_MODEL }).catch((err) => {
+    runner!.deliver(node, text, { requestId, mode, model: agent.model ?? DEFAULT_LEAD_MODEL }).catch((err) => {
       if (closed || isFinal(nodeNow(node))) return
       abandon(current(), node, `lead runner: ${(err as Error).message}`)
       wakeUp()
@@ -254,7 +267,12 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const id = lead.spec.id
     if (isFinal(lead) || lead.status === 'pending') return
     if (!runner) return fail(id, 'no lead runner is configured')
-    if (lead.status === 'ready') return deliver(lead, `${id}:brief`, leadBrief(state.goal, lead.spec, notesFor(state, id)), 'queue')
+    const agent = agentOf(state, lead)
+    if (typeof agent === 'string') return abandon(state, id, agent)
+    if (lead.status === 'ready') {
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.graph, unavailable), agent.instructions)
+      return deliver(lead, agent, `${id}:brief`, brief, 'queue')
+    }
     const children = childrenOf(state, id)
     const items = lead.inbox.map((m) => ({
       seq: m.seq, mode: m.mode, text: leadMessageText(m, state.nodes.get(m.from)?.spec.parent === id),
@@ -263,13 +281,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (isFinal(c) && c.cancelledBy !== id) items.push({ seq: c.endSeq!, mode: 'queue', text: outcomeText(c) })
     }
     const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
-    for (const i of fresh) deliver(lead, `evt-${i.seq}`, i.text, i.mode)
+    for (const i of fresh) deliver(lead, agent, `evt-${i.seq}`, i.text, i.mode)
     if (fresh.length || !lead.idle || lead.escalated) return
     // A waiting child with messages is about to resume, and a gate waits for the person, so both still count as working.
     const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && c.spec.kind !== 'gate').map((c) => c.spec.id)
     if (children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))) return
     if (lead.reminders >= MAX_REMINDERS) return abandon(state, id, `idle after ${MAX_REMINDERS} reminders`)
-    deliver(lead, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')
+    deliver(lead, agent, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')
   }
 
   // ---- Person commands ------------------------------------------------------------------------
@@ -338,20 +356,20 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     return r
   }
 
-  const runTurn = async (spec: NodeSpec, turn: number, prompt: string, sessionId?: string, recovery = false) => {
-    const adapter = getAdapter(spec.harness!)
+  const runTurn = async (spec: NodeSpec, agent: Agent, turn: number, prompt: string, sessionId?: string, recovery = false) => {
+    const adapter = getAdapter(agent.runs as HarnessName)
     const dir = join(runDir, 'nodes', spec.id)
     mkdirSync(dir, { recursive: true })
     const turnSpec = {
       nodeId: spec.id, turn, cwd: workspace, prompt,
       outFile: join(dir, `turn-${turn}.jsonl`), errFile: join(dir, `turn-${turn}.err`),
-      model: spec.model, sessionId,
+      model: agent.model, sessionId,
     }
     const mode = sessionId ? 'resume' : 'start'
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
     const { pid } = running
     log.append({
-      type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, pid, startTime: procStartTime(pid),
+      type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, agent: agent.name, pid, startTime: procStartTime(pid),
       outFile: turnSpec.outFile, errFile: turnSpec.errFile, prompt, ...(recovery ? { recovery } : {}),
     })
     groups.set(pid, { node: spec.id, turn })
@@ -418,8 +436,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const runWork = async (spec: NodeSpec) => {
     const state = current()
     const node = state.nodes.get(spec.id)!
+    // A recorded result settles without the agent; only a new turn needs it to be available.
+    const agent = agentOf(state, node)
     let sessionId = node.turns.findLast((t) => t.sessionId)?.sessionId
-    const brief = () => composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox)
+    const instructions = typeof agent === 'string' ? undefined : agent.instructions
+    const brief = () => composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox, instructions)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
     let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
@@ -437,7 +458,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     let reminded = false
     for (;;) {
       const turn = nodeNow(spec.id).turns.length + (recorded ? 0 : 1)
-      const t: { result?: TurnResult; sessionId?: string; check?: CheckState } = recorded ?? await runTurn(spec, turn, prompt, sessionId, recovery)
+      let t: { result?: TurnResult; sessionId?: string; check?: CheckState }
+      if (recorded) t = recorded
+      else if (typeof agent === 'string') return fail(spec.id, agent)
+      else t = await runTurn(spec, agent, turn, prompt, sessionId, recovery)
       recorded = undefined
       recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return
@@ -493,7 +517,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   /** Close a turn the last supervisor left without `turn.ended`: record its result if its output has one; stop its
    * group if it still runs. A node left without a result is then resumed by `runWork`. */
   const closeTurn = async (spec: NodeSpec, t: TurnState) => {
-    const adapter = getAdapter(t.harness ?? spec.harness!)
+    const adapter = getAdapter(t.harness!) // every turn records the harness it ran on
     const read = () => {
       try {
         return adapter.parse(readFileSync(t.outFile, 'utf8'))
@@ -530,7 +554,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     for (const e of [...log.events]) {
       if (e.type !== 'lead.delivered' || answered.has(callKey(e.node, e.requestId))) continue
       const lead = state.nodes.get(e.node)
-      if (lead && !isFinal(lead)) send(lead, e.requestId, e.text, e.mode)
+      const agent = lead && !isFinal(lead) ? agentOf(state, lead) : undefined
+      // A lead whose agent is no longer available is failed by routeLead.
+      if (agent !== undefined && typeof agent !== 'string') send(lead!, agent, e.requestId, e.text, e.mode)
     }
   }
 
@@ -606,8 +632,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         if (n.spec.kind === 'lead' || n.spec.kind === 'gate' || inFlight.has(n.spec.id) || inFlight.size >= MAX_CONCURRENT) continue
         // `running` with nothing in flight: the node was running when the last supervisor stopped.
         if (n.status !== 'ready' && n.status !== 'running' && !(n.status === 'waiting' && n.inbox.length)) continue
-        const writing = !n.spec.readOnly
-        if (writing && [...inFlight.values()].some((f) => !f.spec.readOnly)) continue
+        // Every work and check node may write the shared workspace, so they run one at a time until worktrees land.
+        if (inFlight.size) continue
         const spec = n.spec
         const done = (spec.kind === 'check' ? runCheckNode(spec) : runWork(spec))
           .catch((err) => { if (!stopping) fail(spec.id, `supervisor error: ${(err as Error).message}`) })

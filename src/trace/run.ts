@@ -2,6 +2,8 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
+import { agentSpec } from '../agents.ts'
+import { childNode } from '../state.ts'
 import type { Event, GraphFile, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
@@ -36,16 +38,19 @@ export function readEvents(file: string): Event[] {
   return events
 }
 
-/** Nodes a lead's `spawn` call added: children of the calling lead, with the design's child defaults (a work
- * child runs on `claude`; a child lead uses its parent's model). */
+/** Nodes a lead's `spawn` call added: children of the calling lead, as the run state has them. */
 function spawned(e: Event, specOf: (id: string) => NodeSpec | undefined): NodeSpec[] {
   if (e.type !== 'lead.call' || !e.ok || e.call.tool !== 'spawn') return []
-  return e.call.children.map((c) => ({
-    ...c,
-    parent: e.node,
-    harness: c.kind === 'work' ? c.harness ?? 'claude' : c.harness,
-    model: c.kind === 'lead' ? c.model ?? specOf(e.node)?.model : c.model,
-  }))
+  const lead = specOf(e.node) ?? { id: e.node, kind: 'lead' }
+  return e.call.children.map((c) => childNode(c, lead))
+}
+
+/** The harness a turn ran on: recorded on the turn, else the runtime of its agent. */
+function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, graph: GraphFile | undefined): HarnessName | undefined {
+  if (e.harness) return e.harness
+  const name = e.agent ?? spec?.agent
+  const runs = name === undefined ? undefined : agentSpec(graph, name)?.runs
+  return runs === 'lead' ? undefined : runs
 }
 
 export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
@@ -57,7 +62,7 @@ export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
     if (e.type === 'node.added') specs.set(e.node.id, e.node)
     for (const spec of spawned(e, (id) => specs.get(id))) specs.set(spec.id, spec)
     if (e.type !== 'turn.started') continue
-    const harness = e.harness ?? specs.get(e.node)?.harness ?? graph?.harness
+    const harness = harnessOf(e, specs.get(e.node), graph)
     const file = resolve(runDir, e.outFile)
     turns[turnKey(e.node, e.turn)] = harness && existsSync(file)
       ? parseTurn(harness, readFileSync(file, 'utf8'))
@@ -71,7 +76,8 @@ export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
 export interface TurnView {
   turn: number
   mode: 'start' | 'resume'
-  harness?: HarnessName
+  /** The agent that ran the turn. */
+  agent?: string
   model?: string
   /** The brief on start, the delivered messages on resume, or a placeholder when neither was recorded. */
   prompt: string
@@ -201,8 +207,8 @@ export function viewRun(run: LoadedRun): RunView {
         node.turns.set(e.turn, {
           turn: e.turn,
           mode: e.mode,
-          harness: e.harness ?? node.spec.harness ?? view.graph?.harness,
-          model: parsed.model ?? node.spec.model ?? view.graph?.model,
+          agent: e.agent ?? node.spec.agent ?? e.harness,
+          model: parsed.model ?? node.spec.model ?? (e.agent ? agentSpec(view.graph, e.agent)?.model : undefined),
           prompt: e.prompt ?? (parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`),
           sessionId: parsed.sessionId,
           startedAt: e.at,

@@ -1,4 +1,5 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
+import type { childAgents } from './agents.ts'
 import type { InboxMessage, NodeState } from './state.ts'
 import type { NodeSpec } from './types.ts'
 
@@ -16,10 +17,14 @@ const fromLeads = (notes: string[]) => (notes.length ? [`Notes from your leads:\
 
 const messages = (inbox: InboxMessage[]) => inbox.map((m) => `Message from ${m.from}:\n${m.body}`)
 
-/** The first prompt of a work node, with its ancestors' notes and any messages already waiting. */
-export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = []): string {
+const standing = (instructions?: string) => (instructions?.trim() ? [`Your standing instructions:\n${instructions.trim()}`] : [])
+
+/** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes and any messages
+ * already waiting. */
+export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string): string {
   const parts = [
     `You are one worker on a larger goal.\n\nGoal: ${goal}`,
+    ...standing(instructions),
     `Your task (node ${node.id}):\n${node.brief ?? ''}`,
   ]
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
@@ -59,11 +64,11 @@ export function resultReminder(): string {
 
 // ---- Leads -------------------------------------------------------------------------------------
 
-/** A lead's first delivery. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[]): string {
+/** A lead's first delivery, with its agent's standing instructions and the agents its children may name. */
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, instructions?: string): string {
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
-  parts.push(`Your task:\n${node.brief ?? ''}`)
+  parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   parts.push(...fromLeads(notes), [
     'Split the task with spawn: work children are coding agents in the workspace, check children are shell',
@@ -72,7 +77,11 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[]): string
     'those siblings complete. Their outcomes and questions arrive as messages. Answer a child with send; record',
     'facts every child should know with note; ask your parent with escalate. Finish with complete or fail once',
     'no child is still working. End each turn with a short answer: the next message wakes you.',
-  ].join('\n'))
+  ].join('\n'), [
+    `Agents a child may name: for work children ${agents.work.join(', ') || 'none'}` +
+      (agents.defaultWork ? ` (default ${agents.defaultWork})` : ''),
+    `for lead children ${agents.lead.join(', ') || 'none'} (default: your own agent).`,
+  ].join('; '))
   return parts.join('\n\n') + '\n'
 }
 

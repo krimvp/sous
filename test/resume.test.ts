@@ -12,7 +12,7 @@ import type { Event, EventBody, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
-import { murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
+import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathname
@@ -21,7 +21,7 @@ const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'to
 function workspaceWith(nodes: NodeSpec[]) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
   const graph = join(workspace, 'graph.json')
-  writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', harness: 'claude', nodes }))
+  writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', agent: 'claude', nodes }))
   return { workspace, graph, sessions: join(workspace, 'sessions') }
 }
 
@@ -276,6 +276,21 @@ async function resumeWithin(workspace: string, sessions: string, ms: number) {
   clearTimeout(timer)
   return { code, output: resumed.output() }
 }
+
+test('a done result recorded before a crash settles the node on resume even when its agent is no longer available', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
+  const runDir = join(workspace, '.murm', 'runs', '20261011T000000Z-0000')
+  mkdirSync(runDir, { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'test', workspace })
+  log.append({ type: 'node.added', by: 'graph', node: { id: 'w', kind: 'work', brief: 'work', agent: 'claude' } })
+  log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', agent: 'claude', pid: 999_999_999, outFile: join(runDir, 'out'), errFile: join(runDir, 'err') })
+  log.append({ type: 'turn.ended', node: 'w', turn: 1, exitCode: 0, signal: null, result: { status: 'done', summary: 'work finished' } })
+  log.close()
+  const resume = murm(['resume'], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
+  assert.equal(await resume.exit, 0, resume.output())
+  assert.equal(fold(readEvents(runDir)).nodes.get('w')!.summary, 'work finished')
+})
 
 test('a check whose outcome was recorded before a crash is settled from it on resume, not run again', async () => {
   const { workspace, runDir, sessions } = runWith([{ id: 'c', kind: 'check', command: 'echo ran >> count; test $(wc -l < count) -eq 1' }])

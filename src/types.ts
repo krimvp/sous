@@ -18,18 +18,51 @@ export interface NodeSpec {
   command?: string
   /** Acceptance criteria shown to the agent in its brief. */
   acceptance?: string[]
-  harness?: HarnessName
+  /** Name of the agent that does this node: a built-in (`claude`, `codex`, `pi`, `lead`) or one the graph
+   * defines. Default: the first available worker agent; for leads, `lead`. */
+  agent?: string
+  /** Overrides the agent's model for this node. */
   model?: string
-  /** Promise that the node changes no files; such nodes may run concurrently. Default false. */
-  readOnly?: boolean
+  /** A standing node is an independent agent of the run (the integrator): it takes requests through its
+   * inbox, goes idle between them, and never completes on its own. Internal; not allowed in graph files. */
+  standing?: boolean
 }
+
+/** How an agent runs: a CLI harness, or an in-process durable lead. */
+export type AgentRuntime = HarnessName | 'lead'
+
+/** An agent: the unit that does work. The harness is only how it runs. */
+export interface AgentSpec {
+  runs: AgentRuntime
+  /** For CLI harnesses the harness's model name; for leads `provider/model`. */
+  model?: string
+  /** Standing instructions added to every brief this agent receives. */
+  instructions?: string
+}
+
+/** Agents that exist without being defined. */
+export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = {
+  claude: { runs: 'claude' },
+  codex: { runs: 'codex' },
+  pi: { runs: 'pi' },
+  lead: { runs: 'lead' },
+}
+
+/** When nothing names an agent, the first available one in these lists is used. A graph that defines an
+ * agent named `integrator` overrides the integrator choice. */
+export const WORKER_AGENT_PREFERENCE = ['claude', 'codex', 'pi'] as const
+export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
+
+/** Node ID and agent name reserved for the run's integrator. */
+export const INTEGRATOR = 'integrator'
 
 /** A graph file for `murm run`. Top-level nodes are children of the implicit root. */
 export interface GraphFile {
   goal: string
-  /** Defaults for nodes that do not set them. */
-  harness?: HarnessName
-  model?: string
+  /** Default agent for work nodes that do not name one. */
+  agent?: string
+  /** Agents this graph defines, by name. A name may shadow a built-in. */
+  agents?: Record<string, AgentSpec>
   nodes: NodeSpec[]
 }
 
@@ -126,8 +159,8 @@ export interface ChildSpec {
   acceptance?: string[]
   /** Earlier siblings (children of the same lead) that must complete first. */
   needs?: string[]
-  harness?: HarnessName
-  /** For work nodes the harness's model; for leads `provider/model`. */
+  /** Agent name, as for nodes. */
+  agent?: string
   model?: string
 }
 
@@ -175,7 +208,7 @@ export type EventBody =
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
-  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
+  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
@@ -195,6 +228,18 @@ export type EventBody =
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
   /** `murm resume` took over a run whose supervisor had stopped. */
   | { type: 'run.resumed' }
+  /** The run's integration branch and worktree, created before the first writing node starts. */
+  | { type: 'integration.created'; branch: string; path: string; base: string }
+  /** A node's own worktree and branch, created from the integration branch at `base` (a commit). */
+  | { type: 'worktree.created'; node: string; branch: string; path: string; base: string }
+  /** A finished node's branch joined the merge queue. */
+  | { type: 'merge.queued'; node: string; branch: string }
+  /** A clean merge failed (conflict, or the check after the merge failed) and went to the integrator. */
+  | { type: 'merge.conflict'; node: string; reason: string; files: string[] }
+  /** The node's work is on the integration branch at `commit`. `nothing` when its branch had no changes. */
+  | { type: 'merge.done'; node: string; commit: string; by: 'supervisor' | 'integrator' | 'nothing' }
+  /** The integrator could not merge it; the node fails and its parent is told. */
+  | { type: 'merge.failed'; node: string; reason: string }
   | { type: 'run.completed'; summary: string }
   | { type: 'run.failed'; reason: string }
 
