@@ -53,7 +53,7 @@ continued to `c`. The resubmitted goal reused the existing submission (the goal 
 
 ```bash
 cd spikes/pi-durable && npm install
-./run.sh faux     # no model needed
+./run.sh faux     # no model needed, but ~/.pi/agent/auth.json must exist
 ./run.sh real     # uses your Pi login for openai-codex
 ./run.sh ollama:deepseek-v4.1-flash   # uses your Pi login for ollama-cloud
 ```

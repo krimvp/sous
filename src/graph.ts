@@ -1,10 +1,9 @@
 // Load and validate a graph file or an agents file for `murm run`, and lead children.
 import { readFileSync } from 'node:fs'
-import { agentNames, agentSpec, modelError } from './agents.ts'
+import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
 import { INTEGRATOR, PERSON, ROOT } from './types.ts'
 import type { AgentRuntime, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
 
-const RUNTIMES: AgentRuntime[] = ['claude', 'codex', 'pi', 'lead']
 const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const DEFINITION_KEYS = ['agent', 'agents', 'models']
 const GRAPH_KEYS = ['goal', 'nodes', ...DEFINITION_KEYS]
@@ -15,7 +14,7 @@ const PROVIDER_MODEL = /^[^/\s]+\/\S+$/
 const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'agent', 'model']
 const RESERVED = [ROOT, PERSON, INTEGRATOR]
 // IDs name directories under nodes/, so keep them to safe file-name characters.
-export const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
+const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
 
 export function loadGraph(path: string): GraphFile {
   return validateGraph(readJson(path, 'graph'))
@@ -56,7 +55,7 @@ export function validateGraph(raw: unknown): GraphFile {
     if (RESERVED.includes(node.id)) throw new Error(`${where}: id ${node.id} is reserved`)
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
-    if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files (v0 graphs are flat)`)
+    if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files: their nodes are top-level`)
     if (!KINDS.includes(node.kind)) throw new Error(`${where}: kind must be work, check, lead or gate`)
     if (node.needs !== undefined && !(Array.isArray(node.needs) && node.needs.every((n) => typeof n === 'string'))) {
       throw new Error(`${where}: needs must be an array of node ids`)
@@ -120,20 +119,20 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
 }
 
 /** Why a node of `kind` may not name `agent`, if it may not. A work node needs a worker agent, a lead a lead agent. */
-export function agentError(graph: Pick<Definitions, 'agents'> | undefined, kind: string, agent: unknown): string | undefined {
+function agentError(defs: Pick<Definitions, 'agents'> | undefined, kind: string, agent: unknown): string | undefined {
   if (agent === undefined) return undefined
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   if (typeof agent !== 'string') return 'agent must be a string'
-  const spec = agentSpec(graph, agent)
-  if (!spec) return `unknown agent ${agent} (known: ${agentNames(graph).join(', ')})`
+  const spec = agentSpec(defs, agent)
+  if (!spec) return `unknown agent ${agent} (known: ${agentNames(defs).join(', ')})`
   if (kind === 'lead' && spec.runs !== 'lead') return `agent ${agent} runs ${spec.runs}; a lead needs an agent that runs lead`
   if (kind !== 'lead' && spec.runs === 'lead') return `agent ${agent} runs lead; a ${kind} node needs a worker agent`
   return undefined
 }
 
-/** Why a lead's child spec is invalid, if it is. `siblings` are the IDs it may name in `needs`; `graph` holds the run's
+/** Why a lead's child spec is invalid, if it is. `siblings` are the IDs it may name in `needs`; `defs` holds the run's
  * agents, those leads defined so far included, and its model lists. */
-export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], graph?: Definitions): string | undefined {
+export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], defs?: Definitions): string | undefined {
   if (!isObject(c)) return 'must be an object'
   if (typeof c.id !== 'string' || !ID.test(c.id) || RESERVED.includes(c.id)) return `id must match ${ID} and not be ${RESERVED.join(', ')}`
   if (used(c.id)) return 'id is already used'
@@ -141,10 +140,10 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; spawn a check child for a deterministic gate'
   if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
   if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
-  const agent = isObject(c.agent) ? newAgentError(graph, c.kind, c.agent) : agentError(graph, c.kind, c.agent)
+  const agent = isObject(c.agent) ? newAgentError(defs, c.kind, c.agent) : agentError(defs, c.kind, c.agent)
   if (agent) return agent
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
-  const model = childModelError(graph, c)
+  const model = childModelError(defs, c)
   if (model) return model
   if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
   if (c.needs !== undefined && !(Array.isArray(c.needs) && c.needs.every((n) => siblings.includes(n)))) return 'needs may name only earlier siblings'
@@ -152,28 +151,28 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
 }
 
 /** Why a child of `kind` may not define the agent `d`, if it may not. */
-function newAgentError(graph: Definitions | undefined, kind: string, d: Record<string, any>): string | undefined {
+function newAgentError(defs: Definitions | undefined, kind: string, d: Record<string, any>): string | undefined {
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   const extra = Object.keys(d).filter((k) => !NEW_AGENT_KEYS.includes(k))
   if (extra.length) return `agent: unknown field ${extra.join(', ')}`
   if (typeof d.name !== 'string' || !ID.test(d.name) || d.name === INTEGRATOR) return `agent.name must match ${ID} and not be ${INTEGRATOR}`
-  if (agentSpec(graph, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
+  if (agentSpec(defs, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
   if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
   if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'
   if (kind !== 'lead' && d.runs === 'lead') return `a ${kind} node needs an agent that does not run lead`
   for (const key of ['model', 'instructions'] as const) if (d[key] !== undefined && typeof d[key] !== 'string') return `agent.${key} must be a string`
-  if (!graph?.models?.[d.runs as AgentRuntime]?.length) return `leads may not define agents on ${d.runs}: the run lists no ${d.runs} models`
-  return d.model === undefined ? undefined : modelError(graph, d.runs, d.model)
+  if (!defs?.models?.[d.runs as AgentRuntime]?.length) return `leads may not define agents on ${d.runs}: the run lists no ${d.runs} models`
+  return d.model === undefined ? undefined : modelError(defs, d.runs, d.model)
 }
 
 /** Why a child may not choose `model`, if it may not: only for an agent it names, from the run's list for that agent's
  * runtime. A new agent carries its own model. */
-function childModelError(graph: Definitions | undefined, c: ChildSpec): string | undefined {
+function childModelError(defs: Definitions | undefined, c: ChildSpec): string | undefined {
   if (c.model === undefined) return undefined
   if (c.kind === 'check' || c.kind === 'gate') return `${c.kind} nodes have no model`
   if (isObject(c.agent)) return 'set the model of a new agent in it, as agent.model'
   if (c.agent === undefined) return 'a model needs a named agent: name the agent it applies to'
-  return modelError(graph, agentSpec(graph, c.agent)!.runs, c.model)
+  return modelError(defs, agentSpec(defs, c.agent)!.runs, c.model)
 }
 
 function isText(value: unknown): boolean {
@@ -203,7 +202,7 @@ function findCycle(nodes: NodeSpec[], byId: Map<string, NodeSpec>): string[] | u
   return undefined
 }
 
-function unknownKeys(obj: Record<string, unknown>, allowed: string[], where: string): void {
+function unknownKeys(obj: Record<string, unknown>, allowed: readonly string[], where: string): void {
   const extra = Object.keys(obj).filter((k) => !allowed.includes(k))
   if (extra.length) throw new Error(`${where}: unknown field ${extra.join(', ')}`)
 }

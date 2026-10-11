@@ -1,4 +1,5 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
+import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
 import type { InboxMessage, NodeState } from './state.ts'
 import type { ModelLimits, NodeSpec } from './types.ts'
@@ -63,8 +64,6 @@ export function resultReminder(): string {
 }
 
 // ---- Leads -------------------------------------------------------------------------------------
-
-const RUNTIMES = ['claude', 'codex', 'pi', 'lead'] as const
 
 /** The runtimes a lead may define agents on, with their models, and the model overrides it may choose. */
 function models(limits: ModelLimits): string {

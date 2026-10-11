@@ -39,7 +39,7 @@ engine can be tested without a lead.
 | Term | Meaning |
 |---|---|
 | **Run** | One invocation of `murm run`: a goal, a tree of nodes, an event log in `<workspace>/.murm/runs/<run-id>/`. |
-| **Node** | One unit of work in the tree. Has a kind, a brief, acceptance criteria, a parent and a budget. |
+| **Node** | One unit of work in the tree. Has a kind, a brief, acceptance criteria, a parent and an agent. |
 | **Turn** | One execution of a node: a worker process from start to exit, or one lead call. Numbered per node. |
 | **Inbox** | Messages addressed to a node that have not yet been delivered to a turn. |
 | **Notes** | Short facts a lead records for its subtree. Every brief in that subtree includes its ancestors' notes. |
@@ -101,13 +101,15 @@ The run ends when the root node completes, fails, or is cancelled.
 
 ```ts
 interface WorkerAdapter {
+  name: HarnessName
   start(turn: TurnSpec): RunningTurn        // new session with a brief
   resume(turn: TurnSpec): RunningTurn       // existing session with a message
+  parse(raw: string): ParsedTurn            // a turn output file: trace items, usage, end marker, result
 }
 interface RunningTurn {
-  sessionId: Promise<string>                 // known up front for Claude and Pi; parsed from the stream for Codex
   pid: number                                // process-group leader
-  done: Promise<TurnResult>                  // structured result, parsed from the turn output file
+  sessionId: Promise<string>                 // known up front for Claude and Pi; parsed from the stream for Codex
+  exit: Promise<{ code, signal }>            // the process exited; the outcome is parsed from the output file
 }
 ```
 
@@ -161,20 +163,19 @@ Agents address nodes, not processes, and the supervisor is the only router.
   lead turn, resume an idle worker, queue for a running worker, or interrupt it.
 - **Escalation goes up a level.** The person is the root's parent: `murm answer <node> "…"`.
 
-Comitia is not used in v1: the supervisor is the only writer and already wakes everyone, which are the two
+Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
 things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
 later, when an agent the supervisor did not launch needs to take part.
 
-## Leads in v1
+## Leads
 
 The contracts are `ChildSpec`, `LeadCall`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
 events in `src/types.ts`.
 
-**Starting.** `murm run <graph.json | "goal">`: an argument naming an existing file is a graph file (v0
-behaviour, top-level nodes may now also be `lead`); anything else is a goal, which becomes one top-level
+**Starting.** `murm run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
+top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
-Agents). A lead's first delivery is its brief, with request ID
-`<node>:brief`.
+Agents). A lead's first delivery is its brief, with request ID `<node>:brief`.
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
 before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
@@ -191,7 +192,7 @@ settings:
 
 | Rule | Value |
 |---|---|
-| Lead depth (a top-level lead is depth 1) | at most 3, or `murm run --max-depth <n>` (1–8) for the run; each lead's brief states its depth and the limit |
+| Lead depth (a top-level lead is depth 1) | at most 3 by default, or `murm run --max-depth <n>` (1–8) for the run; each lead's brief states its depth and the limit |
 | Children per lead, over its lifetime | at most 12 |
 | `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
 | `cancel` targets | the lead's own children |
@@ -234,8 +235,7 @@ An **agent** is what does work; a harness is only how an agent runs. An agent ha
 every brief it receives (`AgentSpec` in `src/types.ts`).
 
 - **Built-in agents** `claude`, `codex`, `pi` and `lead` exist without being defined. A graph file may define
-  more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`;
-  `harness` is gone from graph files and lead tools.
+  more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
@@ -243,7 +243,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included, with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
-  `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the harness: `runs` must be a runtime
+  `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the runtime: `runs` must be a runtime
   the run lists models for (see Model limits), and `model` one of them, by default the first. The agent has exactly
   the instructions the lead gives; nothing is inherited. `name` is a valid id that no built-in, defined or
   lead-defined agent has, and not `integrator`. The accepted `lead.call` spawn defines it in the fold, atomically
@@ -269,9 +269,9 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 
 ## Merging
 
-Every `work` node runs in its own git worktree, so writers run in parallel (up to the concurrency limit) and
-`readOnly` is gone. The workspace must be a git repository with at least one commit; when it is not, the run
-fails with that reason before the first work or check node starts.
+Every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The workspace
+must be a git repository with at least one commit; when it is not, the run fails with that reason before the first
+work or check node starts.
 
 1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
    `murm/<run>` from the workspace's `HEAD` and its worktree in `.murm/runs/<run>/integration/`
@@ -383,7 +383,7 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   a copy of the result schema with optional fields required but nullable, and drops the nulls.
 - A Codex `turn.failed` ends a turn without a result. A Pi `agent_end` with `willRetry: true` is not the end
   of the turn; only the final one is.
-- v0 workers run with full permissions in the workspace: Claude `--permission-mode bypassPermissions`,
+- Workers run with full permissions in their worktree: Claude `--permission-mode bypassPermissions`,
   Codex `-s danger-full-access`, Pi's default tools.
 
 ## Traces: ATIF and Langfuse
@@ -393,7 +393,7 @@ from them, so traces can move between tools later.
 
 ### ATIF (Harbor RFC 0001, ATIF-v1.8)
 
-`murm export atif <run>` writes one ATIF document per run:
+`murm export atif [run-id]` writes one ATIF document per run, to `.murm/runs/<id>/trace.atif.json`:
 
 - The root trajectory is the supervisor's view of the root node. Supervisor decisions and lead tool
   calls are `agent` steps with `llm_call_count: 0` when no model was involved; lead model calls carry
@@ -407,12 +407,13 @@ from them, so traces can move between tools later.
   step.
 - Murmuration-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
-- Validate with Harbor's validator (`python -m harbor.utils.trajectory_validator`) in a test that is skipped
-  when Harbor is not installed. Harbor emits `ATIF-v1.7` itself; target v1.8 and fall back if needed.
+- Tests check every document with a strict checker of the subset Murmuration emits (`test/atif-checker.ts`),
+  and with Harbor's validator (`python -m harbor.utils.trajectory_validator`) when Harbor is installed
+  (`HARBOR_PYTHON`).
 
 ### Langfuse (OTLP/HTTP)
 
-`murm export otlp <run>` (and optionally live export during a run) posts OTLP JSON to
+`murm export otlp [run-id]` posts OTLP JSON to
 `$LANGFUSE_HOST/api/public/otel/v1/traces` with plain `fetch`:
 
 - Header `Authorization: Basic base64(pk:sk)` and `x-langfuse-ingestion-version: 4`.
@@ -432,14 +433,17 @@ run or an older one.
 
 ```
 <workspace>/.murm/runs/<run-id>/
-  run.json             goal, settings, created at
+  run.json             goal, workspace, graph or agents file, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
+  commands/            command files from murm answer, approve and cancel, until processed
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
+  leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git worktree of branch murm/<run-id>, where merges and check nodes run
   worktrees/<node-id>/ git worktree of branch murm/<run-id>.<node-id> for a work node
+  trace.atif.json      written by murm export atif
 ```
 
 ## Implementation
@@ -456,7 +460,8 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
 | **v1** (done) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
 | **v2** (done) | `murm resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
-| **v3** (in progress) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `murm/<run>`, one real conflict resolved by the integrator |
+| **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `murm/<run>`, one real conflict resolved by the integrator |
+| **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -487,7 +492,15 @@ rewrite line 1 of a seeded file. The first merged cleanly; the second conflicted
 resolved it in the integration worktree; `murm/<run>` held both lines, the person's checkout was untouched, and
 Harbor's validator accepted the exported ATIF file. Codex first committed the merge with the conflict markers
 still in it (its edit command failed) and fixed the file in a second commit. Verification checks the final
-state, not each commit; since that run it also rejects marker lines left in the conflicted files.
+state, not each commit; since that run it also rejects marker lines left in the conflicted files. Agent
+definitions and availability defaults were verified in two real runs: a graph agent's instructions reached its
+Pi worker, and a lead spawned a child naming agent `pi`.
+
+v4 was verified on 2026-10-11 with a real run (lead on `ollama-cloud/deepseek-v4.1-flash`, `--agents` with
+`{"models": {"pi": ["ollama-cloud/glm-5.2"]}}`): the lead defined `lowercase-poet` on `pi`, its worker ran on
+Pi with the lead's instructions in its prompt, the work merged, the check passed, and Harbor's validator
+accepted the ATIF file. A lead choosing a non-default listed model, and `--max-depth`, are covered by
+fake-runner tests only.
 
 ## Open questions
 

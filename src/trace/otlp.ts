@@ -26,7 +26,7 @@ const STATUS_ERROR = 2
 
 const hexId = (seed: string, length: number) => createHash('sha256').update(seed).digest('hex').slice(0, length)
 
-export const traceIdOf = (runId: string) => hexId(`murm:${runId}`, 32)
+const traceIdOf = (runId: string) => hexId(`murm:${runId}`, 32)
 
 const nanos = (iso: string) => (BigInt(Date.parse(iso)) * 1_000_000n).toString()
 

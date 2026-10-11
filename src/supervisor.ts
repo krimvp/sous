@@ -46,7 +46,7 @@ const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
 /** Times a supervisor stop may cut a node's turn short before the node fails. */
 const MAX_RECOVERIES = 3
-/** How often `<runDir>/commands/` is checked for `murm answer` and `murm cancel`. */
+/** How often `<runDir>/commands/` is checked for `murm answer`, `murm approve` and `murm cancel`. */
 const POLL_MS = 200
 /** Sender of the integrator's requests. */
 const SUPERVISOR = 'supervisor'
@@ -55,7 +55,7 @@ const SUPERVISOR = 'supervisor'
 export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'approve' | 'cancel'; node: string }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
-export function interrupt(pid: number, signal: NodeJS.Signals): void {
+function interrupt(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-pid, signal)
   } catch (err) {

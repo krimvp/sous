@@ -3,12 +3,13 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
+import { RUNTIMES } from '../agents.ts'
 import type { LeadCall, LeadHost } from '../types.ts'
 
 const strict = { additionalProperties: false }
 const NewAgent = Type.Object({
   name: Type.String({ description: 'A new agent name, unused in the run; later children may name it' }),
-  runs: StringEnum(['claude', 'codex', 'pi', 'lead'] as const, { description: 'A runtime your brief lets you define agents on' }),
+  runs: StringEnum(RUNTIMES, { description: 'A runtime your brief lets you define agents on' }),
   model: Type.Optional(Type.String({ description: 'A model your brief lists for that runtime; default: the first listed' })),
   instructions: Type.Optional(Type.String({ description: 'Standing instructions added to every brief the agent receives' })),
 }, strict)
