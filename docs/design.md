@@ -144,9 +144,9 @@ Its tools:
 | `cancel(node)` | cancel a child subtree |
 | `complete(summary)` / `fail(reason)` | finish this node |
 | `escalate(question)` | ask the parent (the root's parent is the person) |
-| `wait()` | end the turn; the lead is woken by the next event |
 
-Each tool call is validated against policy and appended as an event before the supervisor acts on it. The
+A lead ends its turn by answering, not with a tool; the next delivery wakes it. Each tool call is
+validated against policy and appended as an event before the supervisor acts on it. The
 supervisor's event log stays the source of truth for the tree; pi-durable holds only lead transcripts.
 
 ## Messaging across levels
@@ -164,6 +164,58 @@ Agents address nodes, not processes, and the supervisor is the only router.
 Comitia is not used in v1: the supervisor is the only writer and already wakes everyone, which are the two
 things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
 later, when an agent the supervisor did not launch needs to take part.
+
+## Leads in v1
+
+The contracts are `ChildSpec`, `LeadCall`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
+events in `src/types.ts`.
+
+**Starting.** `murm run <graph.json | "goal">`: an argument naming an existing file is a graph file (v0
+behaviour, top-level nodes may now also be `lead`); anything else is a goal, which becomes one top-level
+`lead` node with id `lead` and the goal as its brief. A lead's first delivery is its brief, with request ID
+`<node>:brief`.
+
+**Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
+before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
+
+- a child's outcome: completed with its summary, failed with its reason;
+- a question from a child (a worker's `needs_input` or `blocked` result, or a child lead's `escalate`);
+- a message sent to it by its parent or by the person (`murm answer`).
+
+`interrupt` deliveries steer a running lead; everything else is queued.
+
+**Tool calls.** `LeadHost.act` validates a call, appends one `lead.call` event and returns its result. The
+fold applies the effects. A repeated `callId` returns the recorded result. Limits are constants, not
+settings:
+
+| Rule | Value |
+|---|---|
+| Lead depth (a top-level lead is depth 1) | at most 3 |
+| Children per lead, over its lifetime | at most 12 |
+| `send` targets | the lead's own children, its parent lead, or `person` for a top-level lead |
+| `cancel` targets | the lead's own children |
+| `complete` / `fail` | refused while any child is pending or running |
+| Child defaults | harness `claude`; a child lead's model is its parent's |
+| `needs` | earlier siblings only, as in graph files |
+
+**Workers under a lead.** A worker's `needs_input` or `blocked` result goes to its parent (a lead, or the
+person for top-level nodes) and the worker waits. The next message in its inbox resumes the same session
+with the message. An `interrupt` message to a running worker stops its process group, records
+`turn.interrupted`, and resumes the session with the message. Notes from every ancestor lead are added to a
+child's brief.
+
+**Idle leads.** When a lead settles (`lead.turn`) with no running or pending children, no undelivered
+messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
+reminders without progress the lead fails.
+
+**The person.** Messages to `person` are printed by `murm run` and listed by `murm status`. `murm answer
+<node> "text"` and `murm cancel <node>` (from another terminal) write a command file in
+`<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event.
+The supervisor stays the only writer of the log.
+
+**Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
+Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
+calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
 ## Recovery
 
@@ -273,7 +325,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | Version | Scope | Done when |
 |---|---|---|
 | **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
-| **v1** | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
+| **v1** (in progress) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
 | **v2** | `murm resume` and crash recovery; worktree merge; `review` and `gate` nodes; budgets | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 
 ## Open questions

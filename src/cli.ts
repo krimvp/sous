@@ -91,6 +91,10 @@ function printEvent(e: Event): void {
     case 'node.completed': text = `${e.node}: ${e.summary}`; break
     case 'node.failed': text = `${e.node}: ${e.reason}`; break
     case 'message': text = `${e.from} -> ${e.to} (${e.mode})`; break
+    case 'lead.delivered': text = `${e.node} <- ${e.requestId} (${e.mode})`; break
+    case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
+    case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
+    case 'node.cancelled': text = `${e.node} by ${e.by}`; break
     case 'run.completed': text = e.summary; break
     case 'run.failed': text = e.reason; break
   }
