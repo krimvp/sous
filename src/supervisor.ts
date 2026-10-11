@@ -26,7 +26,7 @@ export interface SupervisorOptions {
   graceMs?: number
   /** `murm resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
   resume?: boolean
-  /** Agents found not available when the run started or resumed (`checkAgents`); default: none. */
+  /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
   unavailable?: Unavailable
 }
 
@@ -155,7 +155,7 @@ function accepted(call: LeadCall, parent: string): string {
 
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
   const { workspace, runDir, getAdapter } = opts
-  const unavailable = opts.unavailable ?? {}
+  const unavailable = opts.unavailable ?? { commands: [], leadProviders: [] }
   const graceMs = opts.graceMs ?? 5000
   const log = openLog(runDir, opts.onEvent, { takeOver: opts.resume })
   if (opts.resume) {
@@ -436,10 +436,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const runWork = async (spec: NodeSpec) => {
     const state = current()
     const node = state.nodes.get(spec.id)!
+    // A recorded result settles without the agent; only a new turn needs it to be available.
     const agent = agentOf(state, node)
-    if (typeof agent === 'string') return fail(spec.id, agent)
     let sessionId = node.turns.findLast((t) => t.sessionId)?.sessionId
-    const brief = () => composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox, agent.instructions)
+    const instructions = typeof agent === 'string' ? undefined : agent.instructions
+    const brief = () => composeBrief(state.goal, spec, workspace, notesFor(state, spec.id), node.inbox, instructions)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
     let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
@@ -457,7 +458,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     let reminded = false
     for (;;) {
       const turn = nodeNow(spec.id).turns.length + (recorded ? 0 : 1)
-      const t: { result?: TurnResult; sessionId?: string; check?: CheckState } = recorded ?? await runTurn(spec, agent, turn, prompt, sessionId, recovery)
+      let t: { result?: TurnResult; sessionId?: string; check?: CheckState }
+      if (recorded) t = recorded
+      else if (typeof agent === 'string') return fail(spec.id, agent)
+      else t = await runTurn(spec, agent, turn, prompt, sessionId, recovery)
       recorded = undefined
       recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return

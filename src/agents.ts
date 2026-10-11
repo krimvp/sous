@@ -3,7 +3,7 @@
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, WORKER_AGENT_PREFERENCE } from './types.ts'
-import type { AgentRuntime, AgentSpec, GraphFile, NodeSpec } from './types.ts'
+import type { AgentRuntime, AgentSpec, GraphFile, HarnessName, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
 export interface Agent {
@@ -13,12 +13,20 @@ export interface Agent {
   instructions?: string
 }
 
-/** Why each agent of a run is not available, by agent name. An available agent has no entry. */
-export type Unavailable = Record<string, string>
+/** What was missing when the run started or resumed: harness commands not on PATH, and lead providers without a
+ * Pi login credential. Only the providers a run's graph names (and the default lead model's) are checked; a lead child
+ * on another provider fails in the lead runner if it has no credential. */
+export interface Unavailable {
+  commands: string[]
+  leadProviders: string[]
+}
 
 type Agents = Pick<GraphFile, 'agents'> | undefined
+type Defaults = Pick<GraphFile, 'agents' | 'agent'> | undefined
 
+const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
+const providerOf = (model: string | undefined) => (model ?? DEFAULT_LEAD_MODEL).split('/')[0]
 
 /** The definition of agent `name`: the graph's, else the built-in one. */
 export function agentSpec(graph: Agents, name: string): AgentSpec | undefined {
@@ -31,18 +39,22 @@ export function agentNames(graph: Agents): string[] {
   return [...new Set([...Object.keys(BUILTIN_AGENTS), ...Object.keys(graph?.agents ?? {})])]
 }
 
-/** Check every agent the graph can use: a CLI agent needs its command on PATH, a lead agent a credential for its
- * model's provider. */
-export async function checkAgents(graph: Agents, hasLeadCredential: (provider: string) => Promise<boolean>): Promise<Unavailable> {
-  const unavailable: Unavailable = {}
-  for (const name of agentNames(graph)) {
-    const spec = agentSpec(graph, name)!
-    if (spec.runs === 'lead') {
-      const provider = (spec.model ?? DEFAULT_LEAD_MODEL).split('/')[0]
-      if (!(await hasLeadCredential(provider))) unavailable[name] = `no Pi login credential for ${provider}`
-    } else if (!onPath(spec.runs)) unavailable[name] = `${spec.runs} not found`
+/** Check which harness commands are on PATH, and which lead providers the graph names have a credential. */
+export async function checkAgents(graph: Pick<GraphFile, 'agents' | 'nodes'> | undefined, hasLeadCredential: (provider: string) => Promise<boolean>): Promise<Unavailable> {
+  const leads = agentNames(graph).map((name) => agentSpec(graph, name)!).filter((spec) => spec.runs === 'lead')
+  const models = [...leads.map((spec) => spec.model), ...(graph?.nodes ?? []).filter((n) => n.kind === 'lead').map((n) => n.model)]
+  const leadProviders: string[] = []
+  for (const provider of new Set([DEFAULT_LEAD_MODEL, ...models].map(providerOf))) {
+    if (!(await hasLeadCredential(provider))) leadProviders.push(provider)
   }
-  return unavailable
+  return { commands: HARNESSES.filter((command) => !onPath(command)), leadProviders }
+}
+
+/** Why an agent that runs `runs` on `model` cannot run, if it cannot. */
+export function whyUnavailable(runs: AgentRuntime, model: string | undefined, unavailable: Unavailable): string | undefined {
+  if (runs !== 'lead') return unavailable.commands.includes(runs) ? `${runs} not found` : undefined
+  const provider = providerOf(model)
+  return unavailable.leadProviders.includes(provider) ? `no Pi login credential for ${provider}` : undefined
 }
 
 function onPath(command: string): boolean {
@@ -57,34 +69,42 @@ function onPath(command: string): boolean {
   })
 }
 
-/** The agent for work nodes that name none: the graph's `agent`, else the first available preferred one. */
-export function defaultWorker(graph: Pick<GraphFile, 'agents' | 'agent'> | undefined, unavailable: Unavailable): string | undefined {
-  return graph?.agent ?? WORKER_AGENT_PREFERENCE.find((name) => !unavailable[name])
+/** Whether agent `name` runs a CLI harness that is available: what a default worker or the integrator must be. */
+function availableWorker(graph: Agents, name: string, unavailable: Unavailable): boolean {
+  const spec = agentSpec(graph, name)
+  return spec !== undefined && spec.runs !== 'lead' && !whyUnavailable(spec.runs, spec.model, unavailable)
 }
 
-/** The integrator's agent: the graph's `integrator` agent, else the first available preferred one. */
+/** The agent for work nodes that name none: the graph's `agent`, else the first available preferred worker. */
+export function defaultWorker(graph: Defaults, unavailable: Unavailable): string | undefined {
+  return graph?.agent ?? WORKER_AGENT_PREFERENCE.find((name) => availableWorker(graph, name, unavailable))
+}
+
+/** The integrator's agent: the graph's `integrator` agent unless it runs lead, else the first available preferred
+ * worker. */
 export function integratorAgent(graph: Agents, unavailable: Unavailable): string | undefined {
-  return own(graph?.agents, INTEGRATOR) ? INTEGRATOR : INTEGRATOR_AGENT_PREFERENCE.find((name) => !unavailable[name])
+  if (own(graph?.agents, INTEGRATOR) && graph!.agents![INTEGRATOR].runs !== 'lead') return INTEGRATOR
+  return INTEGRATOR_AGENT_PREFERENCE.find((name) => availableWorker(graph, name, unavailable))
 }
 
 /** The available agents a lead's children may name, by the kind of node they can do. */
-export function childAgents(graph: Pick<GraphFile, 'agents' | 'agent'> | undefined, unavailable: Unavailable) {
-  const names = agentNames(graph).filter((name) => !unavailable[name])
-  const runsLead = (name: string) => agentSpec(graph, name)!.runs === 'lead'
-  return { work: names.filter((n) => !runsLead(n)), lead: names.filter(runsLead), defaultWork: defaultWorker(graph, unavailable) }
+export function childAgents(graph: Defaults, unavailable: Unavailable) {
+  const specs = agentNames(graph).map((name) => [name, agentSpec(graph, name)!] as const)
+    .filter(([, spec]) => !whyUnavailable(spec.runs, spec.model, unavailable))
+  const names = (lead: boolean) => specs.filter(([, spec]) => (spec.runs === 'lead') === lead).map(([name]) => name)
+  return { work: names(false), lead: names(true), defaultWork: defaultWorker(graph, unavailable) }
 }
 
 /** The agent that does `node`: the one it names, else the default for its kind. Throws a reason the node fails with
- * when that agent is unknown, cannot do this kind of node, or is not available. */
-export function agentFor(graph: Pick<GraphFile, 'agents' | 'agent'> | undefined, node: Pick<NodeSpec, 'kind' | 'agent' | 'model'>, unavailable: Unavailable): Agent {
+ * when that agent is unknown, cannot do this kind of node, or is not available with the node's model. */
+export function agentFor(graph: Defaults, node: Pick<NodeSpec, 'kind' | 'agent' | 'model'>, unavailable: Unavailable): Agent {
   const name = node.agent ?? (node.kind === 'lead' ? 'lead' : defaultWorker(graph, unavailable))
-  if (name === undefined) {
-    throw new Error(`no worker agent is available (${WORKER_AGENT_PREFERENCE.map((n) => unavailable[n]).join(', ')})`)
-  }
+  if (name === undefined) throw new Error(`no worker agent is available (not found: ${unavailable.commands.join(', ')})`)
   const spec = agentSpec(graph, name)
   if (!spec) throw new Error(`unknown agent ${name}`)
   if ((spec.runs === 'lead') !== (node.kind === 'lead')) throw new Error(`agent ${name} runs ${spec.runs} and cannot do a ${node.kind} node`)
-  if (unavailable[name]) throw new Error(`agent ${name} is not available (${unavailable[name]})`)
   const model = node.model ?? spec.model
+  const why = whyUnavailable(spec.runs, model, unavailable)
+  if (why) throw new Error(`agent ${name} is not available (${why})`)
   return { name, runs: spec.runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }
 }

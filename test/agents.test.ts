@@ -4,21 +4,31 @@ import { checkAgents, integratorAgent } from '../src/agents.ts'
 import { fakeBin } from './fixtures/murm-proc.ts'
 
 test('the integrator is the graph\'s integrator agent, else the first available of codex, claude, pi', () => {
-  const none = { codex: 'codex not found', claude: 'claude not found', pi: 'pi not found' }
+  const missing = (...commands: string[]) => ({ commands, leadProviders: [] })
+  const none = missing('codex', 'claude', 'pi')
   assert.equal(integratorAgent({ agents: { integrator: { runs: 'pi', instructions: 'Merge carefully.' } } }, none), 'integrator')
-  assert.equal(integratorAgent(undefined, {}), 'codex')
-  assert.equal(integratorAgent({ agents: { reviewer: { runs: 'codex' } } }, { codex: 'codex not found' }), 'claude')
-  assert.equal(integratorAgent(undefined, { codex: 'codex not found', claude: 'claude not found' }), 'pi')
+  assert.equal(integratorAgent(undefined, missing()), 'codex')
+  assert.equal(integratorAgent({ agents: { reviewer: { runs: 'codex' } } }, missing('codex')), 'claude')
+  assert.equal(integratorAgent(undefined, missing('codex', 'claude')), 'pi')
   assert.equal(integratorAgent(undefined, none), undefined)
 })
 
-test('an agent is available when its command is on PATH, or for a lead when its provider has a credential', async () => {
+test('the integrator pick skips an agent that runs lead, even a defined integrator', () => {
+  const nothing = { commands: [], leadProviders: [] }
+  assert.equal(integratorAgent({ agents: { codex: { runs: 'lead' } } }, nothing), 'claude')
+  assert.equal(integratorAgent({ agents: { integrator: { runs: 'lead' } } }, nothing), 'codex')
+})
+
+test('checkAgents finds the commands missing from PATH and the lead providers the graph names without a credential', async () => {
   const path = process.env.PATH
   process.env.PATH = fakeBin(['pi'])
   try {
-    const graph = { agents: { planner: { runs: 'lead' as const, model: 'openai-codex/gpt-5.5' }, quick: { runs: 'pi' as const } } }
+    const graph = {
+      agents: { planner: { runs: 'lead' as const, model: 'openai-codex/gpt-5.5' }, quick: { runs: 'pi' as const } },
+      nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
+    }
     const unavailable = await checkAgents(graph, async (provider) => provider === 'ollama-cloud')
-    assert.deepEqual(unavailable, { claude: 'claude not found', codex: 'codex not found', planner: 'no Pi login credential for openai-codex' })
+    assert.deepEqual(unavailable, { commands: ['claude', 'codex'], leadProviders: ['openai-codex', 'other'] })
   } finally {
     process.env.PATH = path
   }

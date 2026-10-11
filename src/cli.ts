@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, checkAgents } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, whyUnavailable } from './agents.ts'
 import type { Unavailable } from './agents.ts'
 import { loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
@@ -124,9 +124,10 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
 /** Check which agents can run, once per run start, and print it. */
 async function agents(graph: GraphFile | undefined, deps: CliDeps): Promise<Unavailable> {
   const unavailable = await checkAgents(graph, deps.hasLeadCredential)
+  const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
   const names = agentNames(graph)
-  const missing = names.filter((n) => unavailable[n]).map((n) => `${n} (${unavailable[n]})`)
-  console.log(`agents: ${names.filter((n) => !unavailable[n]).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
+  console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
   return unavailable
 }
 

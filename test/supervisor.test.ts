@@ -149,7 +149,7 @@ test('a node whose agent is not available fails with the reason; a node without 
   const { outcome, state, started } = await runGraph([
     work('a', [{ result: done('a') }], { agent: 'claude' }),
     work('b', [{ result: done('b') }], { agent: undefined }),
-  ], undefined, { unavailable: { claude: 'claude not found' } })
+  ], undefined, { unavailable: { commands: ['claude'], leadProviders: [] } })
   assert.equal(outcome, 'failed')
   assert.equal(state.nodes.get('a')!.reason, 'agent claude is not available (claude not found)')
   assert.equal(state.nodes.get('a')!.turns.length, 0)
