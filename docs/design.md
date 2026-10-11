@@ -153,7 +153,7 @@ Its tools:
 mode (the workspace as committed plus the work merged so far; paths relative to it) and, in folder mode, `workspace/`
 (the inputs) and `results/` (the output folder). Real paths are checked: anything outside these roots, through `..` or
 a symbolic link, is refused. Listings are recursive, leave out `.git`, `.sous` and `node_modules`, and stop at 200
-entries; a read returns at most 32 KB of text (`offset` reads on) and refuses files with NUL bytes. Each read is
+entries; a read takes regular files only (a FIFO or device is refused without opening it blocking) and returns at most 32 KB of text (`offset` reads on) and refuses files with NUL bytes. Each read is
 recorded as `lead.read` with its path and byte count, not its text, and shows in the traces as a tool call.
 
 A lead ends its turn by answering, not with a tool; the next delivery wakes it. Each tool call is
@@ -234,7 +234,8 @@ it as an approval request and `sous status` lists it. `sous approve <gate>` comp
 by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
 told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
 
-**Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
+**Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
+several top-level nodes its summary names each top-level lead that completed with failed checks.
 A lead may complete over a failed check child (its judgment), but it is recorded: a check child counts as failed
 when it failed (not cancelled) and no check child added after it passed. The fold keeps these on the lead
 (`failedChecks`, derived from the `complete` call's place in the log), the call's result says "completed with failed
@@ -352,10 +353,14 @@ For non-code work and machines without git. Nothing runs git.
 2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
    (not `.git`, `.sous`, `node_modules` or symbolic links, so not the two links) are copied into the output folder by relative path. A file
    that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
-   different file is there, both are kept: the new one is written as `<name>.<node>.<ext>`. Then `merge.done`
-   (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead hears both.
-3. **Nothing git-specific applies:** no integrator, no conflict markers, no withdrawal from the queue, no reset. A
-   collection that fails (for example, a full disk) is `merge.failed`.
+   different file is there, both are kept: the new one gets the first of `<name>.<node>.<ext>`, `<name>.<node>-2.<ext>`,
+   … that is free or already holds the same content, so nothing in the results is ever replaced and resume picks the
+   same name. Each copy is staged in `.sous/runs/<run>/staging/` (created exclusively) and renamed into place. Then
+   `merge.done` (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead
+   hears both. As in git mode, a node with messages waiting when its turn comes leaves the queue (`merge.withdrawn`),
+   its worker resumes with them, and it queues again when done.
+3. **Nothing else git-specific applies:** no integrator, no conflict markers, no reset. A collection that fails (for
+   example, a full disk) is `merge.failed`.
 4. **The result** is the output folder; `sous status` and the end of `sous run` name it.
 
 ## Recovery
@@ -484,6 +489,7 @@ run or an older one.
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node
   output/              folder mode: the results, where collected files land
   work/<node-id>/      folder mode: a work or check node's own folder, with links workspace and results
+  staging/             folder mode: where a file being collected is copied before it is renamed into output/
   trace.atif.json      written by sous export atif
 ```
 

@@ -49,7 +49,7 @@ Anywhere else, or without git, sous uses folder mode on its own; good for resear
 documents. Each worker and check runs in a folder of its own where `workspace/` (your files) and `results/` (the
 results so far) are links, the same names the lead reads by. Workers write their files at the top of their folder,
 and these are collected into `.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
-first as `<name>.<node>.<ext>`. Your files are only read; `sous status` names the output folder. A lead may
+first as `<name>.<node>.<ext>` (or `<name>.<node>-2.<ext>`, …); nothing in the results is replaced. Your files are only read; `sous status` names the output folder. A lead may
 complete over a failed check, and then `sous run` and `sous status` say "completed with failed checks: …".
 
 Or give it a fixed graph file:

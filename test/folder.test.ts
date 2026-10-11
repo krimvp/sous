@@ -1,6 +1,7 @@
 // Folder mode (no git) end to end through real `sous` processes, and the leads' read-only file tools in both modes.
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -16,14 +17,14 @@ import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import type { FakeLeadStep } from './fixtures/fake-lead.ts'
 import { gitWorkspace } from './fixtures/git-repo.ts'
-import { fakeBin, sous } from './fixtures/sous-proc.ts'
+import { fakeBin, runDirOf, sous, waitFor } from './fixtures/sous-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[], needs?: string[]) =>
   ({ id, kind: 'work' as const, brief: `Do ${id}.\n${fakePlan(steps)}`, ...(needs ? { needs } : {}) })
 /** A PATH with a claude stand-in and the tools checks use, but no git: nothing in folder mode may run git. */
-const NO_GIT = fakeBin(['claude'], ['sh', 'grep', 'mkdir'])
+const NO_GIT = fakeBin(['claude'], ['sh', 'grep', 'mkdir', 'sleep'])
 const plainDir = (prefix: string) => mkdtempSync(join(tmpdir(), prefix))
 /** Every file under `dir`, relative, sorted. */
 const tree = (dir: string): string[] => (readdirSync(dir, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[])
@@ -224,12 +225,83 @@ test('a lead may complete over a failed check, and sous run and sous status say 
     { calls: [{ tool: 'complete', summary: 'checked' }] },
   ]
   const graph = join(workspace, 'graph.json')
-  writeFileSync(graph, JSON.stringify({ goal: 'check', nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }] }))
+  writeFileSync(graph, JSON.stringify({ goal: 'check', nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }, check('ok', 'true')] }))
   const run = sous(['run', graph], workspace, sessions, NO_GIT)
   assert.equal(await run.exit, 0, run.output())
   assert.match(run.output(), /lead\.call +lead complete: completed with failed checks: v3$/m)
-  assert.match(run.output(), /run\.completed +completed with failed checks: v3\. checked$/m)
+  // With several top-level nodes, the run's summary still names a top-level lead's failed checks.
+  assert.match(run.output(), /run\.completed +2 nodes completed; lead completed with failed checks: v3$/m)
   const status = sous(['status'], workspace, sessions, NO_GIT)
   assert.equal(await status.exit, 0)
   assert.match(status.output(), /^ {2}lead completed: completed with failed checks: v3\. checked$/m)
+})
+
+/** Writes a folder-mode run whose node `w` finished with `files` in its folder and is queued for collection. */
+function queuedRun(files: Record<string, string>) {
+  const workspace = plainDir('sous-folder-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  mkdirSync(join(runDir, 'work', 'w'), { recursive: true })
+  mkdirSync(join(runDir, 'output'), { recursive: true })
+  for (const [path, content] of Object.entries(files)) writeFileSync(join(runDir, 'work', 'w', path), content)
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace, mode: 'folder' })
+  log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'merge.queued', node: 'w' })
+  log.close()
+  return { workspace, runDir, output: join(runDir, 'output') }
+}
+
+test('collecting never replaces a file in the results: a taken alternate name moves on, and a temp-looking file or link stays as it is', async () => {
+  const { workspace, runDir, output } = queuedRun({ 'report.txt': 'mine\n', 'keep.txt': 'k\n' })
+  const outside = join(plainDir('sous-outside-'), 'target.txt')
+  writeFileSync(outside, 'outside\n')
+  writeFileSync(join(output, 'report.txt'), 'theirs\n')
+  writeFileSync(join(output, 'report.w.txt'), 'other\n')
+  symlinkSync(outside, join(output, 'keep.txt.sous-tmp'))
+  const resumed = sous(['resume'], workspace, plainDir('sous-sessions-'), NO_GIT)
+  assert.equal(await resumed.exit, 0, resumed.output())
+  assert.equal(readFileSync(join(output, 'report.w.txt'), 'utf8'), 'other\n')
+  assert.equal(readFileSync(join(output, 'report.w-2.txt'), 'utf8'), 'mine\n')
+  assert.equal(readFileSync(join(output, 'keep.txt'), 'utf8'), 'k\n')
+  assert.ok(lstatSync(join(output, 'keep.txt.sous-tmp')).isSymbolicLink())
+  assert.equal(readFileSync(outside, 'utf8'), 'outside\n')
+  const done = readEvents(runDir).flatMap((e) => (e.type === 'merge.done' ? [e] : []))
+  assert.deepEqual(done.map((e) => [e.files, e.renamed]), [[['keep.txt', 'report.w-2.txt'], { 'report.txt': 'report.w-2.txt' }]])
+})
+
+test('folder mode: a message to a worker waiting to be collected withdraws it, and its worker resumes with the message first', async () => {
+  const workspace = plainDir('sous-folder-')
+  const sessions = plainDir('sous-sessions-')
+  const graph = join(workspace, 'graph.json')
+  // The slow check holds the collection queue while the message arrives.
+  writeFileSync(graph, JSON.stringify({ goal: 'g', agent: 'claude', nodes: [
+    work('w', [{ write: { 'a.txt': 'a\n' }, result: done('wrote a') }, { write: { 'extra.txt': 'x\n' }, result: done('wrote extra') }]),
+    { id: 'slow', kind: 'check', command: 'sleep 3' },
+  ] }))
+  const run = sous(['run', graph], workspace, sessions, NO_GIT)
+  await waitFor(workspace, (e) => e.type === 'merge.queued' && e.node === 'w')
+  const answer = sous(['answer', 'w', 'Also write extra.txt.'], workspace, sessions, NO_GIT)
+  assert.equal(await answer.exit, 0, answer.output())
+  assert.equal(await run.exit, 0, run.output())
+  const events = readEvents(runDirOf(workspace)!)
+  assert.deepEqual(events.flatMap((e) => ('node' in e && e.node === 'w' && e.type.startsWith('merge.') ? [e.type] : [])),
+    ['merge.queued', 'merge.withdrawn', 'merge.queued', 'merge.done'])
+  const collected = events.find((e) => e.type === 'merge.done')!
+  assert.deepEqual(collected.type === 'merge.done' && collected.files, ['a.txt', 'extra.txt'])
+  const w = fold(events).nodes.get('w')!
+  assert.match(JSON.parse(readFileSync(join(sessions, `${w.turns[0].sessionId}.json`), 'utf8')).prompts[1], /Message from person:\nAlso write extra\.txt\./)
+})
+
+test('read_file refuses a FIFO without blocking the supervisor', async () => {
+  const workspace = plainDir('sous-folder-')
+  execFileSync('mkfifo', [join(workspace, 'pipe')])
+  const graph = join(workspace, 'graph.json')
+  const lead: FakeLeadStep[] = [{ calls: [{ tool: 'read_file', path: 'workspace/pipe' }, { tool: 'complete', summary: 'looked' }] }]
+  writeFileSync(graph, JSON.stringify({ goal: 'g', nodes: [{ id: 'lead', kind: 'lead', brief: fakeLeadPlan(lead) }] }))
+  const run = sous(['run', graph], workspace, plainDir('sous-sessions-'), NO_GIT)
+  const timer = setTimeout(() => run.child.kill('SIGKILL'), 15_000)
+  const code = await run.exit
+  clearTimeout(timer)
+  assert.equal(code, 0, `the run did not finish: ${run.output()}`)
+  assert.deepEqual(results(fakeLeadRecords(runDirOf(workspace)!)), ['refused: workspace/pipe is not a regular file', 'completed'])
 })

@@ -592,10 +592,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     log.append({ type: 'merge.failed', node: id, reason })
   }
 
-  /** Folder mode: add a finished node's files to the output folder. Collecting again after a crash changes nothing. */
-  const collectFiles = (spec: NodeSpec) => {
+  /** Folder mode: add a finished node's files to the output folder. Collecting again after a crash changes nothing.
+   * Messages that arrived while it waited come first, as in git mode: it leaves the queue and its worker resumes. */
+  const collectFiles = (n: NodeState) => {
+    const { spec } = n
+    if (n.inbox.length) return void log.append({ type: 'merge.withdrawn', node: spec.id })
     try {
-      const { files, renamed } = collect(nodeFolder(spec.id), resultsDir(), spec.id)
+      const { files, renamed } = collect(nodeFolder(spec.id), resultsDir(), spec.id, join(runDir, 'staging'))
       log.append({ type: 'merge.done', node: spec.id, by: files.length ? 'supervisor' : 'nothing', files, ...(Object.keys(renamed).length ? { renamed } : {}) })
     } catch (err) {
       if (!stopping && !isFinal(nodeNow(spec.id))) log.append({ type: 'merge.failed', node: spec.id, reason: `supervisor error: ${(err as Error).message}` })
@@ -607,7 +610,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const n = [...current().nodes.values()].filter((n) => n.status === 'merging').sort((a, b) => a.merge!.queued - b.merge!.queued)[0]
     if (!n) return
     const { spec } = n
-    if (folder) return collectFiles(spec)
+    if (folder) return collectFiles(n)
     const { conflict } = n.merge!
     const branch = n.merge!.branch!
     const { path } = integrationTree()
@@ -828,7 +831,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!tasks().length && top.every(isFinal)) {
         const failed = top.filter((n) => n.status === 'failed').map((n) => n.spec.id)
         if (failed.length) log.append({ type: 'run.failed', reason: `failed nodes: ${failed.join(', ')}` })
-        else log.append({ type: 'run.completed', summary: top.length === 1 ? completedText(top[0]) : `${top.length} nodes completed` })
+        else {
+          const flagged = top.filter((n) => n.failedChecks?.length).map((n) => `${n.spec.id} completed with failed checks: ${n.failedChecks!.join(', ')}`)
+          log.append({ type: 'run.completed', summary: top.length === 1 ? completedText(top[0]) : [`${top.length} nodes completed`, ...flagged].join('; ') })
+        }
         continue
       }
 

@@ -1,6 +1,6 @@
 // Plain files: collecting a work node's folder into the run's output folder (folder mode), and the leads' read-only look
 // at the workspace and the results so far.
-import { closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, symlinkSync } from 'node:fs'
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 
 /** Names that are never collected or listed (in a git worktree `.git` is a file). */
@@ -28,29 +28,46 @@ const sameFile = (path: string, data: Buffer) => {
 
 /** Copies every regular file under `from` into `into`, keeping its relative path. A file already there with the same
  * content is left as it is, so collecting again after a crash changes nothing. When a different file is there, both are
- * kept: this one is written as `<name>.<node><ext>` and listed in `renamed`. `files` are the paths in `into`. */
-export function collect(from: string, into: string, node: string): { files: string[]; renamed: Record<string, string> } {
+ * kept: this one gets the first of `<name>.<node><ext>`, `<name>.<node>-2<ext>`, … that is free or already holds the
+ * same content, and is listed in `renamed`. Nothing in `into` is ever replaced. Each copy is staged in `stage` (outside
+ * `into`) and renamed into place, so a crash never leaves half a file. `files` are the paths in `into`. */
+export function collect(from: string, into: string, node: string, stage: string): { files: string[]; renamed: Record<string, string> } {
   const files: string[] = []
   const renamed: Record<string, string> = {}
+  const base = realpathSync(into)
+  mkdirSync(stage, { recursive: true })
   for (const rel of filesUnder(from)) {
     const src = join(from, rel)
     const data = readFileSync(src)
+    const ext = extname(rel)
+    const stem = rel.slice(0, rel.length - ext.length)
     let target = rel
-    if (existsSync(join(into, rel)) && !sameFile(join(into, rel), data)) {
-      const ext = extname(rel)
-      target = `${rel.slice(0, rel.length - ext.length)}.${node}${ext}`
-      renamed[rel] = target
+    for (let k = 1; existsOrLink(join(into, target)) && !sameFile(join(into, target), data); k++) {
+      target = `${stem}.${node}${k === 1 ? '' : `-${k}`}${ext}`
     }
+    if (target !== rel) renamed[rel] = target
     const dest = join(into, target)
-    if (!sameFile(dest, data)) {
+    if (!existsOrLink(dest)) {
       mkdirSync(dirname(dest), { recursive: true })
-      // Copied whole, then renamed into place: a crash never leaves half a file in the results.
-      copyFileSync(src, `${dest}.sous-tmp`)
-      renameSync(`${dest}.sous-tmp`, dest)
+      const dir = realpathSync(dirname(dest))
+      if (dir !== base && !dir.startsWith(base + sep)) throw new Error(`${dirname(target)} in the results leads outside them`)
+      const staged = join(stage, 'collect.tmp')
+      rmSync(staged, { force: true })
+      copyFileSync(src, staged, constants.COPYFILE_EXCL)
+      renameSync(staged, dest)
     }
     files.push(target)
   }
   return { files, renamed }
+}
+
+const existsOrLink = (path: string) => {
+  try {
+    lstatSync(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Folder mode: the own folder of a work or check node, with the links `workspace` (to the inputs) and `results` (to the
@@ -132,11 +149,16 @@ export function listFiles(roots: Root[], path?: string): string {
  * A directory, or a file with NUL bytes (not text), is refused. */
 export function readText(roots: Root[], path: string, offset = 0): { text: string; bytes: number } {
   const { real } = locate(roots, path)
-  if (real === undefined || lstatSync(real).isDirectory()) throw new Error(`${path || 'the top level'} is a directory: use list_files`)
+  if (real === undefined || statSync(real).isDirectory()) throw new Error(`${path || 'the top level'} is a directory: use list_files`)
   if (!Number.isInteger(offset) || offset < 0) throw new Error('offset must be a whole number of bytes, 0 or more')
-  const fd = openSync(real, 'r')
+  const notFile = () => new Error(`${path} is not a regular file`)
+  if (!statSync(real).isFile()) throw notFile()
+  // Non-blocking, so a file swapped for a FIFO after the check cannot hang the supervisor; the descriptor is checked too.
+  const fd = openSync(real, constants.O_RDONLY | constants.O_NONBLOCK)
   try {
-    const size = fstatSync(fd).size
+    const stat = fstatSync(fd)
+    if (!stat.isFile()) throw notFile()
+    const size = stat.size
     if (offset > size) throw new Error(`offset ${offset} is past the end of ${path} (${size} bytes)`)
     // A few bytes past the limit, so the cut can move back to the start of a UTF-8 character.
     const buf = Buffer.alloc(Math.min(MAX_READ + 4, size - offset))
