@@ -27,7 +27,7 @@ const USAGE = `usage:
   sous answer <node> "text" [--workspace <dir>]
   sous approve <node> [--workspace <dir>]
   sous cancel <node> [--workspace <dir>]
-  sous send <to> "text"          (a worker of a running run, to a sibling or its lead)
+  sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {

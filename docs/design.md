@@ -558,8 +558,8 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 | **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
-| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree |
-| **v6** (done) | Worker messages: `send` to a sibling or the lead, through sous's MCP server or `sous send`; workers load no other MCP server | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
+| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
+| **v6** (done) | Worker messages: `send` to a sibling or the lead, through sous's MCP server or `sous send`; workers load no other MCP server | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi

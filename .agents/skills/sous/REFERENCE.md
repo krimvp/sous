@@ -10,7 +10,7 @@ sous answer <node> "text" [--workspace <dir>]
 sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
-sous send <to> "text"     (inside a worker: to a sibling or its lead; workers learn this from their brief)
+sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
