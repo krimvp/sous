@@ -125,3 +125,35 @@ export function abortMerge(path: string): void {
 export function head(path: string): string {
   return git(path, ['rev-parse', 'HEAD'])
 }
+
+/** When HEAD is the merge commit of `branch` (a merge that finished before a supervisor stop), the commit it
+ * merged onto. */
+export function mergedOnto(path: string, branch: string): string | undefined {
+  const second = run(path, ['rev-parse', '-q', '--verify', 'HEAD^2'])
+  if (second.status !== 0 || second.stdout.trim() !== git(path, ['rev-parse', branch])) return undefined
+  return git(path, ['rev-parse', 'HEAD^1'])
+}
+
+/** Whether tracked files have changes that are not committed. */
+export function hasUncommitted(path: string): boolean {
+  return git(path, ['status', '--porcelain', '--untracked-files=no']) !== ''
+}
+
+/** Drop a merge that could not be finished: abort it if in progress, and move the branch back to `commit`. */
+export function resetTo(path: string, commit: string): void {
+  if (mergeInProgress(path)) abortMerge(path)
+  git(path, ['reset', '-q', '--hard', commit])
+  git(path, ['clean', '-q', '-fd'])
+}
+
+/** Which of `files` (relative to the worktree) still hold conflict marker lines, of the size git uses for each file
+ * (`conflict-marker-size` in .gitattributes, else 7). A deleted file has none. */
+export function withConflictMarkers(path: string, files: string[]): string[] {
+  return files.filter((file) => {
+    if (!existsSync(join(path, file))) return false
+    // Git uses the attribute only when it is a positive integer; otherwise (unset, invalid, 0, negative) 7.
+    const size = Number(git(path, ['check-attr', 'conflict-marker-size', '--', file]).split(': ').at(-1))
+    const n = Number.isInteger(size) && size > 0 ? size : 7
+    return new RegExp(`^(<{${n}}|\\|{${n}}|={${n}}|>{${n}})( |$)`, 'm').test(readFileSync(join(path, file), 'utf8'))
+  })
+}

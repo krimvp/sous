@@ -10,6 +10,7 @@ import { openLog, readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import type { Event, EventBody, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
+import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
 import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
@@ -19,7 +20,7 @@ const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathnam
 const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
 
 function workspaceWith(nodes: NodeSpec[]) {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
+  const workspace = gitWorkspace('murm-resume-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({ goal: 'write a greeting', agent: 'claude', nodes }))
   return { workspace, graph, sessions: join(workspace, 'sessions') }
@@ -251,7 +252,7 @@ test("murm cancel rejects a lead's gate child, and the lead hears it", async () 
 
 /** A run directory with these nodes (and events) in <workspace>/.murm/runs/, for `murm resume`. */
 function runWith(nodes: NodeSpec[], more: EventBody[] = []) {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
+  const workspace = gitWorkspace('murm-resume-')
   const runDir = join(workspace, '.murm', 'runs', 'r')
   mkdirSync(join(runDir, 'commands'), { recursive: true })
   const log = openLog(runDir)
@@ -278,7 +279,7 @@ async function resumeWithin(workspace: string, sessions: string, ms: number) {
 }
 
 test('a done result recorded before a crash settles the node on resume even when its agent is no longer available', async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-resume-'))
+  const workspace = gitWorkspace('murm-resume-')
   const runDir = join(workspace, '.murm', 'runs', '20261011T000000Z-0000')
   mkdirSync(runDir, { recursive: true })
   const log = openLog(runDir)
@@ -298,7 +299,7 @@ test('a check whose outcome was recorded before a crash is settled from it on re
   assert.equal(fold(readEvents(runDir)).nodes.get('c')!.status, 'running')
   const resumed = await resumeWithin(workspace, sessions, 5000)
   assert.equal(resumed.code, 0, resumed.output)
-  assert.equal(readFileSync(join(workspace, 'count'), 'utf8'), 'ran\n')
+  assert.equal(readFileSync(join(runDir, 'integration', 'count'), 'utf8'), 'ran\n')
   assert.equal(fold(readEvents(runDir)).nodes.get('c')!.summary, 'check passed')
 })
 

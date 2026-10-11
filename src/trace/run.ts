@@ -233,6 +233,13 @@ export function viewRun(run: LoadedRun): RunView {
       case 'node.failed':
         Object.assign(node, { status: 'failed', outcome: e.reason })
         break
+      // A work node completes, or fails, with its merge.
+      case 'merge.done':
+        Object.assign(node, { status: 'completed', outcome: [...node.turns.values()].findLast((t) => t.ended?.result)?.ended?.result?.summary ?? 'merged' })
+        break
+      case 'merge.failed':
+        Object.assign(node, { status: 'failed', outcome: `merge failed: ${e.reason}` })
+        break
       case 'lead.call': {
         // A call's effects follow from the call itself; a refused call changed nothing.
         if (!e.ok) break

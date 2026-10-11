@@ -99,6 +99,7 @@ async function run(arg: string, workspace: string, deps: CliDeps): Promise<numbe
   const outcome = await runSupervisor({
     workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
   })
+  printResult(runDir)
   if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
   return outcome === 'completed' ? 0 : 1
 }
@@ -117,8 +118,15 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
     workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
     resume: true, unavailable,
   })
+  printResult(runDir)
   if (outcome === 'interrupted') console.log(`stopped; continue with: murm resume ${id}`)
   return outcome === 'completed' ? 0 : 1
+}
+
+/** Names the branch that holds the run's merged work, once the run has one. */
+function printResult(runDir: string): void {
+  const branch = fold(readEvents(runDir)).integration?.branch
+  if (branch) console.log(`result: branch ${branch}`)
 }
 
 /** Check which agents can run, once per run start, and print it. */
@@ -177,6 +185,7 @@ function printEvent(e: Event): void {
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
     case 'merge.queued': text = `${e.node} ${e.branch}`; break
+    case 'merge.withdrawn': text = `${e.node}: messages arrived; its worker resumes`; break
     case 'merge.conflict': text = `${e.node}: ${e.reason}`; break
     case 'merge.done': text = `${e.node} ${e.commit} by ${e.by}`; break
     case 'merge.failed': text = `${e.node}: ${e.reason}`; break
@@ -214,6 +223,7 @@ function status(workspace: string, runId?: string): number {
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
   console.log(`run ${id} ${live}: ${state.goal}`)
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
+  if (state.integration) console.log(`  result: branch ${state.integration.branch}`)
   const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
   const print = (n: NodeState, depth: number) => {
     const turns = n.turns.length ? ` turns ${n.turns.length}` : ''

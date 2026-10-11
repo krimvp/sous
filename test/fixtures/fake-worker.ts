@@ -1,7 +1,7 @@
 // A scripted stand-in for a harness CLI. Reads the prompt on stdin and plays one step of the plan
 // found on a `FAKE_PLAN: {...}` line of the first prompt; the session file remembers the plan and
 // every prompt received, so a resumed session continues where it left off.
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -9,6 +9,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 export interface FakeStep {
   /** Files to write, relative to the working directory. */
   write?: Record<string, string>
+  /** A shell command to run in the working directory after writing. */
+  sh?: string
   /** Start a grandchild `sleep` (optionally ignoring SIGTERM) and write its pid to <session file>.grandchild. */
   spawnSleeper?: boolean | 'ignore-term'
   /** Sleep before printing the result. */
@@ -30,6 +32,7 @@ writeFileSync(sessionFile, JSON.stringify(session))
 const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
 for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)
+if (step.sh) spawnSync('sh', ['-c', step.sh], { stdio: 'ignore' })
 if (step.spawnSleeper) {
   const pidFile = sessionFile + '.grandchild'
   const trap = step.spawnSleeper === 'ignore-term' ? "trap '' TERM; " : ''

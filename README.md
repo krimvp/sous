@@ -33,6 +33,12 @@ Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~
 Code, else Codex, else Pi, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
+The workspace must be a git repository with at least one commit. Each work node runs in its own git worktree,
+in parallel with the others; when it is done its branch is merged into the run's branch `murm/<run-id>`, one
+merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
+(Codex, else Claude, else Pi; or a graph agent named `integrator`) that resolves it in the integration worktree.
+Your own checkout is not touched: `murm status` names the result branch, and merging it is up to you.
+
 Or give it a fixed graph file:
 
 ```json
@@ -55,8 +61,8 @@ node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY
 
 An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi` or `lead`, with an optional
 `model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`
-and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in the
-workspace (see the design's harness facts).
+and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
+worktree (see the design's harness facts).
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker

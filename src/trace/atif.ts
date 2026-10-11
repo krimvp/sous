@@ -156,6 +156,18 @@ function nodeTrajectory(runId: string, node: NodeView): object {
         message: `Acceptance check exited ${e.exitCode}: ${e.command}`,
         observation: { results: [{ content: e.output, extra: { command: e.command, exit_code: e.exitCode } }] },
       })
+    } else if (e.type === 'worktree.created') {
+      add({ source: 'system', timestamp: e.at, message: `Worktree created: branch ${e.branch} from ${e.base}`, extra: { path: e.path } })
+    } else if (e.type === 'merge.queued') {
+      add({ source: 'system', timestamp: e.at, message: `Merge queued: branch ${e.branch}` })
+    } else if (e.type === 'merge.withdrawn') {
+      add({ source: 'system', timestamp: e.at, message: 'Merge withdrawn: messages arrived before the merge, so the worker resumes with them' })
+    } else if (e.type === 'merge.conflict') {
+      add({ source: 'system', timestamp: e.at, message: `Merge conflict, sent to the integrator: ${e.reason}`, extra: { files: e.files, onto: e.onto } })
+    } else if (e.type === 'merge.done') {
+      add({ source: 'system', timestamp: e.at, message: e.by === 'nothing' ? 'Nothing to merge: the branch has no changes' : `Merged by ${e.by} at ${e.commit}`, extra: { commit: e.commit, by: e.by } })
+    } else if (e.type === 'merge.failed') {
+      add({ source: 'system', timestamp: e.at, message: `Merge failed: ${e.reason}` })
     } else if (e.type === 'node.failed') {
       add({ source: 'system', timestamp: e.at, message: `Node failed: ${e.reason}` })
     } else if (e.type === 'node.cancelled') {
@@ -241,6 +253,7 @@ export function toAtif(run: LoadedRun): object {
   for (const node of view.top) addDispatch(add, view.runId, node)
   for (const e of run.events) {
     if (e.type === 'run.resumed') add({ source: 'system', timestamp: e.at, message: 'Run resumed by murm resume after its supervisor stopped' })
+    if (e.type === 'integration.created') add({ source: 'system', timestamp: e.at, message: `Integration branch ${e.branch} created from ${e.base}`, extra: { path: e.path } })
   }
   if (view.end) {
     const text = view.end.type === 'run.completed' ? `Run completed: ${view.end.summary}` : `Run failed: ${view.end.reason}`

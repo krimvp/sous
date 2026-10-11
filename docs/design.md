@@ -248,35 +248,54 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 ## Merging
 
 Every `work` node runs in its own git worktree, so writers run in parallel (up to the concurrency limit) and
-`readOnly` is gone. The workspace must be a git repository with at least one commit.
+`readOnly` is gone. The workspace must be a git repository with at least one commit; when it is not, the run
+fails with that reason before the first work or check node starts.
 
-1. **Integration branch.** Before the first work node starts, the supervisor creates branch `murm/<run>` from
-   the workspace's `HEAD` and its worktree in `.murm/runs/<run>/integration/` (`integration.created`).
-   `.murm/` is added to the repository's `.git/info/exclude`.
-2. **Node worktrees.** A work node gets branch `murm/<run>/<node>` and worktree
-   `.murm/runs/<run>/worktrees/<node>/`, created from the integration branch's current commit when the node
-   starts (`worktree.created`). Nodes with `needs` start only after their dependencies are merged, so they
-   build on that work.
+1. **Integration branch.** Before the first work or check node starts, the supervisor creates branch
+   `murm/<run>` from the workspace's `HEAD` and its worktree in `.murm/runs/<run>/integration/`
+   (`integration.created`). `.murm/` is added to the repository's `.git/info/exclude`. The person's own
+   checkout is never touched.
+2. **Node worktrees.** A work node gets branch `murm/<run>.<node>` (git cannot hold `murm/<run>/<node>` beside
+   `murm/<run>`) and worktree `.murm/runs/<run>/worktrees/<node>/`, created from the integration branch's
+   current commit when the node starts (`worktree.created`). Its worker runs there and its acceptance check
+   runs there. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
 3. **Merge queue.** When a work node is done and its acceptance check passed in its own worktree, the
    supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
-   again in the integration worktree; if it passes, `merge.done` by `supervisor`.
-4. **The integrator.** A conflict, or a failing check after a merge, aborts the merge and goes to the
-   integrator (`merge.conflict`): a standing node with id `integrator`, run by the graph's `integrator` agent
-   if defined, else the first available of `codex`, `claude`, `pi`. It is created on first need and resumed
-   in the same session for later requests. Its request names the node, its branch, the files in conflict,
-   the check output, and the briefs of the node and of what was merged before. It works in the integration
-   worktree, resolves, runs the check, commits, and reports `done` (`merge.done` by `integrator`) or `blocked`
-   (`merge.failed`: the node fails and its parent is told).
-5. **Completion.** A work node completes only when its merge is done. `check` nodes run in the integration
-   worktree, so they check the merged result. A lead's children are therefore merged before the lead hears
-   they completed.
+   again in the integration worktree; if it passes, `merge.done` by `supervisor`. A message to a queued node
+   waits until its turn to merge; if its inbox is not empty then, it leaves the queue (`merge.withdrawn`) and
+   its worker resumes its session in its own worktree with the messages, and it queues again when done. Once
+   its merge has started, a message waits; after `merge.done` the node is completed, and messages to it are
+   refused like those to any finished node.
+4. **The integrator.** A conflict, or a failing check after a clean merge, goes to the integrator
+   (`merge.conflict`, with the commit the merge started from). On a conflict the merge is left in progress in
+   the integration worktree; after a failing check the merge commit stays and the integrator fixes on top.
+   Nothing else merges while the integrator works: the queue waits. The integrator is a standing node with id
+   `integrator`, run by the graph's `integrator` agent if defined, else the first available of `codex`,
+   `claude`, `pi`. It is created on the first conflict, with a short role brief, and resumed in the same
+   session for later requests. Each request is a message in its inbox naming the node, its branch, the
+   conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
+   It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
+   verified: no merge in progress, no uncommitted change to tracked files, the node's branch is an ancestor of
+   the integration branch, no conflict marker lines left in the files that conflicted, and the node's check
+   passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
+   once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
+   is reset to where the merge started, the node fails and its parent is told. The integrator never completes,
+   does not count toward the run's completion, and shows in `murm status` (`idle` between requests).
+5. **Completion.** A work node completes only on `merge.done` (and fails on `merge.failed`). `check` nodes run
+   in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
+   children are therefore merged before the lead hears they completed.
 6. **The result** is branch `murm/<run>`. Merging it into the person's own branch is their decision; `murm
-   status` names the branch.
+   status` and the end of `murm run` name the branch.
+7. **Traces.** Worktree and merge events are system steps in the node's ATIF trajectory and spans under the
+   node in Langfuse; the integrator is its own trajectory under the root.
 
-Recovery: worktrees, branches and queue state survive a crash. On `murm resume`, a merge in progress in the
-integration worktree is aborted and retried; queued merges continue in order.
+Recovery: worktrees, branches and queue state survive a crash. `integration.created` and `worktree.created`
+are appended only when the branch was newly created; on resume the existing worktree is used. On `murm
+resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
+committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
+usual; queued merges continue in order.
 
 ## Recovery
 
@@ -397,7 +416,8 @@ run or an older one.
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
-  worktrees/<node-id>/ git worktree for writing nodes (v2; v0 uses the workspace directory)
+  integration/         git worktree of branch murm/<run-id>, where merges and check nodes run
+  worktrees/<node-id>/ git worktree of branch murm/<run-id>.<node-id> for a work node
 ```
 
 ## Implementation
@@ -438,6 +458,14 @@ supervisor was killed just after a child's outcome was delivered to the lead and
 check ran; after `murm resume` the lead answered that delivery once, the check ran, and the run completed with
 no turn repeated. The 3-recovery limit, a reused pid, a turn finished while the supervisor was down, and gates
 are covered by fake-harness tests with real processes.
+
+v3 merging was verified on 2026-10-11 with a real run (lead on `ollama-cloud/deepseek-v4.1-flash`, workers on
+Pi, the integrator on its default, Codex). The goal told the lead to spawn two parallel Pi children that both
+rewrite line 1 of a seeded file. The first merged cleanly; the second conflicted, and Codex, as the integrator,
+resolved it in the integration worktree; `murm/<run>` held both lines, the person's checkout was untouched, and
+Harbor's validator accepted the exported ATIF file. Codex first committed the merge with the conflict markers
+still in it (its edit command failed) and fixed the file in a second commit. Verification checks the final
+state, not each commit; since that run it also rejects marker lines left in the conflicted files.
 
 ## Open questions
 

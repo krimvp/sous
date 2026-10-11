@@ -7,13 +7,14 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { main } from '../src/cli.ts'
 import { readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
+import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import { fakeBin, murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 function setup(steps: FakeStep[]) {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write a greeting',
@@ -39,11 +40,13 @@ test('murm run completes a work then check graph and murm status shows it', asyn
 
   const status = murm(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
-  assert.match(status.output(), /^run \S+ completed: write a greeting\n  write completed on claude turns 1: wrote hello.txt\n  test completed/)
+  const id = runDir.split('/').at(-1)
+  assert.match(run.output(), new RegExp(`^result: branch murm/${id}$`, 'm'))
+  assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch murm/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
 })
 
 test('murm run checks the agents on PATH: a node without an agent falls back to codex; a node naming claude fails', async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write two files',
@@ -52,7 +55,7 @@ test('murm run checks the agents on PATH: a node without an agent falls back to 
       { id: 'pinned', kind: 'work', agent: 'claude', brief: `Write b.\n${fakePlan([{ result: { status: 'done', summary: 'wrote b' } }])}` },
     ],
   }))
-  // Only codex and pi are on PATH: no claude, and no other directory.
+  // Only codex, pi and git are on PATH: no claude, and no other directory.
   const run = murm(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 1, run.output())
   assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\)$/m)
@@ -63,7 +66,7 @@ test('murm run checks the agents on PATH: a node without an agent falls back to 
 })
 
 test("a graph that shadows a built-in with a lead agent: a work node's default skips it for the next worker agent", async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
     goal: 'write a', agents: { claude: { runs: 'lead' } },
@@ -75,7 +78,7 @@ test("a graph that shadows a built-in with a lead agent: a work node's default s
 })
 
 test("a lead whose node model is on another provider runs when that provider, not the default one, has a credential", async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const graph = join(workspace, 'graph.json')
   const brief = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
   writeFileSync(graph, JSON.stringify({ goal: 'plan', nodes: [{ id: 'planner', kind: 'lead', model: 'openai-codex/gpt-5.5', brief }] }))
@@ -114,7 +117,7 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
 })
 
 test('murm cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const sessions = join(workspace, 'sessions')
   const worker = { id: 'w', kind: 'work' as const, brief: `Wait.\n${fakePlan([{ sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])}` }
   const sub = { id: 'sub', kind: 'lead' as const, brief: `Run w.\n${fakeLeadPlan([{ calls: [{ tool: 'spawn', children: [worker] }] }])}` }
@@ -139,7 +142,7 @@ test('murm cancel from another terminal cancels a subtree, stops its worker and 
 })
 
 test('murm answer delivers to a lead that asked the person, and murm status lists the question', async () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const workspace = gitWorkspace('murm-cli-')
   const sessions = join(workspace, 'sessions')
   const goal = `Pick a database.\n${fakeLeadPlan([
     { calls: [{ tool: 'escalate', question: 'Which database?' }] },

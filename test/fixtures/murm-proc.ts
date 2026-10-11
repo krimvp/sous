@@ -1,6 +1,6 @@
 // Runs `murm` (with the fake adapter and fake lead runner) as a real process, and waits on a run's event log.
-import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -9,10 +9,13 @@ import type { Event } from '../../src/types.ts'
 
 const MURM = new URL('./murm-fake.ts', import.meta.url).pathname
 
-/** A directory with stand-ins for the harness commands `names`, so the agents that run them count as available.
- * They are never run: the fake adapter runs every worker. */
+const GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+
+/** A directory with stand-ins for the harness commands `names`, so the agents that run them count as available,
+ * and the real git. The stand-ins are never run: the fake adapter runs every worker. */
 export function fakeBin(names = ['claude', 'codex', 'pi']): string {
   const dir = mkdtempSync(join(tmpdir(), 'murm-bin-'))
+  symlinkSync(GIT, join(dir, 'git'))
   for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
   return dir
 }
