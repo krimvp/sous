@@ -4,9 +4,11 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tmp=$(mktemp -d)
-trap 'git worktree remove --force "$tmp" >/dev/null 2>&1 || true' EXIT
+trap 'git worktree remove --force "$tmp" >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
 git fetch -q origin gh-pages
 git worktree add -q "$tmp" origin/gh-pages --detach
+# Replace the whole published tree with site/, so files removed from site/ disappear from the page too.
+git -C "$tmp" rm -rqf --ignore-unmatch .
 cp -R site/. "$tmp/"
 touch "$tmp/.nojekyll"
 git -C "$tmp" add -A
