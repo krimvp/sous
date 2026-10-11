@@ -119,7 +119,7 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
 })
 
 test('conflict markers committed by the integrator fail verification, at any marker size; one retry, then the merge is done', async () => {
-  for (const attributes of [{}, ...[10, 3].map((size) => ({ '.gitattributes': `f.txt conflict-marker-size=${size}\n` }))] as Record<string, string>[]) {
+  for (const attributes of [{}, ...[10, 3, -1].map((size) => ({ '.gitattributes': `f.txt conflict-marker-size=${size}\n` }))] as Record<string, string>[]) {
     const { integration, outcome, events, state, prompts } = await runGraph([
       work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
       work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),

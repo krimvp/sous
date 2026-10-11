@@ -151,7 +151,9 @@ export function resetTo(path: string, commit: string): void {
 export function withConflictMarkers(path: string, files: string[]): string[] {
   return files.filter((file) => {
     if (!existsSync(join(path, file))) return false
-    const n = Number(git(path, ['check-attr', 'conflict-marker-size', '--', file]).split(': ').at(-1)) || 7
+    // Git uses the attribute only when it is a positive integer; otherwise (unset, invalid, 0, negative) 7.
+    const size = Number(git(path, ['check-attr', 'conflict-marker-size', '--', file]).split(': ').at(-1))
+    const n = Number.isInteger(size) && size > 0 ? size : 7
     return new RegExp(`^(<{${n}}|\\|{${n}}|={${n}}|>{${n}})( |$)`, 'm').test(readFileSync(join(path, file), 'utf8'))
   })
 }
