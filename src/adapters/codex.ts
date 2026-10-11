@@ -52,6 +52,7 @@ export const codex: WorkerAdapter = {
     const started = new Set<string>()
     let reasoning: string | undefined
     let last: string | undefined
+    let succeeded = false
     for (const event of jsonLines(raw)) {
       if (event.type === 'thread.started' && typeof event.thread_id === 'string') turn.sessionId ??= event.thread_id
       else if (event.type === 'item.started' || event.type === 'item.completed') {
@@ -74,13 +75,15 @@ export const codex: WorkerAdapter = {
           if (completed) turn.items.push({ kind: 'tool_result', callId: item.id, content: tool.content, isError: tool.isError })
         }
       } else if (event.type === 'turn.completed' || event.type === 'turn.failed') {
+        // A failed turn ends too, but only a completed one may yield a result.
         turn.ended = true
+        succeeded = event.type === 'turn.completed'
         if (event.usage) turn.usage = usageOf(event.usage)
         if (event.error) turn.items.push({ kind: 'message', role: 'system', text: String(event.error.message ?? '') })
       }
     }
     if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning })
-    if (turn.ended && last !== undefined) turn.result = toTurnResult(last)
+    if (succeeded && last !== undefined) turn.result = toTurnResult(last)
     return turn
   },
 }

@@ -113,3 +113,33 @@ for (const [harness, marker] of Object.entries(END_MARKERS) as [HarnessName, str
     assert.equal(turn.sessionId, adapter.parse(raw).sessionId)
   })
 }
+
+test('codex: a failed turn ends without a result, even after an assistant JSON message', () => {
+  const raw = fixture('codex').replace(/^.*"type":"turn\.completed".*$/m,
+    JSON.stringify({ type: 'turn.failed', error: { message: 'interrupted' } }))
+  const turn = getAdapter('codex').parse(raw)
+  assert.equal(turn.ended, true)
+  assert.equal(turn.result, undefined)
+  assert.deepEqual(turn.items.at(-1), { kind: 'message', role: 'system', text: 'interrupted' })
+})
+
+test('pi: an agent_end that will retry is not the end; the result comes from the final attempt', () => {
+  // Pi's shape for a failed attempt it retries (agent-session.js adds willRetry to agent_end).
+  const failed = { role: 'assistant', content: [{ type: 'text', text: '```json\n{"status":"done","summary":"stale"}\n```' }], stopReason: 'error', errorMessage: '429 rate limited' }
+  const retry = [
+    { type: 'message_end', message: failed },
+    { type: 'agent_end', messages: [failed], willRetry: true },
+    { type: 'auto_retry_start', attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: '429 rate limited' },
+  ].map((event) => JSON.stringify(event)).join('\n')
+  const recorded = fixture('pi')
+  const adapter = getAdapter('pi')
+
+  const unfinished = adapter.parse(`${retry}\n${truncated(recorded, 'agent_end')}`)
+  assert.equal(unfinished.ended, false)
+  assert.equal(unfinished.result, undefined)
+
+  const finished = adapter.parse(`${retry}\n${recorded}`)
+  assert.equal(finished.ended, true)
+  assert.deepEqual(finished.result, adapter.parse(recorded).result)
+  assert.ok(finished.items.some((item) => item.kind === 'message' && item.role === 'system' && item.text === '429 rate limited'))
+})

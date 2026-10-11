@@ -35,7 +35,11 @@ export const pi: WorkerAdapter = {
     let last: string | undefined
     for (const event of jsonLines(raw)) {
       if (event.type === 'session' && typeof event.id === 'string') turn.sessionId ??= event.id
-      else if (event.type === 'agent_end') turn.ended = true
+      else if (event.type === 'agent_end') {
+        // Pi marks a failed attempt it will retry; only the final attempt ends the turn and gives the result.
+        if (event.willRetry === true) last = undefined
+        else turn.ended = true
+      }
       if (event.type !== 'message_end') continue
       const message = event.message ?? {}
       const at = typeof message.timestamp === 'number' ? new Date(message.timestamp).toISOString() : undefined
