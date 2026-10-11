@@ -1,13 +1,13 @@
 // Load and validate a graph file for `murm run`.
 import { readFileSync } from 'node:fs'
-import { ROOT } from './types.ts'
-import type { GraphFile, HarnessName, NodeSpec } from './types.ts'
+import { PERSON, ROOT } from './types.ts'
+import type { ChildSpec, GraphFile, HarnessName, NodeSpec } from './types.ts'
 
-const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
+export const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
 const GRAPH_KEYS = ['goal', 'harness', 'model', 'nodes']
 const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'harness', 'model', 'readOnly']
 // IDs name directories under nodes/, so keep them to safe file-name characters.
-const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
+export const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
 
 export function loadGraph(path: string): GraphFile {
   let raw: unknown
@@ -37,11 +37,11 @@ export function validateGraph(raw: unknown): GraphFile {
     if (!isObject(node)) throw new Error(`${where}: must be an object`)
     unknownKeys(node, NODE_KEYS, where)
     if (typeof node.id !== 'string' || !ID.test(node.id)) throw new Error(`${where}: id must match ${ID}`)
-    if (node.id === ROOT) throw new Error(`${where}: id ${ROOT} is reserved`)
+    if (node.id === ROOT || node.id === PERSON) throw new Error(`${where}: id ${node.id} is reserved`)
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
     if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files (v0 graphs are flat)`)
-    if (node.kind !== 'work' && node.kind !== 'check') throw new Error(`${where}: kind must be work or check in v0`)
+    if (!['work', 'check', 'lead'].includes(node.kind)) throw new Error(`${where}: kind must be work, check or lead`)
     if (node.needs !== undefined && !(Array.isArray(node.needs) && node.needs.every((n) => typeof n === 'string'))) {
       throw new Error(`${where}: needs must be an array of node ids`)
     }
@@ -57,7 +57,9 @@ export function validateGraph(raw: unknown): GraphFile {
       if (!node.command?.trim()) throw new Error(`${where}: check nodes need a command`)
       return node as NodeSpec
     }
-    if (!node.brief?.trim()) throw new Error(`${where}: work nodes need a brief`)
+    if (!node.brief?.trim()) throw new Error(`${where}: ${node.kind} nodes need a brief`)
+    // A lead's model is `provider/model`, not a worker model; it uses its own or the default.
+    if (node.kind === 'lead') return node as NodeSpec
     const harness: HarnessName | undefined = node.harness ?? graph.harness
     if (!harness) throw new Error(`${where}: no harness (set harness on the node or the graph)`)
     const model = node.model ?? graph.model
@@ -75,6 +77,24 @@ export function validateGraph(raw: unknown): GraphFile {
   if (cycle) throw new Error(`node ${cycle[0]}: needs form a cycle: ${cycle.join(' -> ')}`)
 
   return { ...graph, nodes }
+}
+
+/** Why a lead's child spec is invalid, if it is. `siblings` are the IDs it may name in `needs`. */
+export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[]): string | undefined {
+  if (!isObject(c)) return 'must be an object'
+  if (typeof c.id !== 'string' || !ID.test(c.id) || c.id === ROOT || c.id === PERSON) return `id must match ${ID} and not be ${ROOT} or ${PERSON}`
+  if (used(c.id)) return 'id is already used'
+  if (!['work', 'check', 'lead'].includes(c.kind)) return 'kind must be work, check or lead'
+  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
+  if (c.harness !== undefined && !HARNESSES.includes(c.harness)) return `harness must be one of ${HARNESSES.join(', ')}`
+  for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
+  if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
+  if (c.needs !== undefined && !(Array.isArray(c.needs) && c.needs.every((n) => siblings.includes(n)))) return 'needs may name only earlier siblings'
+  return undefined
+}
+
+function isText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== ''
 }
 
 function findCycle(nodes: NodeSpec[], byId: Map<string, NodeSpec>): string[] | undefined {

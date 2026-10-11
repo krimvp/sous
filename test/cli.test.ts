@@ -6,7 +6,10 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readEvents } from '../src/log.ts'
+import { fold } from '../src/state.ts'
+import type { Event } from '../src/types.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
+import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
 const MURM = new URL('./fixtures/murm-fake.ts', import.meta.url).pathname
@@ -79,4 +82,65 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   assert.throws(() => process.kill(grandchild!, 0), /ESRCH/)
   assert.equal(existsSync(join(runDirOf(workspace)!, 'lock')), false)
   assert.match(run.output(), /can be resumed later/)
+})
+
+/** Polls the run's log until `found` matches an event; returns that event. */
+async function waitFor(workspace: string, found: (e: Event) => boolean): Promise<Event> {
+  for (let i = 0; i < 200; i++) {
+    const runDir = runDirOf(workspace)
+    const event = runDir && existsSync(join(runDir, 'events.jsonl')) ? readEvents(runDir).find(found) : undefined
+    if (event) return event
+    await sleep(50)
+  }
+  throw new Error('timed out waiting for an event')
+}
+
+test('murm cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const sessions = join(workspace, 'sessions')
+  const worker = { id: 'w', kind: 'work' as const, brief: `Wait.\n${fakePlan([{ sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])}` }
+  const sub = { id: 'sub', kind: 'lead' as const, brief: `Run w.\n${fakeLeadPlan([{ calls: [{ tool: 'spawn', children: [worker] }] }])}` }
+  const goal = `Ship it.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [sub] }] },
+    { calls: [{ tool: 'complete', summary: 'shipped without sub' }] },
+  ])}`
+  const run = murm(['run', goal], workspace, sessions)
+  const started = await waitFor(workspace, (e) => e.type === 'turn.started' && e.node === 'w')
+  const cancel = murm(['cancel', 'sub'], workspace, sessions)
+  assert.equal(await cancel.exit, 0, cancel.output())
+  assert.equal(await run.exit, 0, run.output())
+
+  const runDir = runDirOf(workspace)!
+  const state = fold(readEvents(runDir))
+  assert.deepEqual(['sub', 'w'].map((id) => state.nodes.get(id)!.reason), ['cancelled by person', 'cancelled by person'])
+  assert.equal(state.nodes.get('w')!.turns[0].interrupted?.reason, 'cancelled by person')
+  assert.throws(() => process.kill(started.type === 'turn.started' ? started.pid : 0, 0), /ESRCH/)
+  assert.deepEqual(fakeLeadRecords(runDir).filter((r) => r.op === 'cancel'), [{ op: 'cancel', node: 'sub' }])
+  assert.equal(state.summary, 'shipped without sub')
+  assert.deepEqual(readdirSync(join(runDir, 'commands')), [])
+})
+
+test('murm answer delivers to a lead that asked the person, and murm status lists the question', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
+  const sessions = join(workspace, 'sessions')
+  const goal = `Pick a database.\n${fakeLeadPlan([
+    { calls: [{ tool: 'escalate', question: 'Which database?' }] },
+    { calls: [{ tool: 'complete', summary: 'picked' }] },
+  ])}`
+  const run = murm(['run', goal], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  assert.match(run.output(), /Question from lead:\nWhich database\?\nAnswer with: murm answer lead/)
+
+  const status = murm(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), /\n  lead waiting\nquestions for you \(murm answer <node> "<answer>"\):\n  lead: Which database\?\n$/)
+
+  const answer = murm(['answer', 'lead', 'Postgres.'], workspace, sessions)
+  assert.equal(await answer.exit, 0, answer.output())
+  assert.equal(await run.exit, 0, run.output())
+  const events = readEvents(runDirOf(workspace)!)
+  const message = events.find((e) => e.type === 'message')!
+  assert.deepEqual(message.type === 'message' && [message.from, message.to, message.body], ['person', 'lead', 'Postgres.'])
+  const last = events.findLast((e) => e.type === 'lead.delivered')!
+  assert.deepEqual(last.type === 'lead.delivered' && [last.requestId, last.text], [`evt-${message.seq}`, 'Message from person:\nPostgres.'])
 })
