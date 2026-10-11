@@ -40,14 +40,14 @@ continued to `c`. The resubmitted goal reused the existing submission (the goal 
 3. **The process stays alive about 5 minutes after `harness.close()`**: an open TCP socket and a timer,
    most likely the provider's keep-alive connection. Measured at 311–313 s in three runs. A long-running
    supervisor is unaffected; a one-shot process exits explicitly.
+4. **Footprint:** about 100 packages and 122 MB in `node_modules`, mostly provider SDKs pulled in by pi-ai.
+   Requires Node 22.19 or later. The API is marked experimental, so versions are pinned exactly.
 5. **Ollama Cloud works through pi-ai** with a provider defined in the spike (`createProvider`, the OpenAI
    completions API at `https://ollama.com/v1`, the `ollama-cloud` API key from the Pi login); pi-ai has no
    built-in one. glm-5.3's thinking quoted the goal, so counting the goal text in storage overcounted;
    the check now counts `pi.user` entries.
 6. **Pi updated to 1.1.0** (2026-10-11) in the user npm prefix (`~/.npm-global`), which comes first in PATH;
    the root-owned 0.80.6 in `/usr/lib` is untouched. Murmuration's Pi adapter live test passes on 1.1.0.
-4. **Footprint:** about 100 packages and 122 MB in `node_modules`, mostly provider SDKs pulled in by pi-ai.
-   Requires Node 22.19 or later. The API is marked experimental, so versions are pinned exactly.
 
 ## Run it
 
