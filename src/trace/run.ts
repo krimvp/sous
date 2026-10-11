@@ -145,7 +145,7 @@ export function viewRun(run: LoadedRun): RunView {
           mode: e.mode,
           harness: e.harness ?? node.spec.harness ?? view.graph?.harness,
           model: parsed.model ?? node.spec.model ?? view.graph?.model,
-          prompt: parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`,
+          prompt: e.prompt ?? (parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`),
           sessionId: parsed.sessionId,
           startedAt: e.at,
           endedAt: e.at,
