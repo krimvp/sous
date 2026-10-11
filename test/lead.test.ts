@@ -189,6 +189,33 @@ test('cancel stops a running lead and later deliveries are ignored', async () =>
   assert.deepEqual(settled, [])
 })
 
+test('a delivery still being admitted when cancel resolves never runs', async () => {
+  const { faux, models, model } = fauxModels()
+  faux.setResponses([toolCall('note', { text: 'effect after cancel' }, 'late-call'), fauxAssistantMessage([fauxText('Done')])])
+  // Hold the delivery in its credential check while the lead is cancelled.
+  let checking!: () => void
+  let release!: () => void
+  const inCheck = new Promise<void>((r) => { checking = r })
+  const gate = new Promise<void>((r) => { release = r })
+  const checkAuth = models.checkAuth.bind(models)
+  models.checkAuth = async (...args) => { checking(); await gate; return checkAuth(...args) }
+  const { host, calls, settled } = fakeHost()
+  const runner = openLeadRunner({ runDir: tempRunDir(), host, models })
+  const delivery = runner.deliver('lead', 'Goal: note something.', { requestId: 'lead:brief', mode: 'queue', model })
+  await inCheck
+  const cancelled = runner.cancel('lead')
+  await Promise.race([cancelled, new Promise((r) => setTimeout(r, 200))]) // cancel may wait for the admission
+  release()
+  await cancelled
+  await delivery
+  await new Promise((r) => setTimeout(r, 300))
+  await runner.close()
+
+  assert.equal(faux.state.callCount, 0)
+  assert.deepEqual(calls, [])
+  assert.deepEqual(settled, [])
+})
+
 test('an unknown provider or a missing credential fails the delivery with a clear error', () => {
   // A child process with an empty home directory, so the Pi login has no credentials.
   const home = mkdtempSync(join(tmpdir(), 'murm-home-'))

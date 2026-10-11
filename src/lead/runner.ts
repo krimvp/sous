@@ -32,6 +32,8 @@ interface Lead {
   /** Request IDs whose settlement this process is waiting for. */
   watching: Set<string>
   cancelled: boolean
+  /** Admissions and cancellation run one at a time, so nothing is admitted after `cancel` resolves. */
+  line: Promise<unknown>
 }
 
 /** The lead runner with an explicit model collection; `createLeadRunner` passes the Pi login's. */
@@ -63,7 +65,7 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
     // Registers a reopened lead's model; a missing credential fails its next delivery or its resumed run.
     if (model) await resolveModel(models, modelName(model)).catch(() => {})
     const doc = await harness.snapshot(LeadDoc, ctx)
-    return { node, storage, harness, model, reported: new Set(doc?.reported), watching: new Set(), cancelled: doc?.cancelled ?? false }
+    return { node, storage, harness, model, reported: new Set(doc?.reported), watching: new Set(), cancelled: doc?.cancelled ?? false, line: Promise.resolve() }
   }
 
   function watch(lead: Lead, submission: Submission, requestId: string) {
@@ -152,6 +154,12 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
     } while (cursor)
   }
 
+  function serial<T>(lead: Lead, step: () => Promise<T>): Promise<T> {
+    const done = lead.line.then(step)
+    lead.line = done.catch(() => {})
+    return done
+  }
+
   async function abort(lead: Lead) {
     await (await lead.harness.conversation(ROOT_CONVERSATION_ID, ctx))?.abort(ctx)
   }
@@ -159,21 +167,26 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
   return {
     async deliver(node, text, { requestId, mode, model }) {
       const lead = await open(node)
-      if (lead.cancelled || lead.reported.has(requestId)) return
-      const ref = await resolveModel(models, lead.model ? modelName(lead.model) : model ?? DEFAULT_LEAD_MODEL)
-      const root = await lead.harness.root(ctx, { agent: { model: ref } }) // the model applies when it creates the root
-      lead.model ??= ref
-      const whenBusy = mode === 'interrupt' ? 'steer' : 'followUp'
-      const submission = await root.submit({ type: 'input', content: text, requestId, whenBusy }, ctx)
-      watch(lead, submission, requestId)
+      await serial(lead, async () => {
+        if (lead.cancelled || lead.reported.has(requestId)) return
+        const ref = await resolveModel(models, lead.model ? modelName(lead.model) : model ?? DEFAULT_LEAD_MODEL)
+        const root = await lead.harness.root(ctx, { agent: { model: ref } }) // the model applies when it creates the root
+        lead.model ??= ref
+        if (lead.cancelled) return
+        const whenBusy = mode === 'interrupt' ? 'steer' : 'followUp'
+        const submission = await root.submit({ type: 'input', content: text, requestId, whenBusy }, ctx)
+        watch(lead, submission, requestId)
+      })
     },
 
     async cancel(node) {
       if (!leads.has(node) && !existsSync(join(leadsDir, node))) return
       const lead = await open(node)
-      lead.cancelled = true
-      await lead.harness.commit(async (tx) => { (await tx.doc(LeadDoc)).cancelled = true }, ctx)
-      await abort(lead)
+      lead.cancelled = true // an admission in progress sees it before it submits
+      await serial(lead, async () => {
+        await lead.harness.commit(async (tx) => { (await tx.doc(LeadDoc)).cancelled = true }, ctx)
+        await abort(lead)
+      })
     },
 
     async resume() {
