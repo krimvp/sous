@@ -48,8 +48,9 @@ function receiveRefusal(state: RunState, node: string, turn: number): string | u
   const n = state.nodes.get(node)
   if (!n || n.spec.kind !== 'work' || n.spec.standing) return `${node} is not a worker of the tree`
   if (isFinal(n)) return `${node} is already ${n.status}`
+  // A turn not recorded yet (its harness started before the supervisor logged it) is not over.
   const current = n.turns.at(-1)
-  return current?.number === turn && !current.ended ? undefined : `turn ${turn} of ${node} is over`
+  return (current?.number ?? 0) < turn || (current!.number === turn && !current!.ended) ? undefined : `turn ${turn} of ${node} is over`
 }
 
 /** The highest seq that `receive` commands of `node` in turn `turn`, not yet applied, have taken. */
@@ -82,7 +83,8 @@ export async function workerReceive(runDir: string, node: string, turn: number, 
     if (why) return { ok: false, text: `cannot receive: ${why}` }
     const n = state.nodes.get(node)!
     const taken = Math.max(pending, n.read?.turn === turn ? n.read.upTo : 0)
-    const waiting: InboxMessage[] = n.inbox.filter((m) => m.seq > taken)
+    // Until its turn is recorded, what waits goes into that turn's prompt.
+    const waiting: InboxMessage[] = (n.turns.at(-1)?.number ?? 0) < turn ? [] : n.inbox.filter((m) => m.seq > taken)
     if (waiting.length) {
       writeCommand(runDir, { type: 'receive', node, turn, upTo: Math.max(...waiting.map((m) => m.seq)) })
       return { ok: true, text: waiting.map((m) => `Message from ${m.from}:\n${m.body}`).join('\n\n') }

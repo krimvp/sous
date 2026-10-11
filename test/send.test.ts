@@ -184,7 +184,8 @@ test('sous receive returns what waits for a worker once, waits for a message whe
   assert.deepEqual(sous(['1']), [0, 'No messages.'])
   assert.ok(Date.now() - started >= 900, 'it waited for a message')
   assert.deepEqual(sous([], 'L'), [1, 'cannot receive: L is not a worker of the tree'])
-  assert.deepEqual(sous([], 'a', '7'), [1, 'cannot receive: turn 7 of a is over'])
+  assert.deepEqual(sous([], 'a', '2'), [0, 'No messages.'], 'a turn not recorded yet waits')
+  assert.deepEqual(sous([], 'a', '0'), [1, 'cannot receive: turn 0 of a is over'])
   for (const bad of ['-5', '61', '0x10', 'soon']) assert.equal(sous([bad])[0], 2, bad)
 })
 
