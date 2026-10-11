@@ -158,7 +158,7 @@ export interface WorkerAdapter {
   parse(raw: string): ParsedTurn
 }
 
-// ---- Leads (v1) ------------------------------------------------------------------------------
+// ---- Leads -----------------------------------------------------------------------------------
 
 /** A child a lead asks for. Its id is unique in the run; its parent is the calling lead. */
 export interface ChildSpec {
@@ -256,7 +256,7 @@ export type EventBody =
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
   /** `murm resume` took over a run whose supervisor had stopped. */
   | { type: 'run.resumed' }
-  /** The run's integration branch and worktree, created before the first writing node starts. */
+  /** The run's integration branch and worktree, created before the first work or check node starts. */
   | { type: 'integration.created'; branch: string; path: string; base: string }
   /** A node's own worktree and branch, created from the integration branch at `base` (a commit). */
   | { type: 'worktree.created'; node: string; branch: string; path: string; base: string }

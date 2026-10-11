@@ -11,10 +11,12 @@ keeps everything moving, delivers messages between levels, and recovers after a 
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.
 
-Status: v2 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
-questions, and asks you when it cannot. If the run stops or crashes, `murm resume` continues it without
-repeating finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and
-`gate` nodes also run. Read [docs/design.md](docs/design.md).
+Status: v4 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
+questions, and asks you when it cannot. Workers run in parallel in their own git worktrees and their work is
+merged into one result branch, with conflicts resolved by an integrator agent. Leads may define new agents on the
+runtimes and models you allow. If the run stops or crashes, `murm resume` continues it without repeating
+finished turns. `gate` nodes wait for your approval. Fixed graph files of `work`, `check`, `lead` and `gate`
+nodes also run. Read [docs/design.md](docs/design.md).
 
 ```bash
 node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"

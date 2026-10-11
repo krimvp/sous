@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
 import { jsonLines, spawnTurn, textOf, toTurnResult } from './common.ts'
 
-export const RESULT_INSTRUCTION = [
+const RESULT_INSTRUCTION = [
   'When you finish, end your final message with your result as a JSON object in a ```json fenced block:',
   '{"status": "done" | "blocked" | "needs_input", "summary": "...", "question": "... (only when needs_input)",',
   '"note_for_parent": "... (optional)"}',

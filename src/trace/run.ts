@@ -18,7 +18,7 @@ export interface LoadedRun {
 
 export const MURM_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version
 
-export function turnKey(node: string, turn: number): string {
+function turnKey(node: string, turn: number): string {
   return `${node}#${turn}`
 }
 
@@ -46,23 +46,23 @@ function spawned(e: Event, specOf: (id: string) => NodeSpec | undefined): NodeSp
 }
 
 /** The harness a turn ran on: recorded on the turn, else the runtime of its agent. */
-function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, graph: Definitions): HarnessName | undefined {
+function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, defs: Definitions): HarnessName | undefined {
   if (e.harness) return e.harness
   const name = e.agent ?? spec?.agent
-  const runs = name === undefined ? undefined : agentSpec(graph, name)?.runs
+  const runs = name === undefined ? undefined : agentSpec(defs, name)?.runs
   return runs === 'lead' ? undefined : runs
 }
 
 export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
   const events = readEvents(resolve(runDir, 'events.jsonl'))
-  const graph = fold(events).agents
+  const defs = fold(events).agents
   const specs = new Map<string, NodeSpec>()
   const turns: Record<string, ParsedTurn> = {}
   for (const e of events) {
     if (e.type === 'node.added') specs.set(e.node.id, e.node)
     for (const spec of spawned(e, (id) => specs.get(id))) specs.set(spec.id, spec)
     if (e.type !== 'turn.started') continue
-    const harness = harnessOf(e, specs.get(e.node), graph)
+    const harness = harnessOf(e, specs.get(e.node), defs)
     const file = resolve(runDir, e.outFile)
     turns[turnKey(e.node, e.turn)] = harness && existsSync(file)
       ? parseTurn(harness, readFileSync(file, 'utf8'))

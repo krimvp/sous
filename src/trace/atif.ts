@@ -5,7 +5,7 @@ import type { Usage } from '../types.ts'
 import { loadRun, MURM_VERSION, usagesOf, viewRun } from './run.ts'
 import type { LoadedRun, NodeView, ParseTurn, TurnView } from './run.ts'
 
-export const ATIF_VERSION = 'ATIF-v1.8'
+const ATIF_VERSION = 'ATIF-v1.8'
 
 interface Step {
   step_id: number
