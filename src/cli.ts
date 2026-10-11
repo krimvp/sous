@@ -39,6 +39,21 @@ export interface CliDeps {
 
 /** Run the CLI; returns the process exit code. */
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
+  // A worker's message is text, not options: `sous send b "--force is required now"`.
+  if (argv[0] === 'send') {
+    if (argv.length !== 3) {
+      console.error(USAGE)
+      return 2
+    }
+    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
+    if (!runDir || !node) {
+      console.error('sous: sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set')
+      return 1
+    }
+    const r = workerSend(runDir, node, argv[1], argv[2])
+    ;(r.ok ? console.log : console.error)(r.text)
+    return r.ok ? 0 : 1
+  }
   let parsed
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
@@ -75,14 +90,6 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'cancel':
         if (args.length !== 1) break
         return sendCommand(workspace, { type: command, node: args[0] })
-      case 'send': {
-        if (args.length !== 2) break
-        const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
-        if (!runDir || !node) throw new Error('sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set')
-        const r = workerSend(runDir, node, args[0], args[1])
-        ;(r.ok ? console.log : console.error)(r.text)
-        return r.ok ? 0 : 1
-      }
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])

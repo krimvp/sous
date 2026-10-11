@@ -33,11 +33,14 @@ function sendTool() {
 
 type Request = { jsonrpc: '2.0'; id?: number | string; method: string; params?: Record<string, any> }
 
+/** MCP protocol versions this server speaks, the latest first. */
+const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
+
 function handle(req: Request): unknown {
   switch (req.method) {
     case 'initialize':
       return {
-        protocolVersion: typeof req.params?.protocolVersion === 'string' ? req.params.protocolVersion : '2025-06-18',
+        protocolVersion: VERSIONS.includes(req.params?.protocolVersion) ? req.params!.protocolVersion : VERSIONS[0],
         capabilities: { tools: {} },
         serverInfo: { name: 'sous', version: '0.0.0' },
       }
@@ -66,6 +69,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   } catch {
     return reply({ id: null, error: { code: -32700, message: 'parse error' } })
   }
+  if (typeof req !== 'object' || req === null || Array.isArray(req)) return reply({ id: null, error: { code: -32600, message: 'invalid request' } })
   if (req.id === undefined) return // a notification
   try {
     reply({ id: req.id, result: handle(req) })

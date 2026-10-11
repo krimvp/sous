@@ -365,8 +365,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       // Checked again now: the run may have moved on since the worker sent it. A refusal reaches the sender instead.
       const why = sendRefusal(current(), cmd.from, cmd.to, cmd.text)
       if (!why) return void log.append({ type: 'message', from: cmd.from, to: cmd.to, body: cmd.text, mode: 'queue', command, sent: true })
+      // A sender waiting to merge is not told: the message would take it out of the merge queue.
       const sender = current().nodes.get(cmd.from)
-      if (sender?.spec.kind === 'work' && !isFinal(sender)) {
+      if (sender?.spec.kind === 'work' && !isFinal(sender) && sender.status !== 'merging') {
         log.append({ type: 'message', from: SUPERVISOR, to: cmd.from, body: `Your message to ${cmd.to} was not delivered: ${why}`, mode: 'queue', command })
       }
       return

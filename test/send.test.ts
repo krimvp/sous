@@ -20,8 +20,8 @@ import type { FakeStep } from './fixtures/fake-worker.ts'
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const MCP = new URL('../src/mcp.ts', import.meta.url).pathname
 const done = (summary: string) => ({ status: 'done' as const, summary })
-/** The shell command a fake worker runs to send, as the brief tells a real one. */
-const send = (to: string, text: string) => `"${process.execPath}" "${CLI}" send ${to} '${text}'`
+/** The shell command a fake worker runs to send, quoted as the brief tells a real one. */
+const send = (to: string, text: string) => `'${process.execPath}' '${CLI}' send ${to} '${text}'`
 const task = (id: string, steps: FakeStep[]): ChildSpec => ({ id, kind: 'work', brief: `Do ${id}.\n${fakePlan(steps)}` })
 
 /** Runs one lead playing `steps` in a git workspace; `onEvent` also gets the run directory. */
@@ -71,7 +71,7 @@ test('a worker tells a sibling and its lead while it works: the sibling resumes 
   // The brief says whom a worker may tell, and how.
   const brief = prompts('a')[0]
   assert.match(brief, /You may send to your lead lead and your siblings b; your lead sees every message\. At most 5/)
-  assert.ok(brief.includes(`else run ${process.execPath} ${CLI} send <to> "<text>"`))
+  assert.ok(brief.includes(`else run '${process.execPath}' '${CLI}' send <to> '<text>' (single quotes, so the shell leaves the text alone).`))
 })
 
 test('a message the run moved past is refused when the supervisor applies it, and its sender is told', async () => {
@@ -88,6 +88,20 @@ test('a message the run moved past is refused when the supervisor applies it, an
   })
   assert.equal(outcome, 'completed')
   assert.match(prompts('a')[1], /^Message from supervisor:\nYour message to b was not delivered: b is already completed/)
+})
+
+test('the supervisor holds a worker to 5 messages even when it writes more before any is applied', async () => {
+  const finish: FakeLeadStep = { calls: [{ tool: 'complete', summary: 'all done' }] }
+  const { outcome, events, prompts } = await runLead([
+    { calls: [{ tool: 'spawn', children: [task('a', [{ sleepMs: 2000, result: done('a done') }, { result: done('noted') }])] }] },
+    ...Array.from({ length: 10 }, () => finish),
+  ], (e, runDir) => {
+    if (e.type !== 'turn.started' || e.node !== 'a' || e.turn !== 1) return
+    for (let i = 1; i <= 6; i++) writeCommand(runDir, { type: 'send', from: 'a', to: 'lead', text: `update ${i}` })
+  })
+  assert.equal(outcome, 'completed')
+  assert.equal(events.filter((e) => e.type === 'message' && e.sent).length, 5)
+  assert.match(prompts('a')[1], /Your message to lead was not delivered: a already sent the 5 messages a worker may send/)
 })
 
 // ---- `sous send` and the MCP server against a run's log ------------------------------------------
@@ -126,7 +140,8 @@ test('sous send checks whom a worker may tell, and hands a message to the superv
   assert.deepEqual(sous('b', 'hi', { SOUS_RUN_DIR: runDir, SOUS_NODE: 'L' }), [1, 'not sent: L is not a worker of the tree, so it cannot send'])
   assert.deepEqual(sous('b', 'hi', {}), [1, 'sous: sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set'])
   assert.deepEqual(sous('b', 'The API is greet(name).'), [0, 'sent to b; it reads it when its current turn ends, and nobody answers within yours'])
-  assert.deepEqual(commands(runDir), [{ type: 'send', from: 'a', to: 'b', text: 'The API is greet(name).' }])
+  assert.deepEqual(sous('b', '--force is required now'), [0, 'sent to b; it reads it when its current turn ends, and nobody answers within yours'])
+  assert.deepEqual(commands(runDir).map((c) => c.text).sort(), ['--force is required now', 'The API is greet(name).'])
 
   const sent = (n: number): EventBody[] => Array.from({ length: n }, () => ({ type: 'message', from: 'a', to: 'L', body: 'x', mode: 'queue', sent: true }))
   const full = runWithTree(sent(5))
@@ -154,6 +169,9 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.equal((await call(4, 'tools/call', { name: 'send', arguments: { to: 'L', body: 'Interface settled.' } })).result.isError, false)
     assert.deepEqual(commands(runDir), [{ type: 'send', from: 'a', to: 'L', text: 'Interface settled.' }])
     assert.equal((await call(5, 'resources/list')).error.code, -32601)
+    server.stdin.write('null\n')
+    assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })
+    assert.equal((await call(6, 'ping')).result && 'still serving', 'still serving')
   } finally {
     server.kill()
   }

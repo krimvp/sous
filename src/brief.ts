@@ -22,7 +22,8 @@ const messages = (inbox: InboxMessage[]) => inbox.map((m) => `Message from ${m.f
 const standing = (instructions?: string) => (instructions?.trim() ? [`Your standing instructions:\n${instructions.trim()}`] : [])
 
 /** The command a worker runs to send a message, when its harness has no MCP tool for it. */
-const SEND_COMMAND = `${process.execPath} ${fileURLToPath(new URL('./cli.ts', import.meta.url))} send`
+const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
+const SEND_COMMAND = `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./cli.ts', import.meta.url)))} send`
 
 /** Whom a worker may message while it works, and how. */
 function contactsSection(contacts: { lead?: string; siblings: string[]; max: number }): string[] {
@@ -30,7 +31,8 @@ function contactsSection(contacts: { lead?: string; siblings: string[]; max: num
   const whom = [contacts.lead && `your lead ${contacts.lead}`, contacts.siblings.length && `your siblings ${contacts.siblings.join(', ')}`]
   return [[
     `When you learn something ${contacts.lead ? 'your lead or ' : ''}a sibling must know while you work (an interface you settled, a file you`,
-    `moved, a change of plan), tell them: with the send tool if you have it, else run ${SEND_COMMAND} <to> "<text>".`,
+    `moved, a change of plan), tell them: with the send tool if you have it, else run ${SEND_COMMAND} <to> '<text>'`,
+    '(single quotes, so the shell leaves the text alone).',
     `You may send to ${whom.filter(Boolean).join(' and ')}${contacts.lead ? '; your lead sees every message' : ''}. At most ${contacts.max}`,
     'messages; they are read when the recipient\'s turn ends, so do not wait for an answer. Messages to you arrive the same way.',
   ].join(' ')]
@@ -158,6 +160,7 @@ export function outcomeText(child: NodeState): string {
 export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
   if (m.copyOf) return `Child ${m.from} told its sibling ${m.copyOf} (a copy for you; no answer needed):\n${m.body}`
   if (fromChild && m.sent) return `Child ${m.from} tells you while it works (no answer needed):\n${m.body}`
+  if (m.sent) return `Your sibling ${m.from} tells you while it works (no answer needed; you cannot send to it):\n${m.body}`
   return fromChild
     ? `Child ${m.from} is waiting for your answer:\n${m.body}\n\nAnswer with send to ${m.from}.`
     : `Message from ${m.from}:\n${m.body}`
