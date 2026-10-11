@@ -10,6 +10,7 @@ sous answer <node> "text" [--workspace <dir>]
 sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
+sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```

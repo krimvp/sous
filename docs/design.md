@@ -26,8 +26,9 @@ cooks do it (workers), and plates are checked at the pass (merges and checks).
 
 ## Out of scope for now
 
-No sandbox (workers run as the user's own CLIs, in a git worktree), no web UI, no multi-host execution,
-no remote pushes or PRs, no message service. These can come later behind the seams below.
+No sandbox (workers run as the user's own CLIs, in a git worktree), no multi-host execution, no remote pushes or
+PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only reads runs for now;
+steering a run from it is #60.
 
 Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
 product; sous shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
@@ -543,6 +544,26 @@ from them, so traces can move between tools later.
 Both exporters are pure functions from the event log and turn files, so they can also run on a finished
 run or an older one.
 
+## The UI
+
+`sous ui [--port <n>]` (`src/ui.ts`, `src/ui.html`) serves one static page and a small JSON API with Node's `http`
+server, on `127.0.0.1` only. It prints its address with a random token; every request needs the token, and a Host
+header naming this machine, so other sites in the browser (or a rebound DNS name) cannot read runs. It reads, and
+never writes: the supervisor stays the only writer, and the person's commands still go through `sous answer`, `approve`
+and `cancel`.
+
+- **Same model as status and export.** A run's tree and node statuses come from `fold`, the one behind `sous status`;
+  its timing, usage and per-node events from `viewRun`, the one behind `sous export`.
+- **Lazy.** The run list and a run's tree come from the log alone (`loadRun` told to parse no turn file); a node's turn
+  files are read and parsed with its adapter only when the node is opened, and every string the page gets is cut at
+  20,000 characters, marked with how many more there were.
+- **Live.** One server-sent event stream per page sends every run's log size and lock whenever one changes (polled
+  every 500 ms); the page refetches the run, or the node, that changed. A finished run is a log that stopped growing,
+  so live and finished runs share every view.
+- **Timeline.** Worker turns, merge-queue waits and checks per node; a lead is busy from a delivery until it has
+  answered every queued one (an interrupt joins the stretch it steers). A lead's row also shows its team's span and
+  totals (nodes, turns, tokens, merges, failures), so a folded team still reads at a glance.
+
 ## Storage layout
 
 ```
@@ -579,6 +600,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
 | **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
 | **v6** (done) | Worker messages: `send` to a sibling or the lead and `receive` within a turn, through sous's MCP server or `sous send`/`receive`; workers load no other MCP server and little of the person's own setup | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
+| **v7** (in progress) | `sous ui`: a local viewer for live and finished runs (#59); then steering (#60), replay and comparison (#61) | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi

@@ -70,7 +70,13 @@ node src/cli.ts run graph.json        # runs in the current directory; state in 
 node src/cli.ts status                # latest run as a tree
 node src/cli.ts export atif           # writes .sous/runs/<id>/trace.atif.json
 node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+node src/cli.ts ui                    # a local page with every run, live or finished (--port <n>)
 ```
+
+`sous ui` prints a `127.0.0.1` address with a random token and serves one page: the workspace's runs, each run's tree
+folded by team beside a timeline of every lead's and worker's busy time, merges and checks, and for any node its brief,
+a lead's decisions in order, or a worker's turns with their messages, tool calls and results. It follows a running run
+as its log grows, and lists what waits for you with the command that answers it. It only reads the run's files.
 
 An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi` or `lead`, with an optional
 `model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`

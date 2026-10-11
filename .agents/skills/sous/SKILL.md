@@ -48,7 +48,8 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
 6. **Check the result yourself** on `sous/<run-id>` (run the tests, try the program) before telling the user
    it works. Merging that branch into their branch is the user's decision.
 7. **Export traces** if asked: `$M export atif` (writes `.sous/runs/<id>/trace.atif.json`) or `$M export otlp`
-   (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`).
+   (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`). For the user to watch or revisit runs in
+   a browser, start `$M ui` in the background and give them the address it prints (it serves until stopped).
 
 ## Rules that save time
 
