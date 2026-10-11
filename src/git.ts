@@ -146,10 +146,12 @@ export function resetTo(path: string, commit: string): void {
   git(path, ['clean', '-q', '-fd'])
 }
 
-// Seven or more marker characters: `conflict-marker-size` in .gitattributes may make them longer.
-const MARKER = /^(<{7,}|\|{7,}|={7,}|>{7,})( |$)/m
-
-/** Which of `files` (relative to the worktree) still hold conflict marker lines. A deleted file has none. */
+/** Which of `files` (relative to the worktree) still hold conflict marker lines, of the size git uses for each file
+ * (`conflict-marker-size` in .gitattributes, else 7). A deleted file has none. */
 export function withConflictMarkers(path: string, files: string[]): string[] {
-  return files.filter((file) => existsSync(join(path, file)) && MARKER.test(readFileSync(join(path, file), 'utf8')))
+  return files.filter((file) => {
+    if (!existsSync(join(path, file))) return false
+    const n = Number(git(path, ['check-attr', 'conflict-marker-size', '--', file]).split(': ').at(-1)) || 7
+    return new RegExp(`^(<{${n}}|\\|{${n}}|={${n}}|>{${n}})( |$)`, 'm').test(readFileSync(join(path, file), 'utf8'))
+  })
 }
