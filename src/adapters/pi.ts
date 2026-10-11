@@ -12,8 +12,9 @@ const RESULT_INSTRUCTION = [
 ].join('\n')
 
 function run(spec: TurnSpec, sessionId: string) {
-  // Pi creates the session when the ID is new and continues it otherwise. Default tools.
-  const args = ['-p', '--mode', 'json', '--session-id', sessionId, ...(spec.model ? ['--model', spec.model] : [])]
+  // Pi creates the session when the ID is new and continues it otherwise. Default tools, no MCP: a worker tells others
+  // through `sous send`.
+  const args = ['-p', '--mode', 'json', '--session-id', sessionId, '--no-mcp', ...(spec.model ? ['--model', spec.model] : [])]
   const prompt = `${spec.prompt}\n\n${RESULT_INSTRUCTION}`
   return { ...spawnTurn('pi', args, { ...spec, prompt }), sessionId: Promise.resolve(sessionId) }
 }

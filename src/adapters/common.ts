@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { RunningTurn, TurnResult, TurnSpec } from '../types.ts'
 
@@ -19,7 +20,7 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
   const err = openSync(spec.errFile, 'w')
   let child
   try {
-    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err] })
+    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...process.env, ...spec.env } })
   } finally {
     // The child holds its own copies of the descriptors.
     closeSync(out)
@@ -37,6 +38,12 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
   child.stdin?.on('error', () => {})
   child.stdin?.end(spec.prompt)
   return { pid: child.pid, exit }
+}
+
+/** sous's MCP server for a worker of the tree (one with `spec.env`), as the harness should start it. */
+export function sousServer(spec: TurnSpec): { command: string; args: string[]; env: Record<string, string> } | undefined {
+  if (!spec.env) return undefined
+  return { command: process.execPath, args: [fileURLToPath(new URL('../mcp.ts', import.meta.url))], env: spec.env }
 }
 
 // Harness output is data from another program: every field is optional and may have any type.

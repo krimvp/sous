@@ -155,6 +155,10 @@ export interface TurnSpec {
   model?: string
   /** Required for resume; for start, adapters that accept a preset session ID use it if given. */
   sessionId?: string
+  /** Set for a worker of the tree: `SOUS_RUN_DIR` and `SOUS_NODE`, its identity for `sous send`. Adapters add it to
+   * the agent's environment and, where the harness takes MCP servers, give it sous's server (src/mcp.ts) with it.
+   * Every adapter loads no other MCP server, so what a worker says to others goes through sous. */
+  env?: Record<string, string>
 }
 
 export interface RunningTurn {
@@ -263,7 +267,9 @@ export type EventBody =
   /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */
   | { type: 'node.completed'; node: string; summary: string; command?: string }
   | { type: 'node.failed'; node: string; reason: string }
-  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string }
+  /** `sent`: a worker's `send` to a sibling or its lead while it works, which expects no answer; its lead gets a copy
+   * of one to a sibling. */
+  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string; sent?: true }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this

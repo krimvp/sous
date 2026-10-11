@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -60,4 +60,51 @@ test('the prompt arrives on stdin and output reaches outFile after the starting 
   execFileSync(process.execPath, ['--input-type=module', '-e', script])
   await until(() => readFileSync(spec.outFile, 'utf8') === 'got hello turn\n')
   await until(() => readFileSync(spec.errFile, 'utf8') === 'oops\n')
+})
+
+test('workers load no MCP server but sous\'s: Claude and Codex get it with the worker\'s identity, Pi gets no MCP', async () => {
+  const bin = tempDir()
+  const rec = join(bin, 'rec.jsonl')
+  // Stand-ins that record their arguments and the identity in their environment; a Codex stand-in also lists the
+  // user's MCP servers, as `codex mcp list --json` does.
+  const script = `#!${process.execPath}
+const { appendFileSync } = require('node:fs')
+const argv = process.argv.slice(2)
+if (argv[0] === 'mcp') { console.log(JSON.stringify([{ name: 'comitia' }, { name: 'docs' }])); process.exit(0) }
+appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path').basename(process.argv[1]), argv, node: process.env.SOUS_NODE ?? null }) + '\\n')
+`
+  for (const name of ['claude', 'codex', 'pi']) writeFileSync(join(bin, name), script, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  try {
+    const { claude, codex, pi } = await import('../src/adapters/index.ts').then((m) => ({ claude: m.getAdapter('claude'), codex: m.getAdapter('codex'), pi: m.getAdapter('pi') }))
+    const cwd = tempDir()
+    const spec = (turn: number, env?: Record<string, string>) =>
+      ({ nodeId: 'a', turn, cwd, prompt: 'p', outFile: join(cwd, `${turn}.jsonl`), errFile: join(cwd, `${turn}.err`), ...(env ? { env } : {}) })
+    const env = { SOUS_RUN_DIR: '/run', SOUS_NODE: 'a' }
+    for (const [i, turn] of [claude.start(spec(1, env)), claude.start(spec(2)), codex.start(spec(3, env)), pi.start(spec(4, env))].entries()) {
+      await turn.exit
+      await until(() => readFileSync(rec, 'utf8').trim().split('\n').length > i)
+    }
+    // The four turns run at once, so their records come in any order.
+    const recs = readFileSync(rec, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const of = (cmd: string, node: string | null) => recs.find((r) => r.cmd === cmd && r.node === node)
+    const [withSous, standing, cx, p] = [of('claude', 'a'), of('claude', null), of('codex', 'a'), of('pi', 'a')]
+    const server = { command: process.execPath, args: [new URL('../src/mcp.ts', import.meta.url).pathname], env }
+    const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1]
+    assert.ok(withSous.argv.includes('--strict-mcp-config'))
+    assert.deepEqual(JSON.parse(after(withSous.argv, '--mcp-config')), { mcpServers: { sous: { type: 'stdio', ...server } } })
+    assert.equal(withSous.node, 'a')
+    assert.ok(standing.argv.includes('--strict-mcp-config') && !standing.argv.includes('--mcp-config'), 'a standing node gets no MCP server')
+    const overrides = cx.argv.flatMap((a: string, i: number) => (cx.argv[i - 1] === '-c' ? [a] : []))
+    assert.deepEqual(overrides.filter((o: string) => o.startsWith('features')), ['features.apps=false', 'features.plugins=false'])
+    assert.deepEqual(overrides.filter((o: string) => o.startsWith('mcp_servers')), [
+      'mcp_servers.comitia.enabled=false', 'mcp_servers.docs.enabled=false',
+      `mcp_servers.sous={command=${JSON.stringify(server.command)},args=[${JSON.stringify(server.args[0])}],env={SOUS_RUN_DIR="/run",SOUS_NODE="a"}}`,
+    ])
+    assert.ok(p.argv.includes('--no-mcp'))
+    assert.equal(p.node, 'a')
+  } finally {
+    process.env.PATH = path
+  }
 })

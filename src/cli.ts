@@ -9,7 +9,8 @@ import { parseArgs } from 'node:util'
 import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './agents.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
-import { lockHolder, openLog, readEvents } from './log.ts'
+import { lockHolder, openLog, readEvents, writeCommand } from './log.ts'
+import { workerSend } from './send.ts'
 import { awaitsSplitApproval, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
@@ -26,6 +27,7 @@ const USAGE = `usage:
   sous answer <node> "text" [--workspace <dir>]
   sous approve <node> [--workspace <dir>]
   sous cancel <node> [--workspace <dir>]
+  sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {
@@ -37,6 +39,21 @@ export interface CliDeps {
 
 /** Run the CLI; returns the process exit code. */
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
+  // A worker's message is text, not options: `sous send b "--force is required now"`.
+  if (argv[0] === 'send') {
+    if (argv.length !== 3) {
+      console.error(USAGE)
+      return 2
+    }
+    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
+    if (!runDir || !node) {
+      console.error('sous: sous send is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set')
+      return 1
+    }
+    const r = workerSend(runDir, node, argv[1], argv[2])
+    ;(r.ok ? console.log : console.error)(r.text)
+    return r.ok ? 0 : 1
+  }
   let parsed
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
@@ -282,7 +299,7 @@ function printPending(state: RunState): void {
 }
 
 /** Hand a person's answer, approval or cancel to the run's supervisor through a command file. */
-function sendCommand(workspace: string, cmd: PersonCommand): number {
+function sendCommand(workspace: string, cmd: Exclude<PersonCommand, { type: 'send' }>): number {
   const { id, runDir } = findRun(workspace)
   const node = fold(readEvents(runDir)).nodes.get(cmd.node)
   if (!node) throw new Error(`run ${id} has no node ${cmd.node}`)
@@ -294,11 +311,7 @@ function sendCommand(workspace: string, cmd: PersonCommand): number {
   }
   if (cmd.type === 'approve' && gate && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
-  const dir = join(runDir, 'commands')
-  const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(`${file}.tmp`, JSON.stringify(cmd) + '\n')
-  renameSync(`${file}.tmp`, `${file}.json`)
+  writeCommand(runDir, cmd)
   console.log(`${cmd.type} for ${cmd.node} sent to run ${id}`)
   return 0
 }

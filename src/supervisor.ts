@@ -2,7 +2,7 @@
 // runner, routes messages and records every outcome.
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoices } from './agents.ts'
 import type { Agent, Unavailable } from './agents.ts'
@@ -16,6 +16,7 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
+import { MAX_SENDS, sendRefusal, sendTargets } from './send.ts'
 import { ancestors, awaitsSplitApproval, callKey, childrenOf, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
@@ -53,8 +54,11 @@ const SUPERVISOR = 'supervisor'
 /** The body of the message `sous approve <lead>` sends to a lead whose split waits for approval. */
 const SPLIT_APPROVED = 'The person approved the proposed split.'
 
-/** A command file written by `sous answer`, `sous approve` or `sous cancel`. */
-export type PersonCommand = { type: 'answer'; node: string; text: string } | { type: 'approve' | 'cancel'; node: string }
+/** A command file written by `sous answer`, `sous approve` or `sous cancel`, or by a worker's `send`. */
+export type PersonCommand =
+  | { type: 'answer'; node: string; text: string }
+  | { type: 'approve' | 'cancel'; node: string }
+  | { type: 'send'; from: string; to: string; text: string }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -357,6 +361,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     try {
       cmd = JSON.parse(readFileSync(path, 'utf8'))
     } catch {}
+    if (cmd?.type === 'send') {
+      // Checked again now: the run may have moved on since the worker sent it. A refusal reaches the sender instead.
+      const why = sendRefusal(current(), cmd.from, cmd.to, cmd.text)
+      if (!why) return void log.append({ type: 'message', from: cmd.from, to: cmd.to, body: cmd.text, mode: 'queue', command, sent: true })
+      // A sender waiting to merge is not told: the message would take it out of the merge queue.
+      const sender = current().nodes.get(cmd.from)
+      if (sender?.spec.kind === 'work' && !isFinal(sender) && sender.status !== 'merging') {
+        log.append({ type: 'message', from: SUPERVISOR, to: cmd.from, body: `Your message to ${cmd.to} was not delivered: ${why}`, mode: 'queue', command })
+      }
+      return
+    }
+    if (cmd?.type !== 'answer' && cmd?.type !== 'approve' && cmd?.type !== 'cancel') return
     const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
     if (!node || isFinal(node)) return
     const gate = node.spec.kind === 'gate'
@@ -417,6 +433,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       nodeId: spec.id, turn, cwd, prompt,
       outFile: join(dir, `turn-${turn}.jsonl`), errFile: join(dir, `turn-${turn}.err`),
       model: agent.model, sessionId,
+      // A worker of the tree may message others while it works (`sous send`, or sous's MCP tool).
+      ...(spec.standing ? {} : { env: { SOUS_RUN_DIR: resolve(runDir), SOUS_NODE: spec.id } }),
     }
     const mode = sessionId ? 'resume' : 'start'
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
@@ -495,7 +513,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const instructions = typeof agent === 'string' ? undefined : agent.instructions
     const tree = createNodeWorktree(workspace, runId, runDir, spec.id, head(integrationTree().path))
     if (tree.base) log.append({ type: 'worktree.created', node: spec.id, branch: tree.branch, path: tree.path, base: tree.base })
-    const brief = () => composeBrief(state.goal, spec, tree.path, notesFor(state, spec.id), node.inbox, instructions)
+    const contacts = spec.standing ? undefined : { ...sendTargets(state, spec.id), max: MAX_SENDS }
+    const brief = () => composeBrief(state.goal, spec, tree.path, notesFor(state, spec.id), node.inbox, instructions, contacts)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
     let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined

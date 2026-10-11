@@ -1,5 +1,6 @@
 // The append-only event log of one run (<runDir>/events.jsonl) and the single-writer lock.
-import { closeSync, existsSync, fsyncSync, ftruncateSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Event, EventBody } from './types.ts'
 
@@ -49,6 +50,16 @@ export function openLog(runDir: string, onEvent?: (event: Event) => void, opts: 
     releaseLock(runDir)
     throw err
   }
+}
+
+/** Hand a command to the run's supervisor as a file in `<runDir>/commands/`, written whole (by rename) so the supervisor
+ * never reads half of it. */
+export function writeCommand(runDir: string, cmd: object): void {
+  const dir = join(runDir, 'commands')
+  const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${file}.tmp`, JSON.stringify(cmd) + '\n')
+  renameSync(`${file}.tmp`, `${file}.json`)
 }
 
 /** The pid of the live supervisor holding the run's lock, if any. */
