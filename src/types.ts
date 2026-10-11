@@ -154,6 +154,9 @@ export interface LeadRunner {
   /** Deliver text to lead `node`, creating its conversation on first use. Idempotent per `requestId`.
    * `queue` is answered after the current run; `interrupt` steers the running one. Resolves once admitted. */
   deliver(node: string, text: string, opts: { requestId: string; mode: 'queue' | 'interrupt'; model?: string }): Promise<void>
+  /** Stop lead `node`: withdraw its queued deliveries and abort its running work. Resolves once it is idle;
+   * later deliveries to it are ignored. A no-op for a lead that was never started. */
+  cancel(node: string): Promise<void>
   /** Resume unfinished lead work after a restart (pi-durable resume). */
   resume(): Promise<void>
   close(): Promise<void>

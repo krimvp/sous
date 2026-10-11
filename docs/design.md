@@ -144,9 +144,9 @@ Its tools:
 | `cancel(node)` | cancel a child subtree |
 | `complete(summary)` / `fail(reason)` | finish this node |
 | `escalate(question)` | ask the parent (the root's parent is the person) |
-| `wait()` | end the turn; the lead is woken by the next event |
 
-Each tool call is validated against policy and appended as an event before the supervisor acts on it. The
+A lead ends its turn by answering, not with a tool; the next delivery wakes it. Each tool call is
+validated against policy and appended as an event before the supervisor acts on it. The
 supervisor's event log stays the source of truth for the tree; pi-durable holds only lead transcripts.
 
 ## Messaging across levels
@@ -214,7 +214,8 @@ reminders without progress the lead fails.
 The supervisor stays the only writer of the log.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
-Cancelling a node fails its subtree with reason `cancelled by <who>` and stops its running processes.
+Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
+calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
 ## Recovery
 
