@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { agentFor, childAgents, integratorAgent } from './agents.ts'
+import { agentFor, childAgents, defineAgent, integratorAgent, registry } from './agents.ts'
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
@@ -115,10 +115,13 @@ function refusal(state: RunState, node: string, call: LeadCall): string | undefi
         return `a lead may have at most ${MAX_CHILDREN} children over its lifetime; ${node} has ${children.length}`
       }
       const siblings = children.map((c) => c.spec.id)
+      // The run's agents with those defined by earlier children of this call, as the fold will have them.
+      const agents = { ...state.agents, agents: registry(state.agents.agents) }
       for (const c of call.children) {
-        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, state.graph)
+        const why = childError(c, (id) => state.nodes.has(id) || siblings.includes(id), siblings, agents)
           ?? (c.kind === 'lead' && ancestors(state, node).length + 2 > state.maxDepth ? `leads may nest at most ${state.maxDepth} deep` : undefined)
         if (why) return `child ${String(c?.id)}: ${why}`
+        if (typeof c.agent === 'object') agents.agents[c.agent.name] = defineAgent(agents, c.agent)
         siblings.push(c.id)
       }
       return undefined
@@ -200,7 +203,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   /** The agent of a node, or why it has none: a work node keeps the agent of its earlier turns. */
   const agentOf = (state: RunState, node: NodeState): Agent | string => {
     try {
-      return agentFor(state.graph, { ...node.spec, agent: node.spec.agent ?? node.turns.findLast((t) => t.agent)?.agent }, unavailable)
+      return agentFor(state.agents, { ...node.spec, agent: node.spec.agent ?? node.turns.findLast((t) => t.agent)?.agent }, unavailable)
     } catch (err) {
       return (err as Error).message
     }
@@ -290,7 +293,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (typeof agent === 'string') return abandon(state, id, agent)
     if (lead.status === 'ready') {
       const depth = { at: ancestors(state, id).length + 1, max: state.maxDepth }
-      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.graph, unavailable), depth, agent.instructions)
+      const brief = leadBrief(state.goal, lead.spec, notesFor(state, id), childAgents(state.agents, unavailable), depth, agent.instructions)
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
@@ -603,7 +606,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const { path, branch } = integrationTree()
     const { branch: nodeBranch, conflict } = nodeNow(id).merge!
     if (!current().nodes.has(INTEGRATOR)) {
-      const agent = integratorAgent(current().graph, unavailable)
+      const agent = integratorAgent(current().agents, unavailable)
       if (!agent) return mergeFailed(id, 'no agent is available for the integrator', onto)
       log.append({ type: 'node.added', node: { id: INTEGRATOR, kind: 'work', standing: true, agent, brief: INTEGRATOR_BRIEF }, by: SUPERVISOR })
     }

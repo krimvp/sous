@@ -165,3 +165,42 @@ test('murm answer delivers to a lead that asked the person, and murm status list
   const last = events.findLast((e) => e.type === 'lead.delivered')!
   assert.deepEqual(last.type === 'lead.delivered' && [last.requestId, last.text], [`evt-${message.seq}`, 'Message from person:\nPostgres.'])
 })
+
+test('murm run --agents gives a goal run its agents and models, recorded in run.created; with a graph file it is an error', async () => {
+  const workspace = gitWorkspace('murm-cli-')
+  const sessions = join(workspace, 'sessions')
+  const file = join(workspace, 'agents.json')
+  const definitions = { agents: { hr: { runs: 'claude', instructions: 'Be kind.' } }, models: { claude: ['haiku'] } }
+  writeFileSync(file, JSON.stringify(definitions))
+  const brief = `Hire.\n${fakePlan([{ result: { status: 'done', summary: 'hired' } }])}`
+  const goal = `Hire someone.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [{ id: 'hire', kind: 'work', brief, agent: 'hr', model: 'haiku' }] }] },
+    { calls: [{ tool: 'complete', summary: 'hired' }] },
+  ])}`
+  const run = murm(['run', goal, '--agents', file], workspace, sessions)
+  assert.equal(await run.exit, 0, run.output())
+  assert.match(run.output(), /^agents: claude, codex, pi, lead, hr$/m)
+  const runDir = runDirOf(workspace)!
+  const events = readEvents(runDir)
+  const created = events[0]
+  assert.deepEqual(created.type === 'run.created' && [created.definitions, created.graph], [definitions, undefined])
+  const brief0 = events.find((e) => e.type === 'lead.delivered')!
+  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', /for work children claude, codex, pi, hr \(runs claude\)[\s\S]*on these runtimes: claude \(models haiku\)/)
+  const hire = fold(events).nodes.get('hire')!
+  assert.equal(hire.turns[0].agent, 'hr')
+  const prompt = JSON.parse(readFileSync(join(sessions, `${hire.turns[0].sessionId}.json`), 'utf8')).prompts[0]
+  assert.match(prompt, /Your standing instructions:\nBe kind\./)
+  const status = murm(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), /\n    hire completed on hr turns 1: hired\n/)
+
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({ goal: 'g', nodes: [{ id: 'a', kind: 'work', brief: 'a' }] }))
+  const both = murm(['run', graph, '--agents', file], workspace, sessions)
+  assert.equal(await both.exit, 1)
+  assert.match(both.output(), /murm: --agents is for goal runs: put agents in the graph file/)
+  writeFileSync(file, JSON.stringify({ ...definitions, nodes: [] }))
+  const bad = murm(['run', 'g', '--agents', file], workspace, sessions)
+  assert.equal(await bad.exit, 1)
+  assert.match(bad.output(), /murm: agents file: unknown field nodes/)
+})

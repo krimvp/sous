@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { agentNames, agentSpec, checkAgents, whyUnavailable } from './agents.ts'
 import type { Unavailable } from './agents.ts'
-import { loadGraph } from './graph.ts'
+import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents } from './log.ts'
 import { eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
@@ -17,10 +17,10 @@ import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
 import { PERSON } from './types.ts'
-import type { Event, GraphFile, HarnessName, ParsedTurn } from './types.ts'
+import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
-  murm run <graph.json | "goal"> [--max-depth <n>] [--workspace <dir>]
+  murm run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--workspace <dir>]
   murm resume [run-id] [--workspace <dir>]
   murm status [run-id] [--workspace <dir>]
   murm answer <node> "text" [--workspace <dir>]
@@ -39,7 +39,7 @@ export interface CliDeps {
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   let parsed
   try {
-    parsed = parseArgs({ args: argv, allowPositionals: true, options: { workspace: { type: 'string' }, 'max-depth': { type: 'string' } } })
+    parsed = parseArgs({ args: argv, allowPositionals: true, options: { workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' } } })
   } catch (err) {
     console.error(`${(err as Error).message}\n${USAGE}`)
     return 2
@@ -56,7 +56,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
           console.error('murm: --max-depth must be a whole number from 1 to 8')
           return 2
         }
-        return await run(args[0], workspace, deps, maxDepth)
+        return await run(args[0], workspace, deps, maxDepth, parsed.values.agents)
       }
       case 'resume':
         if (args.length > 1) break
@@ -83,23 +83,26 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   return 2
 }
 
-/** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`. */
-async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: number): Promise<number> {
+/** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
+ * agent definitions of `agentsFile`, if given. */
+async function run(arg: string, workspace: string, deps: CliDeps, maxDepth?: number, agentsFile?: string): Promise<number> {
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
-  const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
+  if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
+  const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
+  const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.murm', 'runs', id)
   mkdirSync(runDir, { recursive: true })
   const createdAt = new Date().toISOString()
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), createdAt }, null, 2) + '\n')
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), ...(definitions ? { agents: resolve(agentsFile!) } : {}), createdAt }, null, 2) + '\n')
   console.log(`run ${id} (${runDir})`)
 
   const unavailable = await agents(graph, deps)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : {}), ...(maxDepth ? { maxDepth } : {}) })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}) })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -118,7 +121,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
-  const unavailable = await agents(state.graph, deps)
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps)
   printPending(state)
   const printEvent = printer(events)
   const outcome = await runSupervisor({
@@ -137,7 +140,7 @@ function printResult(runDir: string): void {
 }
 
 /** Check which agents can run, once per run start, and print it. */
-async function agents(graph: GraphFile | undefined, deps: CliDeps): Promise<Unavailable> {
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps): Promise<Unavailable> {
   const unavailable = await checkAgents(graph, deps.hasLeadCredential)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
   const names = agentNames(graph)

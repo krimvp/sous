@@ -1,6 +1,7 @@
 // Run state as a pure fold of the event log.
+import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation, or a gate
  * waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
@@ -88,6 +89,8 @@ export interface RunState {
   maxDepth: number
   workspace: string
   graph?: GraphFile
+  /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
+  agents: Definitions
   status: 'running' | 'completed' | 'failed'
   summary?: string
   reason?: string
@@ -105,11 +108,12 @@ export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' |
 
 export const callKey = (node: string, callId: string) => `${node}\n${callId}`
 
-/** The node a lead's child becomes. A child lead that names no agent gets its parent's agent and model; a work
- * child that names none gets the default worker when it starts. */
+/** The node a lead's child becomes; a child that defines an agent names it. A child lead that names no agent gets its
+ * parent's agent and model; a work child that names none gets the default worker when it starts. */
 export function childNode(c: ChildSpec, lead: NodeSpec): NodeSpec {
   const node: NodeSpec = { id: c.id, kind: c.kind, parent: lead.id }
-  for (const key of ['brief', 'command', 'acceptance', 'needs', 'agent', 'model'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
+  for (const key of ['brief', 'command', 'acceptance', 'needs', 'model'] as const) if (c[key] !== undefined) Object.assign(node, { [key]: c[key] })
+  if (c.agent !== undefined) node.agent = typeof c.agent === 'string' ? c.agent : c.agent.name
   if (c.kind === 'lead' && c.agent === undefined) {
     if (lead.agent !== undefined) node.agent = lead.agent
     if (c.model === undefined && lead.model !== undefined) node.model = lead.model
@@ -142,7 +146,9 @@ export function childrenOf(state: RunState, id: string | undefined): NodeState[]
 }
 
 export function fold(events: readonly Event[]): RunState {
-  const state: RunState = { goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, workspace: '', status: 'running', nodes: new Map(), questions: [], calls: new Map() }
+  const state: RunState = {
+    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, workspace: '', agents: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(),
+  }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
     spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], idle: false, reminders: 0, escalated: false,
@@ -176,9 +182,12 @@ export function fold(events: readonly Event[]): RunState {
       }
     }
     switch (e.type) {
-      case 'run.created':
+      case 'run.created': {
+        const { agent, agents, models } = e.graph ?? e.definitions ?? {}
         Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH })
+        state.agents = { agent, agents: registry(agents), models }
         break
+      }
       case 'node.added':
         add(e.node)
         break
@@ -245,7 +254,12 @@ export function fold(events: readonly Event[]): RunState {
         if (!e.ok || !lead) break
         lead.reminders = 0
         const call = e.call
-        if (call.tool === 'spawn') for (const c of call.children) add(childNode(c, lead.spec))
+        if (call.tool === 'spawn') {
+          for (const c of call.children) {
+            if (typeof c.agent === 'object') state.agents.agents![c.agent.name] = defineAgent(state.agents, c.agent)
+            add(childNode(c, lead.spec))
+          }
+        }
         else if (call.tool === 'note') lead.notes.push(call.text)
         else if (call.tool === 'cancel') cancel(call.node, e.node, e.seq)
         else if (call.tool === 'complete') finish(lead, 'completed', call.summary, e.seq)

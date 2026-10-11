@@ -65,6 +65,12 @@ An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi` 
 and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
 worktree (see the design's harness facts).
 
+A lead may define a new agent for a child, `{ "name": "hr", "runs": "pi", "instructions": "…" }`, which later
+children may name, but only on a runtime the run lists `models` for, with one of those models (default: the
+first): `"models": { "claude": ["haiku"], "pi": ["ollama-cloud/glm-5.2"] }` in a graph file. The same lists bound
+the `model` a lead sets on a child that names its agent. A goal run takes the same
+`agent`, `agents` and `models` from a file: `node src/cli.ts run --agents agents.json "…"`.
+
 ```bash
 npm install          # the lead runner's Pi packages and the type checker
 npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex, Pi and lead runs

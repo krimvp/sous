@@ -1,9 +1,10 @@
-// Agents: who does a node. Names resolve against the graph's definitions, then the built-ins. Defaults come
+// Agents: who does a node. Names resolve against the run's definitions (its graph's or agents file's, and those
+// leads defined), then the built-ins. Defaults come
 // from availability, which the CLI checks once when a run starts or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, WORKER_AGENT_PREFERENCE } from './types.ts'
-import type { AgentRuntime, AgentSpec, GraphFile, HarnessName, NodeSpec } from './types.ts'
+import type { AgentRuntime, AgentSpec, Definitions, NewAgent, HarnessName, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
 export interface Agent {
@@ -21,8 +22,8 @@ export interface Unavailable {
   leadProviders: string[]
 }
 
-type Agents = Pick<GraphFile, 'agents'> | undefined
-type Defaults = Pick<GraphFile, 'agents' | 'agent'> | undefined
+type Agents = Pick<Definitions, 'agents'> | undefined
+type Defaults = Definitions | undefined
 
 const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
@@ -39,8 +40,28 @@ export function agentNames(graph: Agents): string[] {
   return [...new Set([...Object.keys(BUILTIN_AGENTS), ...Object.keys(graph?.agents ?? {})])]
 }
 
+/** The agent a lead defines with `d`: on `d.runs`, with `d.model` or the first model the run lists for that runtime,
+ * and only `d`'s instructions. The caller has checked that the runtime has a list. */
+export function defineAgent(graph: Defaults, d: NewAgent): AgentSpec {
+  const model = d.model ?? graph!.models![d.runs]![0]
+  return { runs: d.runs, model, ...(d.instructions?.trim() ? { instructions: d.instructions } : {}) }
+}
+
+/** A copy of `agents` as a dictionary without a prototype, so that every valid id, `__proto__` included, is an
+ * ordinary key. */
+export function registry(agents?: Record<string, AgentSpec>): Record<string, AgentSpec> {
+  return Object.assign(Object.create(null), agents)
+}
+
+/** Why a lead may not choose `model` for an agent that runs `runs`, if it may not. */
+export function modelError(graph: Defaults, runs: AgentRuntime, model: string): string | undefined {
+  const allowed = graph?.models?.[runs] ?? []
+  if (!allowed.length) return `leads may not choose a model for ${runs} agents (none allowed)`
+  return allowed.includes(model) ? undefined : `model ${model} is not allowed for ${runs} agents (allowed: ${allowed.join(', ')})`
+}
+
 /** Check which harness commands are on PATH, and which lead providers the graph names have a credential. */
-export async function checkAgents(graph: Pick<GraphFile, 'agents' | 'nodes'> | undefined, hasLeadCredential: (provider: string) => Promise<boolean>): Promise<Unavailable> {
+export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, hasLeadCredential: (provider: string) => Promise<boolean>): Promise<Unavailable> {
   const leads = agentNames(graph).map((name) => agentSpec(graph, name)!).filter((spec) => spec.runs === 'lead')
   const models = [...leads.map((spec) => spec.model), ...(graph?.nodes ?? []).filter((n) => n.kind === 'lead').map((n) => n.model)]
   const leadProviders: string[] = []
@@ -87,12 +108,14 @@ export function integratorAgent(graph: Agents, unavailable: Unavailable): string
   return INTEGRATOR_AGENT_PREFERENCE.find((name) => availableWorker(graph, name, unavailable))
 }
 
-/** The available agents a lead's children may name, by the kind of node they can do. */
+/** The available agents a lead's children may name, by the kind of node they can do, the runtime of each, and the
+ * models a lead may choose. */
 export function childAgents(graph: Defaults, unavailable: Unavailable) {
   const specs = agentNames(graph).map((name) => [name, agentSpec(graph, name)!] as const)
     .filter(([, spec]) => !whyUnavailable(spec.runs, spec.model, unavailable))
   const names = (lead: boolean) => specs.filter(([, spec]) => (spec.runs === 'lead') === lead).map(([name]) => name)
-  return { work: names(false), lead: names(true), defaultWork: defaultWorker(graph, unavailable) }
+  const runs = Object.fromEntries(specs.map(([name, spec]) => [name, spec.runs]))
+  return { work: names(false), lead: names(true), defaultWork: defaultWorker(graph, unavailable), runs, models: graph?.models ?? {} }
 }
 
 /** The agent that does `node`: the one it names, else the default for its kind. Throws a reason the node fails with
