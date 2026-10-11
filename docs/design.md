@@ -2,7 +2,7 @@
 
 Murmuration runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
 lead agents plan and split, worker agents (Claude Code, Codex, Pi or a custom agent) do it, and plain
-code keeps everything moving. It is local only, has no runtime dependencies beyond Node, and keeps its
+code keeps everything moving. It is local only, keeps runtime dependencies to the lead runner, and keeps its
 whole state in files you can read.
 
 A murmuration is a flock of starlings that moves as one without a central conductor. Here there is a
@@ -117,8 +117,22 @@ Each adapter starts the CLI as the leader of a new process group, sends stdout t
 
 ### Lead runner
 
-A lead turn is built fresh from a snapshot: its brief, its children's state, its inbox and the notes. It
-has no long-lived conversation, so recovery is trivial and context stays small. Its tools:
+Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
+[the spike](../spikes/pi-durable/RESULTS.md)). Each lead node is one durable conversation, stored with the
+JSONL backend in `.murm/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
+reopened lead continues where it stopped.
+
+- **Events reach a lead as submissions:** a follow-up when it is idle, a steer when it must change course
+  now (its own `queue` and `interrupt`). Each carries a `requestId` derived from the event's `seq`, so
+  redelivery after a crash is ignored.
+- **Its only tools are the orchestration tools below**, offered through one extension. Each is
+  `replay: "safe"`, keyed by the model's tool call ID, and **returns the original result on replay**: in
+  the spike, a different replay result made the model stop early.
+- **Model:** `openai-codex/gpt-5.5` through the user's Pi login, read from `~/.pi/agent/auth.json` and
+  never refreshed by Murmuration (a refresh rotates Pi's token; an expired login is refreshed by running
+  `pi` once).
+
+Its tools:
 
 | Tool | Effect |
 |---|---|
@@ -131,8 +145,7 @@ has no long-lived conversation, so recovery is trivial and context stays small. 
 | `wait()` | end the turn; the lead is woken by the next event |
 
 Each tool call is validated against policy and appended as an event before the supervisor acts on it. The
-model behind leads is chosen in v1 (candidates: Pi's `agent-core`, Google ADK, OpenAI Agents SDK, plain
-`fetch` to a provider API). It needs an API key; workers keep using the CLIs' own logins.
+supervisor's event log stays the source of truth for the tree; pi-durable holds only lead transcripts.
 
 ## Messaging across levels
 
@@ -161,8 +174,8 @@ The supervisor, not any lead, owns recovery.
    - its output file has a final result → record it;
    - its process group is still alive (pid plus start time from `/proc`) → stop the group, then resume;
    - otherwise → resume with "you were interrupted, re-check the worktree".
-4. **Lead tool calls are events**, so a lead turn that crashed halfway keeps its recorded effects and is
-   simply run again from a fresh snapshot.
+4. **Leads recover through pi-durable:** reopening a lead's storage resumes its unfinished run, replaying
+   interrupted tool calls, which find their effects in the event log by tool call ID.
 5. **Recovery spends budget.** Each resumed turn counts as an attempt, so crash loops stop and escalate.
 
 ## Harness facts (spike, 2026-10-11)
@@ -248,7 +261,9 @@ run or an older one.
 
 ## Implementation
 
-Node 22.18 or later runs the TypeScript sources directly (type stripping). Runtime dependencies: none.
+Node 22.19 or later runs the TypeScript sources directly (type stripping). Only the lead runner has
+runtime dependencies: `@earendil-works/pi-durable`, `pi-ai` and `chord`, pinned to exact versions because
+the API is experimental. The supervisor, adapters and exporters use Node built-ins only.
 Development dependency: `typescript` for type checking. Tests use `node:test`.
 
 ## Roadmap
@@ -261,6 +276,5 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 
 ## Open questions
 
-- Which library runs leads, and with which model and API key.
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - How merges between sibling worktrees are ordered and who resolves conflicts (v2).

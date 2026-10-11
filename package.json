@@ -4,7 +4,7 @@
   "private": true,
   "description": "Local, dependency-free orchestration of agent trees: leads plan, workers do, code keeps it moving.",
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": { "node": ">=22.19" },
   "bin": { "murm": "src/cli.ts" },
   "scripts": {
     "typecheck": "tsc --noEmit",

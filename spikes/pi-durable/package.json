@@ -1,0 +1,11 @@
+{
+  "name": "murmuration-spike-pi-durable",
+  "private": true,
+  "type": "module",
+  "description": "Spike: a durable lead on pi-durable survives SIGKILL mid-spawn without spawning twice.",
+  "dependencies": {
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-durable": "1.1.0"
+  }
+}
