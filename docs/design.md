@@ -225,6 +225,56 @@ told). A gate takes no messages, and a lead waiting only on a gate is not remind
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
+## Agents
+
+An **agent** is what does work; a harness is only how an agent runs. An agent has a name, a runtime (`claude`,
+`codex`, `pi` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
+every brief it receives (`AgentSpec` in `src/types.ts`).
+
+- **Built-in agents** `claude`, `codex`, `pi` and `lead` exist without being defined. A graph file may define
+  more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`;
+  `harness` is gone from graph files and lead tools.
+- **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
+  login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
+  first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
+- **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
+  **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
+  between them, and never completes on its own. The integrator is the first one; later, agents outside the
+  run (for example over Comitia) can take this role.
+
+## Merging
+
+Every `work` node runs in its own git worktree, so writers run in parallel (up to the concurrency limit) and
+`readOnly` is gone. The workspace must be a git repository with at least one commit.
+
+1. **Integration branch.** Before the first work node starts, the supervisor creates branch `murm/<run>` from
+   the workspace's `HEAD` and its worktree in `.murm/runs/<run>/integration/` (`integration.created`).
+   `.murm/` is added to the repository's `.git/info/exclude`.
+2. **Node worktrees.** A work node gets branch `murm/<run>/<node>` and worktree
+   `.murm/runs/<run>/worktrees/<node>/`, created from the integration branch's current commit when the node
+   starts (`worktree.created`). Nodes with `needs` start only after their dependencies are merged, so they
+   build on that work.
+3. **Merge queue.** When a work node is done and its acceptance check passed in its own worktree, the
+   supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
+   at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
+   changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
+   again in the integration worktree; if it passes, `merge.done` by `supervisor`.
+4. **The integrator.** A conflict, or a failing check after a merge, aborts the merge and goes to the
+   integrator (`merge.conflict`): a standing node with id `integrator`, run by the graph's `integrator` agent
+   if defined, else the first available of `codex`, `claude`, `pi`. It is created on first need and resumed
+   in the same session for later requests. Its request names the node, its branch, the files in conflict,
+   the check output, and the briefs of the node and of what was merged before. It works in the integration
+   worktree, resolves, runs the check, commits, and reports `done` (`merge.done` by `integrator`) or `blocked`
+   (`merge.failed`: the node fails and its parent is told).
+5. **Completion.** A work node completes only when its merge is done. `check` nodes run in the integration
+   worktree, so they check the merged result. A lead's children are therefore merged before the lead hears
+   they completed.
+6. **The result** is branch `murm/<run>`. Merging it into the person's own branch is their decision; `murm
+   status` names the branch.
+
+Recovery: worktrees, branches and queue state survive a crash. On `murm resume`, a merge in progress in the
+integration worktree is aborted and retried; queued merges continue in order.
+
 ## Recovery
 
 The supervisor, not any lead, owns recovery. `murm resume [run-id]` (latest run by default) continues a run
@@ -361,7 +411,8 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
 | **v1** (done) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
 | **v2** (done) | `murm resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
-| **Later** | Worktrees and merge for parallel writers (including how merges between sibling worktrees are ordered and who resolves conflicts); separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
+| **v3** (in progress) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `murm/<run>`, one real conflict resolved by the integrator |
+| **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
 (its default `ollama-cloud/glm-5.2`). A goal split into two work children and a check completed and exported a valid
