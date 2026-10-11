@@ -761,8 +761,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, agent.instructions)
           : recorded ? recoveryPrompt(inbox) : inboxPrompt(inbox)
         splitFor = id
-        result = (await runTurn(sp.spec, agent, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
-        splitFor = undefined
+        try {
+          result = (await runTurn(sp.spec, agent, sp.turns.length + 1, prompt, tree.path, sessionId, !!recorded)).result
+        } finally {
+          splitFor = undefined
+        }
         if (stopping) return
         if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
         if (nodeNow(SPLITTER).inbox.length) continue // messages that arrived meanwhile come first
