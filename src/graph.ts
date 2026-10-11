@@ -4,6 +4,7 @@ import { PERSON, ROOT } from './types.ts'
 import type { ChildSpec, GraphFile, HarnessName, NodeSpec } from './types.ts'
 
 export const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
+const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const GRAPH_KEYS = ['goal', 'harness', 'model', 'nodes']
 const NODE_KEYS = ['id', 'kind', 'parent', 'needs', 'brief', 'command', 'acceptance', 'harness', 'model', 'readOnly']
 // IDs name directories under nodes/, so keep them to safe file-name characters.
@@ -41,7 +42,7 @@ export function validateGraph(raw: unknown): GraphFile {
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
     if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files (v0 graphs are flat)`)
-    if (!['work', 'check', 'lead'].includes(node.kind)) throw new Error(`${where}: kind must be work, check or lead`)
+    if (!KINDS.includes(node.kind)) throw new Error(`${where}: kind must be work, check, lead or gate`)
     if (node.needs !== undefined && !(Array.isArray(node.needs) && node.needs.every((n) => typeof n === 'string'))) {
       throw new Error(`${where}: needs must be an array of node ids`)
     }
@@ -54,13 +55,14 @@ export function validateGraph(raw: unknown): GraphFile {
     if (node.readOnly !== undefined && typeof node.readOnly !== 'boolean') throw new Error(`${where}: readOnly must be a boolean`)
     if (node.harness !== undefined && !HARNESSES.includes(node.harness)) throw new Error(`${where}: harness must be one of ${HARNESSES.join(', ')}`)
     if (node.kind === 'lead' && node.command !== undefined) throw new Error(`${where}: leads have no command; add a check node for a deterministic gate`)
+    if (node.kind === 'gate' && node.command !== undefined) throw new Error(`${where}: gates have no command; the person approves them`)
     if (node.kind === 'check') {
       if (!node.command?.trim()) throw new Error(`${where}: check nodes need a command`)
       return node as NodeSpec
     }
     if (!node.brief?.trim()) throw new Error(`${where}: ${node.kind} nodes need a brief`)
-    // A lead's model is `provider/model`, not a worker model; it uses its own or the default.
-    if (node.kind === 'lead') return node as NodeSpec
+    // A lead's model is `provider/model`, not a worker model; it uses its own or the default. The person runs gates.
+    if (node.kind === 'lead' || node.kind === 'gate') return node as NodeSpec
     const harness: HarnessName | undefined = node.harness ?? graph.harness
     if (!harness) throw new Error(`${where}: no harness (set harness on the node or the graph)`)
     const model = node.model ?? graph.model
@@ -85,8 +87,9 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   if (!isObject(c)) return 'must be an object'
   if (typeof c.id !== 'string' || !ID.test(c.id) || c.id === ROOT || c.id === PERSON) return `id must match ${ID} and not be ${ROOT} or ${PERSON}`
   if (used(c.id)) return 'id is already used'
-  if (!['work', 'check', 'lead'].includes(c.kind)) return 'kind must be work, check or lead'
+  if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
   if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; spawn a check child for a deterministic gate'
+  if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
   if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
   if (c.harness !== undefined && !HARNESSES.includes(c.harness)) return `harness must be one of ${HARNESSES.join(', ')}`
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`

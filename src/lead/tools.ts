@@ -8,8 +8,10 @@ import type { LeadCall, LeadHost } from '../types.ts'
 const strict = { additionalProperties: false }
 const Child = Type.Object({
   id: Type.String({ description: 'Unique id for the child in the whole run, e.g. "api-tests"' }),
-  kind: StringEnum(['work', 'check', 'lead'] as const, { description: 'work: an agent does it; check: a shell command; lead: splits further' }),
-  brief: Type.Optional(Type.String({ description: 'What to do, self-contained (work, lead)' })),
+  kind: StringEnum(['work', 'check', 'lead', 'gate'] as const, {
+    description: 'work: an agent does it; check: a shell command; lead: splits further; gate: the person must approve before dependants start',
+  }),
+  brief: Type.Optional(Type.String({ description: 'What to do, self-contained (work, lead), or what the person approves (gate)' })),
   command: Type.Optional(Type.String({ description: 'Shell command; exit code 0 passes (check)' })),
   acceptance: Type.Optional(Type.Array(Type.String(), { description: 'Criteria the result must meet' })),
   needs: Type.Optional(Type.Array(Type.String(), { description: 'Ids of earlier siblings that must complete first' })),

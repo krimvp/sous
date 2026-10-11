@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -25,7 +25,7 @@ test('a truncated final line is ignored on read and replaced on the next append'
   assert.deepEqual(lines.map((l) => JSON.parse(l).seq), [1, 2, 3])
 })
 
-test('refuses a lock held by a live supervisor or left by a stopped one', async (t) => {
+test('refuses a lock held by a live supervisor; only a takeover (murm resume) replaces one left by a stopped one', async (t) => {
   const runDir = tempRun()
   const lockPath = join(runDir, 'lock')
   const live = spawn('sleep', ['30'])
@@ -35,10 +35,15 @@ test('refuses a lock held by a live supervisor or left by a stopped one', async 
 
   writeFileSync(lockPath, JSON.stringify({ pid: live.pid, startTime }))
   assert.throws(() => openLog(runDir), /locked by a live supervisor/)
+  assert.throws(() => openLog(runDir, undefined, { takeOver: true }), /locked by a live supervisor/)
 
   // Same pid, different start time: the pid was reused, so the supervisor that wrote it is gone.
   writeFileSync(lockPath, JSON.stringify({ pid: live.pid, startTime: '1' }))
-  assert.throws(() => openLog(runDir), /stopped supervisor; remove/)
+  assert.throws(() => openLog(runDir), /stopped supervisor; continue it with murm resume/)
+  const log = openLog(runDir, undefined, { takeOver: true })
+  assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).pid, process.pid)
+  log.close()
+  assert.equal(existsSync(lockPath), false)
 })
 
 test('only one of many concurrent supervisors gets the lock', async () => {

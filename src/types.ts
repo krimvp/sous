@@ -12,7 +12,7 @@ export interface NodeSpec {
   parent?: string
   /** Sibling node IDs that must complete before this node starts. */
   needs?: string[]
-  /** What the agent should do (work, review, lead). */
+  /** What the agent should do (work, review, lead), or what the person approves (gate). */
   brief?: string
   /** Shell command for `check` nodes, or a node's acceptance check run after a `done` result. */
   command?: string
@@ -119,7 +119,8 @@ export interface WorkerAdapter {
 /** A child a lead asks for. Its id is unique in the run; its parent is the calling lead. */
 export interface ChildSpec {
   id: string
-  kind: 'work' | 'check' | 'lead'
+  kind: 'work' | 'check' | 'lead' | 'gate'
+  /** What to do (work, lead), or what the person approves (gate). */
   brief?: string
   command?: string
   acceptance?: string[]
@@ -172,14 +173,17 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 export type EventBody =
   | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile }
   | { type: 'node.added'; node: NodeSpec; by: string }
-  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; pid: number; outFile: string; errFile: string; prompt?: string }
+  /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
+   * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
+  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
-  | { type: 'node.completed'; node: string; summary: string }
+  /** `command`: on events a person command produced, the name of its command file (see `murm answer`). */
+  | { type: 'node.completed'; node: string; summary: string; command?: string }
   | { type: 'node.failed'; node: string; reason: string }
-  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt' }
+  | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
@@ -188,7 +192,9 @@ export type EventBody =
   /** A lead answered a delivery and is idle again. */
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
-  | { type: 'node.cancelled'; node: string; by: string }
+  | { type: 'node.cancelled'; node: string; by: string; command?: string }
+  /** `murm resume` took over a run whose supervisor had stopped. */
+  | { type: 'run.resumed' }
   | { type: 'run.completed'; summary: string }
   | { type: 'run.failed'; reason: string }
 

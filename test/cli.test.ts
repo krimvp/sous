@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,12 +6,10 @@ import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
-import type { Event } from '../src/types.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
+import { murm, runDirOf, waitFor } from './fixtures/murm-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
-
-const MURM = new URL('./fixtures/murm-fake.ts', import.meta.url).pathname
 
 function setup(steps: FakeStep[]) {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
@@ -26,21 +23,6 @@ function setup(steps: FakeStep[]) {
     ],
   }))
   return { workspace, graph, sessions: join(workspace, 'sessions') }
-}
-
-function murm(args: string[], cwd: string, sessions: string) {
-  const child = spawn(process.execPath, [MURM, ...args], { cwd, env: { ...process.env, FAKE_SESSIONS: sessions } })
-  let stdout = ''
-  child.stdout.on('data', (d) => (stdout += d))
-  child.stderr.on('data', (d) => (stdout += d))
-  const exit = new Promise<number | null>((resolve) => child.on('close', resolve))
-  return { child, exit, output: () => stdout }
-}
-
-const runDirOf = (workspace: string) => {
-  const runs = join(workspace, '.murm', 'runs')
-  const ids = existsSync(runs) ? readdirSync(runs) : []
-  return ids.length ? join(runs, ids[0]) : undefined
 }
 
 test('murm run completes a work then check graph and murm status shows it', async () => {
@@ -81,19 +63,8 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   // The supervisor exits only after the group is gone: SIGKILL after the 5 s grace for this grandchild.
   assert.throws(() => process.kill(grandchild!, 0), /ESRCH/)
   assert.equal(existsSync(join(runDirOf(workspace)!, 'lock')), false)
-  assert.match(run.output(), /can be resumed later/)
+  assert.match(run.output(), /continue with: murm resume /)
 })
-
-/** Polls the run's log until `found` matches an event; returns that event. */
-async function waitFor(workspace: string, found: (e: Event) => boolean): Promise<Event> {
-  for (let i = 0; i < 200; i++) {
-    const runDir = runDirOf(workspace)
-    const event = runDir && existsSync(join(runDir, 'events.jsonl')) ? readEvents(runDir).find(found) : undefined
-    if (event) return event
-    await sleep(50)
-  }
-  throw new Error('timed out waiting for an event')
-}
 
 test('murm cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'murm-cli-'))
