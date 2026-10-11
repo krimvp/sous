@@ -56,7 +56,7 @@ export interface NodeState {
   notes: string[]
   /** Leads: request IDs delivered, in order. */
   delivered: string[]
-  /** Leads: answered the last delivery (a `lead.turn` after the last `lead.delivered`). */
+  /** Leads: answered every delivery (a lead may report an earlier delivery after a later one was delivered). */
   idle: boolean
   /** Leads: seq of the last `lead.turn`. */
   lastTurn?: number
@@ -140,6 +140,7 @@ export function fold(events: readonly Event[]): RunState {
     }
   }
   const parentOf = (id: string) => state.nodes.get(id)?.spec.parent
+  const answered = new Map<string, Set<string>>()
   for (const e of events) {
     const message = eventMessage(e, parentOf)
     if (message) {
@@ -206,7 +207,10 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'lead.turn': {
         const node = state.nodes.get(e.node)
-        if (node) Object.assign(node, { idle: true, lastTurn: e.seq })
+        if (!node) break
+        const done = answered.get(e.node) ?? new Set<string>()
+        answered.set(e.node, done.add(e.requestId))
+        Object.assign(node, { idle: node.delivered.every((r) => done.has(r)), lastTurn: e.seq })
         break
       }
       case 'lead.call': {
