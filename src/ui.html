@@ -321,12 +321,17 @@ async function openRun(id, keepNode) {
   if (!keepNode) { ui.nodeId = null; ui.node = null; renderDetail() }
   writeHash()
   renderRuns()
+  let run
   try {
-    ui.run = await api('/api/run', { run: id })
+    run = await api('/api/run', { run: id })
   } catch (err) {
+    if (id !== ui.runId) return
     $('run').innerHTML = `<div class="blank"><div><b>Cannot open this run</b>${esc(err.message)}</div></div>`
     return
   }
+  // A later click or refresh may have moved on while this one loaded.
+  if (id !== ui.runId) return
+  ui.run = run
   ui.run.loadedAt = Date.now()
   if (!ui.foldedOnce) {
     // Large runs open folded below the first team level, so the tree reads at a glance.
@@ -462,16 +467,18 @@ $('run').addEventListener('click', (e) => {
 })
 
 // ---- Node detail -----------------------------------------------------------------------------
-async function openNode(id) {
+/** `keep`: a refresh of the open node, which keeps what the reader expanded and where they scrolled. */
+async function openNode(id, keep) {
+  if (!keep) ui.node = null
   ui.nodeId = id
   writeHash()
+  if (!keep) renderDetail()
   if (ui.run) renderRun()
-  try {
-    ui.node = await api('/api/node', { run: ui.runId, node: id })
-  } catch (err) {
-    ui.node = { error: err.message }
-  }
-  renderDetail()
+  const runId = ui.runId
+  const node = await api('/api/node', { run: runId, node: id }).catch((err) => ({ error: err.message }))
+  if (id !== ui.nodeId || runId !== ui.runId) return
+  ui.node = node
+  renderDetail(keep)
 }
 function closeNode() {
   ui.nodeId = null
@@ -481,8 +488,12 @@ function closeNode() {
   if (ui.run) renderRun()
 }
 
-function renderDetail() {
+function renderDetail(keep) {
   const el = $('detail')
+  // Sections the reader opened, by their place in the panel, survive a live refresh.
+  const opened = keep ? [...el.querySelectorAll('details')].map((d) => d.open) : []
+  const shown = keep ? [...el.querySelectorAll('[data-more]')].length : 0
+  const scroll = el.scrollTop
   $('app').classList.toggle('has-node', !!ui.nodeId)
   el.hidden = !ui.nodeId
   if (!ui.nodeId) return
@@ -510,6 +521,10 @@ function renderDetail() {
     </div>` : ''}
     ${d.notes.length ? `<div class="sec"><h3 class="side-h">Notes for the subtree</h3><ul class="notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h3 class="side-h">${s.kind === 'lead' ? 'Decisions' : s.kind === 'check' ? 'Runs' : 'Trajectory'}</h3><div class="steps">${trajectory(d, t0) || '<p class="muted">Nothing yet.</p>'}</div></div>`
+  if (!keep) return
+  el.querySelectorAll('details').forEach((x, i) => { if (opened[i]) x.open = true })
+  if (!shown) el.querySelectorAll('[data-more]').forEach((m) => { m.previousElementSibling.classList.remove('clamp'); m.remove() })
+  el.scrollTop = scroll
 }
 
 function long(text, mono) {
@@ -645,23 +660,27 @@ function connect() {
       await loadRuns()
       if (ui.runId && changed.includes(ui.runId)) {
         await openRun(ui.runId, true)
-        if (ui.nodeId) {
-          const scroll = $('detail').scrollTop
-          ui.node = await api('/api/node', { run: ui.runId, node: ui.nodeId }).catch((err) => ({ error: err.message }))
-          renderDetail()
-          $('detail').scrollTop = scroll
-        }
+        if (ui.nodeId) await openNode(ui.nodeId, true)
       }
     }, 250)
   }
 }
 window.addEventListener('hashchange', () => {
   const h = readHash()
-  if (h.run && h.run !== ui.runId) openRun(h.run, true)
-  if ((h.node ?? null) !== ui.nodeId) h.node ? openNode(h.node) : closeNode()
+  const other = h.run && h.run !== ui.runId
+  if (other) openRun(h.run, true)
+  if (other || (h.node ?? null) !== ui.nodeId) h.node ? openNode(h.node) : closeNode()
 })
 // A running run's clocks and open bars move every second.
-setInterval(() => { if (ui.run?.status === 'running') { const y = $('run').scrollTop; renderRun(); $('run').scrollTop = y } }, 1000)
+setInterval(() => {
+  if (ui.run?.status !== 'running') return
+  const y = $('run').scrollTop
+  const f = document.activeElement?.closest?.('#run [data-fold], #run [data-copy], #run .link')
+  const key = f && (f.dataset.fold ? `[data-fold="${CSS.escape(f.dataset.fold)}"]` : f.dataset.copy ? `[data-copy="${CSS.escape(f.dataset.copy)}"]` : `.link[data-node="${CSS.escape(f.dataset.node)}"]`)
+  renderRun()
+  $('run').scrollTop = y
+  if (key) $('run').querySelector(key)?.focus()
+}, 1000)
 
 ;(async () => {
   const h = readHash()

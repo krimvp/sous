@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, cpSync, mkdtempSync, readFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -88,7 +88,7 @@ test('sous ui lists runs and shows a run tree from the log alone, then one node 
   assert.equal((await get('/api/run', { run: '../../etc' })).status, 404)
 })
 
-test('sous ui streams a change when the run log grows', async (t) => {
+test('sous ui streams a change when the run log grows', { timeout: 10_000 }, async (t) => {
   const { ws, server, get } = await ui()
   const res = await get('/api/stream')
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader()
@@ -107,6 +107,21 @@ test('sous ui streams a change when the run log grows', async (t) => {
   appendFileSync(log, JSON.stringify({ seq: 30, at: '2026-10-11T11:00:23.000Z', type: 'run.resumed' }) + '\n')
   const second = await next()
   assert.ok(second[RUN][0] > first[RUN][0])
+  // A lock whose supervisor is alive makes the run live; one left by a killed supervisor does not.
+  const lock = join(ws, '.sous', 'runs', RUN, 'lock')
+  writeFileSync(lock, JSON.stringify({ pid: process.pid }) + '\n')
+  assert.equal((await next())[RUN][1], true)
+  writeFileSync(lock, JSON.stringify({ pid: 2 ** 22 + 1 }) + '\n')
+  assert.equal((await next())[RUN][1], false)
+})
+
+test('sous ui caps the long texts of a node it sends', async (t) => {
+  const { ws, server, get } = await ui()
+  t.after(() => server.close())
+  const log = join(ws, '.sous', 'runs', RUN, 'events.jsonl')
+  appendFileSync(log, JSON.stringify({ seq: 30, at: '2026-10-11T11:00:23.000Z', type: 'check.ended', node: 'impl', command: 'node test.js', exitCode: 1, output: 'x'.repeat(50_000) }) + '\n')
+  const impl = await (await get('/api/node', { run: RUN, node: 'impl' })).json()
+  assert.equal(impl.events.at(-1).output.length, 20_000)
 })
 
 test('sous ui prints an address that serves the page', async (t) => {

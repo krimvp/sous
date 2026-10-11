@@ -1,7 +1,7 @@
 // sous ui: a local page that shows the workspace's runs, live or finished, read from their logs and turn files.
 // It only reads: the supervisor stays the only writer of a run.
-import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -33,7 +33,8 @@ export async function startUi(workspace: string, parseTurn: ParseTurn, port = 0)
     const url = new URL(req.url ?? '/', 'http://localhost')
     const host = req.headers.host ?? ''
     if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return send(res, 403, 'text/plain', 'sous ui answers only on 127.0.0.1\n')
-    if (url.searchParams.get('token') !== token) return send(res, 403, 'text/plain', 'open the address sous ui printed: it carries the token\n')
+    const given = Buffer.from(url.searchParams.get('token') ?? '')
+    if (given.length !== token.length || !timingSafeEqual(given, Buffer.from(token))) return send(res, 403, 'text/plain', 'open the address sous ui printed: it carries the token\n')
     try {
       route(url, req, res)
     } catch (err) {
@@ -63,7 +64,8 @@ export async function startUi(workspace: string, parseTurn: ParseTurn, port = 0)
     const tick = () => {
       const sig = JSON.stringify(Object.fromEntries(listRuns(workspace).ids.map((r) => {
         const dir = join(workspace, '.sous', 'runs', r)
-        return [r, [statSync(join(dir, 'events.jsonl')).size, existsSync(join(dir, 'lock'))]]
+        // A lock left by a killed supervisor does not count: the run shows as stopped.
+        return [r, [statSync(join(dir, 'events.jsonl')).size, lockHolder(dir) !== undefined]]
       })))
       if (sig !== last) res.write(`data: ${sig}\n\n`)
       last = sig
@@ -241,10 +243,22 @@ function runDetail(runDir: string) {
   }
 }
 
+/** The texts an event carries that can be long: check output, deliveries, answers, messages and results. */
+function clipEvent(e: Event): Event {
+  const cut = (text: string) => clip(text).text
+  switch (e.type) {
+    case 'check.ended': return { ...e, output: cut(e.output) }
+    case 'lead.delivered': case 'lead.turn': return { ...e, text: cut(e.text) }
+    case 'message': return { ...e, body: cut(e.body) }
+    case 'turn.ended': return e.result ? { ...e, result: { ...e.result, summary: cut(e.result.summary) } } : e
+    default: return e
+  }
+}
+
 const clip = (text: string) => (text.length > MAX_TEXT ? { text: text.slice(0, MAX_TEXT), clipped: text.length - MAX_TEXT } : { text })
 
 function clipItem(item: TraceItem) {
-  if (item.kind === 'message') return { ...item, ...clip(item.text) }
+  if (item.kind === 'message') return { ...item, ...clip(item.text), ...(item.reasoning === undefined ? {} : { reasoning: clip(item.reasoning).text }) }
   if (item.kind === 'tool_result') {
     const { text, clipped } = clip(item.content)
     return { ...item, content: text, clipped }
@@ -267,7 +281,7 @@ function nodeDetail(runDir: string, id: string, parseTurn: ParseTurn) {
     status: state?.status ?? 'pending',
     outcome: node.outcome,
     notes: state?.notes ?? [],
-    events: node.events,
+    events: node.events.map(clipEvent),
     turns: [...node.turns.values()].map((t) => ({
       turn: t.turn,
       mode: t.mode,
