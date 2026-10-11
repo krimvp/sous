@@ -119,7 +119,7 @@ export interface WorkerAdapter {
 export type EventBody =
   | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile }
   | { type: 'node.added'; node: NodeSpec; by: string }
-  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; pid: number; outFile: string; errFile: string }
+  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; pid: number; outFile: string; errFile: string; prompt?: string }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }

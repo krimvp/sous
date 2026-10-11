@@ -11,11 +11,14 @@ import { fold } from './state.ts'
 import type { NodeState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
 import type { SupervisorOptions } from './supervisor.ts'
-import type { Event } from './types.ts'
+import { exportAtif } from './trace/atif.ts'
+import { exportOtlp } from './trace/otlp.ts'
+import type { Event, HarnessName, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
   murm run <graph.json> [--workspace <dir>]
-  murm status [run-id] [--workspace <dir>]`
+  murm status [run-id] [--workspace <dir>]
+  murm export atif|otlp [run-id] [--workspace <dir>]`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
@@ -41,9 +44,8 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         if (args.length > 1) break
         return status(workspace, args[0])
       case 'export':
-        // TODO(trace track): wire `murm export atif|otlp <run-id>` to the exporter functions in src/trace/.
-        console.error('murm export is not available yet')
-        return 1
+        if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
+        return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
     }
   } catch (err) {
     console.error(`murm: ${(err as Error).message}`)
@@ -95,12 +97,30 @@ function printEvent(e: Event): void {
   console.log(`${time} ${e.type.padEnd(16)} ${oneLine(text)}`)
 }
 
-function status(workspace: string, runId?: string): number {
+/** The run directory for `runId`, or the latest run. */
+function findRun(workspace: string, runId?: string): { id: string; runDir: string } {
   const runsDir = join(workspace, '.murm', 'runs')
   const ids = existsSync(runsDir) ? readdirSync(runsDir).sort() : []
   const id = runId ?? ids.at(-1)
   if (!id || !ids.includes(id)) throw new Error(runId ? `no run ${runId} in ${runsDir}` : `no runs in ${runsDir}`)
-  const runDir = join(runsDir, id)
+  return { id, runDir: join(runsDir, id) }
+}
+
+async function exportRun(format: 'atif' | 'otlp', workspace: string, deps: CliDeps, runId?: string): Promise<number> {
+  const { runDir } = findRun(workspace, runId)
+  const parse = (h: HarnessName, raw: string): ParsedTurn => deps.getAdapter(h).parse(raw)
+  if (format === 'atif') {
+    const file = join(runDir, 'trace.atif.json')
+    writeFileSync(file, exportAtif(runDir, parse))
+    console.log(file)
+  } else {
+    console.log(`trace ${await exportOtlp(runDir, parse)}`)
+  }
+  return 0
+}
+
+function status(workspace: string, runId?: string): number {
+  const { id, runDir } = findRun(workspace, runId)
   const state = fold(readEvents(runDir))
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
   console.log(`run ${id} ${live}: ${state.goal}`)

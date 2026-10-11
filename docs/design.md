@@ -87,7 +87,8 @@ murm CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) 
 
 ### Supervisor
 
-One process per run, holding `.murm/runs/<id>/lock` (pid and start time). Its loop:
+One process per run, holding `.murm/runs/<id>/lock` (pid and start time), created exclusively. A lock left
+by a stopped supervisor is removed by hand until `murm resume` exists (v2). Its loop:
 
 1. Fold the event log into state.
 2. For each ready node with no running turn: start a turn (new brief, or resume with the inbox).
@@ -183,6 +184,12 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   prompt. Codex reads stdin when it is not a TTY, so give it `</dev/null` or the prompt.
 - Claude `-p` runs the user's global hooks and plugins unless told otherwise; decide per adapter whether
   to isolate with `--setting-sources` and `--strict-mcp-config`.
+- Codex's `--output-schema` uses OpenAI strict mode: every property must be required, so the adapter sends
+  a copy of the result schema with optional fields required but nullable, and drops the nulls.
+- A Codex `turn.failed` ends a turn without a result. A Pi `agent_end` with `willRetry: true` is not the end
+  of the turn; only the final one is.
+- v0 workers run with full permissions in the workspace: Claude `--permission-mode bypassPermissions`,
+  Codex `-s danger-full-access`, Pi's default tools.
 
 ## Traces: ATIF and Langfuse
 
@@ -248,7 +255,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 
 | Version | Scope | Done when |
 |---|---|---|
-| **v0** | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
+| **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
 | **v1** | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
 | **v2** | `murm resume` and crash recovery; worktree merge; `review` and `gate` nodes; budgets | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 

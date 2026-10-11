@@ -132,7 +132,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const mode = sessionId ? 'resume' : 'start'
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
     const { pid } = running
-    log.append({ type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, pid, outFile: turnSpec.outFile, errFile: turnSpec.errFile })
+    log.append({ type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, pid, outFile: turnSpec.outFile, errFile: turnSpec.errFile, prompt })
     groups.set(pid, { node: spec.id, turn })
     let ended = false
     let session: string | undefined
