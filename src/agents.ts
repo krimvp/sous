@@ -117,11 +117,11 @@ export function defines(defs: AgentDefs, name: string): boolean {
 }
 
 /** The agents a lead may give a role in a child's subtree: those the person defined (graph or agents file) on a CLI
- * harness, and available. */
+ * harness, available, named as role agents must be, and not the integrator. */
 export function roleChoices(person: AgentDefs, unavailable: Unavailable): string[] {
   return Object.keys(person?.agents ?? {}).filter((name) => {
     const spec = person!.agents![name]
-    return spec.runs !== 'lead' && !whyUnavailable(spec.runs, spec.model, unavailable)
+    return name !== INTEGRATOR && /^[A-Za-z0-9_-]+$/.test(name) && spec.runs !== 'lead' && !whyUnavailable(spec.runs, spec.model, unavailable)
   })
 }
 

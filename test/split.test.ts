@@ -229,6 +229,30 @@ test('a splitter turn that took the request but was cut short before starting ge
   assert.deepEqual(splitEvents(events).map((e) => e.type), ['split.requested', 'split.proposed'])
 })
 
+test('on resume, a request already sent to one splitter is not sent again because another splitter settled since', async () => {
+  const leadOf = (id: string): NodeSpec => ({ ...lead([
+    { calls: [{ tool: 'spawn', children: [task(`${id}-w`, [{ result: done(id) }])] }] },
+    { calls: [{ tool: 'complete', summary: `${id} done` }] },
+  ], id), roles: { splitter: `p${id}` } })
+  const request = 'Propose a split for lead l1. (sent before the stop)'
+  const { outcome, events, prompts } = await runGraph([leadOf('l1'), leadOf('l2')], { agents: {
+    pl1: { runs: 'codex', instructions: fakePlan([{ write: propose('l1', [task('l1-w', [])]), result: done('l1 split') }]) },
+    pl2: { runs: 'codex', instructions: fakePlan([]) },
+  } }, {
+    resume: true,
+    more: [
+      { type: 'split.requested', node: 'l1', agent: 'pl1' },
+      { type: 'split.requested', node: 'l2', agent: 'pl2' },
+      { type: 'node.added', node: { id: 'splitter.pl1', kind: 'work', standing: true, agent: 'pl1', brief: 'Split.' }, by: 'supervisor' },
+      { type: 'message', from: 'supervisor', to: 'splitter.pl1', body: request, mode: 'queue' },
+      { type: 'split.proposed', node: 'l2', parts: [task('l2-w', [])], summary: 'l2 split' },
+    ],
+  })
+  assert.equal(outcome, 'completed')
+  assert.equal(events.filter((e) => e.type === 'message' && e.to === 'splitter.pl1').length, 1)
+  assert.ok(prompts('splitter.pl1')[0].includes(request))
+})
+
 test('an invalid proposal goes back to the splitter once with the reason; the corrected one is proposed', async () => {
   const { outcome, events, prompts } = await runGraph([lead([
     { calls: [{ tool: 'spawn', children: [task('a', [{ result: done('a') }])] }] },

@@ -17,6 +17,8 @@ const RESERVED: string[] = [ROOT, PERSON, INTEGRATOR, ...ROLES]
 const reserved = (id: string) => RESERVED.includes(id) || ROLES.some((role) => id.startsWith(`${role}.`))
 // IDs name directories under nodes/, so keep them to safe file-name characters.
 const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
+// An agent in a role names its standing node and git branch (`sous/<run>.<role>.<agent>`), so no dots.
+const ROLE_AGENT = /^[A-Za-z0-9_-]+$/
 
 export function loadGraph(path: string): GraphFile {
   return validateGraph(readJson(path, 'graph'))
@@ -142,6 +144,8 @@ function rolesError(kind: string, roles: unknown, lookup: (name: string) => Agen
   for (const [role, agent] of Object.entries(roles)) {
     if (!(ROLES as readonly string[]).includes(role)) return `unknown role ${role} (known: ${ROLES.join(', ')})`
     if (typeof agent !== 'string') return `roles.${role} must be an agent name`
+    if (agent === INTEGRATOR) return `roles.${role}: the integrator cannot fill a role`
+    if (!ROLE_AGENT.test(agent)) return `roles.${role}: an agent in a role needs a name of letters, digits, _ and - (it names a node and a branch)`
     const spec = lookup(agent)
     if (!spec) return `roles.${role}: ${agent} is not ${known}`
     if (spec.runs === 'lead') return `roles.${role}: agent ${agent} runs lead; a ${role} runs a CLI harness`

@@ -237,13 +237,14 @@ A **role** is a job an agent does for every lead of a subtree, rather than a nod
 
 - **Assigning.** A lead node in a graph file may set `roles: { "<role>": "<agent>" }`, naming any agent of the graph
   or a built-in. A lead may set `roles` on a lead child it spawns, naming only agents the person defined (in the
-  graph or `--agents` file), so the strategies stay the person's. Either way the agent must run a CLI harness.
+  graph or `--agents` file), so the strategies stay the person's. Either way the agent must run a CLI harness, is
+  not the integrator, and has a name of letters, digits, `_` and `-` (it names a node and a git branch).
 - **Resolving.** A lead's agent for a role is the nearest `roles` entry from the lead up through its ancestors, else
   the run's agent named after the role (an agent named `splitter`), if it defines one. A sub-lead keeps its lead's
   agent unless it sets its own, so a subtree can have a different strategy, harness or model.
 - **Running.** Each agent in a role is one standing node: `<role>` for the agent named after the role, else
   `<role>.<agent>` (both reserved as node IDs). It keeps one session for the run, and different agents in a role work
-  in parallel.
+  in parallel, outside the limit of 4 work nodes at a time.
 - **Telling leads.** When the person defined agents, a lead's brief says which agent is its splitter and which
   agents it may give a lead child, and a splitter may propose `roles` for the lead parts it proposes.
 
@@ -276,7 +277,8 @@ Without a splitter, leads split on their own, as before.
   or split differently") or with why there is none. The lead acts through its normal `spawn` calls, under every
   usual limit; nothing is spawned for it. Proposals for sibling leads are each checked when made, so their IDs may
   collide; the later `spawn` is refused and that lead adjusts.
-- **Approval.** With `sous run --approve-splits` (`run.created.approveSplits`; an error without a splitter), a
+- **Approval.** With `sous run --approve-splits` (`run.created.approveSplits`; an error when the run defines no agent
+  that could split: no `splitter`, no `roles`, no worker agent a lead could give the role), a
   proposed split goes to the person as a message from its lead, and the lead is `waiting` until the person
   answers: `sous approve <lead>` sends "The person approved the proposed split.", `sous answer <lead> "…"` sends
   changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
@@ -576,7 +578,10 @@ the same splitter session (turns 2 and 3 resumed it) and completed. In the first
 one directory too high, leaving an empty `.sous/runs/splits/`, which `sous status` and `sous approve` then took for the
 latest run; only directories with an event log count as runs since, and the request says the proposal's directory
 exists. A splitter turn cut short by a supervisor stop, an invalid proposal and the fallbacks are covered by
-fake-harness tests only.
+fake-harness tests only. Roles were verified in a third real run: a graph lead with `roles: {"splitter": "planner"}`
+(Codex) got two sub-lead parts from it, the splitter itself giving the web part `roles: {"splitter": "web-planner"}`
+(Claude, `haiku`); the lead spawned them so, the web sub-lead's split came from `web-planner` while the api sub-lead
+inherited `planner`, the two splitters ran at the same time, and the run completed with both helpers merged.
 
 ## Open questions
 

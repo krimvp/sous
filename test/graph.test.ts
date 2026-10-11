@@ -36,6 +36,9 @@ test('a lead may name agents for roles in its subtree; roles are checked at load
   rejects(lead({ splitter: 'nobody' }), /node l: roles\.splitter: nobody is not an agent of the graph or a built-in/)
   rejects(lead({ splitter: 'boss' }), /node l: roles\.splitter: agent boss runs lead; a splitter runs a CLI harness/)
   rejects(lead('planner'), /node l: roles must be an object of agent names by role/)
+  rejects(lead({ splitter: 'integrator' }), /node l: roles\.splitter: the integrator cannot fill a role/)
+  assert.throws(() => validateGraph({ goal: 'g', agents: { 'p.lock': { runs: 'claude' } }, nodes: [lead({ splitter: 'p.lock' })] }),
+    /node l: roles\.splitter: an agent in a role needs a name of letters, digits, _ and - \(it names a node and a branch\)/)
   rejects(work('splitter.planner'), /node splitter\.planner: id splitter\.planner is reserved/)
 })
 
