@@ -7,164 +7,157 @@
 <title>sous</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: an arcade kitchen at night. A pixel-art counter runs across the page (order → sous → pantry → cooks → pass),
-   then three short strips: how the chef composes, a real service, and the menu. One deliberate dark world (no light theme). */
+/* Layout: the whole page is the kitchen. The tiled wall is the background, the pixel counter runs across the top,
+   content sits on steel plaques and a paper order pad, the footer is the counter front. One deliberate light world. */
 :root {
-  color-scheme: dark;
-  --night: #1d2b53;     /* PICO-8 navy: the page */
-  --deep: #141e3d;      /* panels */
-  --cream: #fff1e8;     /* text, paper */
-  --steel: #c2c3c7;
-  --muted: #a9b1d6;
-  --red: #ff004d;       /* the sous's coat, "fire" */
-  --orange: #ffa300;    /* claude, the heat lamp */
-  --yellow: #ffec27;    /* the bell */
-  --green: #00e436;     /* pi, served */
-  --blue: #29adff;      /* codex */
-  --pink: #ff77a8;
-  --lilac: #83769c;
+  color-scheme: light;
+  --tile: #a8dde6;  --tile-hi: #c4ebf0;  --grout: #82b9c4;
+  --steel: #c2c3c7; --steel-hi: #eef0f1; --steel-dk: #5f574f;
+  --wood: #ab5236;  --wood-dk: #6e3424;
+  --cream: #fff1e8; --ink: #1d2b53;      --muted: #45507a;
+  --red: #ff004d;   --orange: #ffa300;   --yellow: #ffec27;
+  --green: #00e436; --green-dk: #008751; --blue: #29adff; --pink: #ff77a8; --lilac: #83769c;
   --font-pixel: "Pixelify Sans", "Silkscreen", ui-monospace, monospace;
   --font-tiny: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 * { box-sizing: border-box; }
-body { background: var(--night); color: var(--cream); font: 17px/1.6 var(--font-body); }
+body {
+  color: var(--ink); font: 17px/1.6 var(--font-body);
+  background-color: var(--tile);
+  background-image:
+    linear-gradient(var(--grout) 2px, transparent 2px),
+    linear-gradient(90deg, var(--grout) 2px, transparent 2px),
+    linear-gradient(var(--tile-hi) 2px, transparent 2px);
+  background-size: 64px 32px, 64px 32px, 64px 32px;
+  background-position: 0 0, 0 0, 0 2px;
+}
 p { margin: 0; }
 h1, h2, h3 { margin: 0; text-wrap: balance; font-family: var(--font-pixel); font-weight: 700; }
-h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.05; }
-a { color: var(--yellow); }
-a:focus-visible, button:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
-code { font: 0.9em var(--font-mono); background: rgba(255, 241, 232, 0.1); padding: 0.05em 0.35em; border-radius: 3px; overflow-wrap: anywhere; color: var(--cream); }
+h2 { font-size: clamp(1.7rem, 4vw, 2.5rem); line-height: 1.05; color: var(--cream); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink); }
+a { color: var(--ink); text-decoration-color: var(--red); text-decoration-thickness: 3px; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
+code { font: 0.9em var(--font-mono); background: rgba(29, 43, 83, 0.09); padding: 0.05em 0.35em; border-radius: 3px; overflow-wrap: anywhere; }
 .wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; }
-.tiny { font: 400 0.78rem/1 var(--font-tiny); letter-spacing: 0.06em; text-transform: uppercase; }
 canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.plaque { background: var(--steel-hi); border: 3px solid var(--steel-dk); box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 var(--steel), 5px 5px 0 rgba(29, 43, 83, 0.35); }
 
 /* Header */
-header.wrap { padding-block: clamp(36px, 7vh, 72px) 26px; display: grid; gap: 18px; }
-header.wrap, main.wrap, section { grid-template-columns: minmax(0, 1fr); }
-h1 { font-size: clamp(4.5rem, 16vw, 9rem); line-height: 0.85; letter-spacing: 0.01em; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.1em 0.25em; }
+header.wrap { padding-block: clamp(32px, 6vh, 64px) 22px; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+h1 { font-size: clamp(4.5rem, 16vw, 9rem); line-height: 0.85; }
+h1 span { text-shadow: 5px 5px 0 var(--ink), -3px 0 0 var(--ink), 0 -3px 0 var(--ink), 3px 0 0 var(--ink), 0 3px 0 var(--ink); }
 h1 .s1 { color: var(--red); } h1 .s2 { color: var(--orange); } h1 .s3 { color: var(--yellow); } h1 .s4 { color: var(--green); }
-h1 .hat { width: 0.7em; height: 0.7em; margin-bottom: 0.06em; }
-.tag { font: 500 clamp(1.25rem, 2.8vw, 1.65rem)/1.3 var(--font-pixel); max-width: 30ch; }
-.tag b { color: var(--yellow); font-weight: 700; }
-.order { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
-pre { margin: 0; min-width: 0; background: var(--deep); border: 3px solid var(--cream); box-shadow: 5px 5px 0 var(--red); padding: 10px 14px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); max-width: 100%; }
+.tagline { padding: 14px 18px; display: grid; gap: 12px; max-width: 760px; }
+.tag { font: 500 clamp(1.2rem, 2.6vw, 1.55rem)/1.3 var(--font-pixel); }
+.tag b { color: var(--red); }
+pre { margin: 0; min-width: 0; background: var(--ink); color: var(--cream); padding: 10px 14px; overflow-x: auto; font: 0.92rem/1.6 var(--font-mono); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--red); }
 pre .p { color: var(--green); user-select: none; }
 
 /* The scene */
-.scene { margin-top: 8px; }
-.scene-scroll { overflow-x: auto; padding-bottom: 6px; }
-.scene-inner { margin: 0 auto; position: relative; }
-.zones { display: grid; margin-top: 10px; gap: 0; }
-.zones div { padding: 8px 8px 0; border-top: 4px solid; min-width: 0; }
-.zones b { display: block; font: 700 1.05rem/1.15 var(--font-pixel); }
-.zones span { display: block; font-size: 0.86rem; color: var(--muted); line-height: 1.35; margin-top: 3px; }
-.legend-jars { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
-.legend-jars i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: 0; }
+.scene-box { padding: 10px; background: var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); }
+.scene-scroll { overflow-x: auto; }
+.scene-scroll canvas { margin: 0 auto; }
+.scene-note { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--cream); font-size: 0.86rem; }
+.scene-note i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: 0; border: 1px solid var(--cream); }
 
-main.wrap { display: grid; gap: clamp(64px, 9vw, 104px); padding-block: clamp(56px, 8vw, 88px) 72px; }
-section { display: grid; gap: 22px; }
-.lead { max-width: 64ch; color: var(--muted); }
+main.wrap { display: grid; gap: clamp(56px, 8vw, 96px); padding-block: clamp(48px, 7vw, 80px) 72px; grid-template-columns: minmax(0, 1fr); }
+section { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+.lead { max-width: 64ch; padding: 14px 18px; }
 
 /* How the chef composes */
 .recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; }
-.card { background: var(--deep); border: 3px solid var(--cream); padding: 12px 14px 10px; display: grid; justify-items: center; gap: 6px; min-width: 120px; box-shadow: 4px 4px 0 var(--lilac); }
-.card canvas { width: 64px; height: 64px; }
+.card { padding: 12px 14px 10px; display: grid; justify-items: center; gap: 6px; min-width: 128px; }
+.card canvas { width: 64px; height: 96px; }
 .card b { font: 700 1rem var(--font-pixel); }
 .card span { font-size: 0.82rem; color: var(--muted); text-align: center; max-width: 16ch; line-height: 1.3; }
-.op { font: 700 2.2rem var(--font-pixel); color: var(--yellow); }
-.card.out { border-color: var(--green); box-shadow: 4px 4px 0 var(--green); }
-.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; }
-.rules > div { display: grid; gap: 6px; border-left: 4px solid var(--orange); padding-left: 14px; min-width: 0; }
-.rules > div:nth-child(2) { border-color: var(--blue); }
-.rules > div:nth-child(3) { border-color: var(--green); }
+.card.out { border-color: var(--green-dk); }
+.op { font: 700 2.4rem var(--font-pixel); color: var(--yellow); text-shadow: 3px 3px 0 var(--ink), -2px 0 0 var(--ink), 2px 0 0 var(--ink), 0 2px 0 var(--ink), 0 -2px 0 var(--ink); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.rules > div { padding: 14px 16px; display: grid; gap: 6px; align-content: start; min-width: 0; border-top: 8px solid var(--orange); }
+.rules > div:nth-child(2) { border-top-color: var(--blue); }
+.rules > div:nth-child(3) { border-top-color: var(--green-dk); }
 .rules h3 { font-size: 1.2rem; }
 .rules p { color: var(--muted); font-size: 0.97rem; }
 
 /* A real service */
-.service { background: var(--deep); border: 3px solid var(--cream); box-shadow: 6px 6px 0 var(--blue); padding: clamp(14px, 3vw, 24px); display: grid; gap: 16px; }
-.chart-wrap { overflow-x: auto; min-width: 0; }
+.service { padding: clamp(14px, 3vw, 22px); display: grid; gap: 16px; }
 .service > * { min-width: 0; }
+.chart-wrap { overflow-x: auto; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.9rem; color: var(--muted); }
-.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--ink); }
 .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .counts div { display: grid; }
 .counts b { font: 700 2rem/1.1 var(--font-pixel); font-variant-numeric: tabular-nums; }
-.counts div:nth-child(1) b { color: var(--red); } .counts div:nth-child(2) b { color: var(--orange); }
-.counts div:nth-child(3) b { color: var(--green); } .counts div:nth-child(4) b { color: var(--yellow); }
+.counts div:nth-child(1) b { color: var(--red); } .counts div:nth-child(2) b { color: #c87400; }
+.counts div:nth-child(3) b { color: var(--green-dk); } .counts div:nth-child(4) b { color: #0b78c4; }
 .counts span { color: var(--muted); font-size: 0.86rem; }
 
-/* The menu */
-.menu { background: var(--cream); color: #1d2b53; border: 4px solid #1d2b53; box-shadow: 0 0 0 4px var(--cream), 8px 8px 0 4px var(--red); padding: clamp(20px, 4vw, 40px); display: grid; gap: 24px; max-width: 840px; justify-self: center; width: calc(100% - 16px); }
-.menu h2 { text-align: center; color: var(--red); }
-.menu h3 { font: 400 0.82rem var(--font-tiny); letter-spacing: .1em; text-transform: uppercase; color: #7e2553; text-align: center; }
+/* The menu: a paper order pad */
+.menu { background: var(--cream); border: 3px solid var(--ink); box-shadow: 6px 6px 0 rgba(29, 43, 83, 0.35); padding: 0 clamp(18px, 4vw, 40px) clamp(20px, 4vw, 36px); display: grid; gap: 22px; max-width: 860px; justify-self: center; width: 100%; }
+.menu::before { content: ""; display: block; height: 14px; margin-inline: calc(-1 * clamp(18px, 4vw, 40px)); background: repeating-linear-gradient(90deg, var(--red) 0 16px, var(--cream) 16px 32px); border-bottom: 3px solid var(--ink); }
+.menu h2 { text-align: center; }
+.menu h3 { font: 400 0.82rem var(--font-tiny); letter-spacing: .1em; text-transform: uppercase; color: var(--red); text-align: center; }
 .menu .course { display: grid; gap: 9px; }
 .dish { display: grid; grid-template-columns: max-content minmax(1rem, 1fr) minmax(0, max-content); align-items: baseline; gap: 10px; }
-.dish code { background: none; padding: 0; font-weight: 600; color: #1d2b53; }
-.dish .dots { border-bottom: 3px dotted #83769c; transform: translateY(-4px); }
-.dish span:last-child { color: #5f574f; text-align: right; font-size: 0.95rem; }
-.menu .note { text-align: center; color: #5f574f; font-size: 0.92rem; max-width: 60ch; justify-self: center; }
-.menu .note code { color: #1d2b53; background: rgba(29, 43, 83, 0.08); }
+.dish code { background: none; padding: 0; font-weight: 600; }
+.dish .dots { border-bottom: 3px dotted var(--lilac); transform: translateY(-4px); }
+.dish span:last-child { color: var(--muted); text-align: right; font-size: 0.95rem; }
+.menu .note { text-align: center; color: var(--muted); font-size: 0.92rem; max-width: 60ch; justify-self: center; }
 @media (max-width: 640px) { .dish { grid-template-columns: 1fr; gap: 0; } .dish .dots { display: none; } .dish span:last-child { text-align: left; margin-bottom: 6px; } }
 
-footer { border-top: 4px solid var(--deep); }
-footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; color: var(--muted); }
-.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--yellow); background: none; border: 0; cursor: pointer; padding: 0; }
-.bell canvas { width: 40px; height: 36px; }
+/* Footer: the counter front */
+footer { background-color: var(--wood); border-top: 10px solid var(--steel); box-shadow: inset 0 3px 0 var(--steel-hi); background-image: repeating-linear-gradient(90deg, transparent 0 126px, var(--wood-dk) 126px 128px); }
+footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 24px; color: var(--cream); }
+footer a { color: var(--cream); text-decoration-color: var(--yellow); }
+.bell { display: inline-flex; align-items: center; gap: 10px; font: 700 1.3rem var(--font-pixel); color: var(--yellow); background: none; border: 0; cursor: pointer; padding: 0; text-shadow: 2px 2px 0 var(--ink); }
+.bell canvas { width: 44px; height: 36px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body style="margin:0">
 
 <header class="wrap">
-  <h1><canvas class="hat" data-sprite="toque" width="24" height="24" aria-hidden="true"></canvas><span><span class="s1">s</span><span class="s2">o</span><span class="s3">u</span><span class="s4">s</span></span></h1>
-  <p class="tag">You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until the plate is served.</p>
-  <div class="order"><pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre><span class="tiny" style="color:var(--green)">yes, chef!</span></div>
+  <h1><span class="s1">s</span><span class="s2">o</span><span class="s3">u</span><span class="s4">s</span></h1>
+  <div class="tagline plaque">
+    <p class="tag">You call the order. The <b>sous chef</b> picks the cooks, mixes the ingredients and runs the line until the plate is served.</p>
+    <pre><span class="p">$ </span>sous run "Add a --precision option to the CLI, with tests"</pre>
+  </div>
 </header>
 
-<figure class="scene wrap" style="margin-inline:auto;margin-block:0">
-  <div class="scene-scroll">
-    <div class="scene-inner" id="scene-inner">
-      <canvas id="kitchen" role="img" aria-label="A pixel-art kitchen counter. From left: a ticket rail with your order; the sous chef in red pointing at the line; a pantry shelf of model jars; three cooks in orange, blue and green at bubbling pots, catching ingredients the chef tosses them; and the pass under a heat lamp, where finished plates slide in and the bell rings."></canvas>
-      <div class="zones" id="zones">
-        <div style="border-color:var(--cream)"><b>The order</b><span>your goal, on the ticket rail</span></div>
-        <div style="border-color:var(--red)"><b>The sous</b><span>a lead agent: splits the order, picks cooks</span></div>
-        <div style="border-color:var(--pink)"><b>The pantry</b><span>the models you allow</span>
-          <span class="legend-jars"><span><i style="background:var(--pink)"></i>opus</span><span><i style="background:var(--orange)"></i>sonnet</span><span><i style="background:var(--green)"></i>gpt-5.5</span><span><i style="background:var(--blue)"></i>glm</span><span><i style="background:var(--lilac)"></i>deepseek</span></span></div>
-        <div style="border-color:var(--orange)"><b>The cooks</b><span>agents on Claude Code, Codex and Pi, each at its own station (a git worktree)</span></div>
-        <div style="border-color:var(--yellow)"><b>The pass</b><span>each plate merged and tasted (checks); a clash goes to an agent; ding!</span></div>
-      </div>
-    </div>
+<figure class="wrap" style="margin-inline:auto;margin-block:0">
+  <div class="scene-box">
+    <div class="scene-scroll"><canvas id="kitchen" role="img" aria-label="A pixel-art kitchen counter. From left: a ticket rail with your orders; the sous chef in red pointing at the line and calling fire; a pantry shelf of model jars; three cooks in orange, blue and green, labelled Claude, Codex and Pi, stirring bubbling pots and catching the ingredients the chef tosses them; and the pass under a heat lamp, where finished plates arrive and the bell rings."></canvas></div>
+    <p class="scene-note"><span>Pantry jars:</span><span><i style="background:var(--pink)"></i>opus</span><span><i style="background:var(--orange)"></i>sonnet</span><span><i style="background:var(--green)"></i>gpt-5.5</span><span><i style="background:var(--blue)"></i>glm</span><span><i style="background:var(--lilac)"></i>deepseek</span><span>· the models you allow</span></p>
   </div>
 </figure>
 
 <main class="wrap">
   <section>
-    <h2 style="color:var(--orange)">How the chef composes the kitchen</h2>
-    <p class="lead">You stock the pantry and hire the cooks. The sous cooks with what is there: for each part of the order it picks a cook, adds an ingredient and writes the recipe.</p>
+    <h2>How the chef composes the kitchen</h2>
+    <p class="lead plaque">You stock the pantry and hire the cooks. For each part of the order the sous picks a cook, adds an ingredient and writes the recipe. Your goal is the order; each part becomes a plate.</p>
     <div class="recipe" aria-label="A cook, plus an ingredient, plus a recipe card, makes a new station">
-      <div class="card"><canvas data-sprite="cook-orange" width="24" height="24" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
+      <div class="card plaque"><canvas data-sprite="cook" width="32" height="48" aria-hidden="true"></canvas><b>A cook</b><span>a harness: Claude Code, Codex or Pi</span></div>
       <span class="op" aria-hidden="true">+</span>
-      <div class="card"><canvas data-sprite="jar-orange" width="24" height="24" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
+      <div class="card plaque"><canvas data-sprite="jar" width="32" height="48" aria-hidden="true"></canvas><b>An ingredient</b><span>a model from your pantry</span></div>
       <span class="op" aria-hidden="true">+</span>
-      <div class="card"><canvas data-sprite="ticket" width="24" height="24" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
+      <div class="card plaque"><canvas data-sprite="ticket" width="32" height="48" aria-hidden="true"></canvas><b>A recipe</b><span>instructions: "you are an HR specialist…"</span></div>
       <span class="op" aria-hidden="true">=</span>
-      <div class="card out"><canvas data-sprite="station" width="24" height="24" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
+      <div class="card plaque out"><canvas data-sprite="station" width="32" height="48" aria-hidden="true"></canvas><b>A station</b><span>a named agent, e.g. <code>hr</code></span></div>
     </div>
     <div class="rules">
-      <div><h3>You stock the kitchen</h3><p>Define your own cooks and the models leads may use, per harness. Nothing outside the pantry gets cooked.</p></div>
-      <div><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
-      <div><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
+      <div class="plaque"><h3>You stock the kitchen</h3><p>Hire your own cooks, and choose which models leads may use, per harness. Leads only cook with what is in the pantry; the cooks you name yourself bring their own.</p></div>
+      <div class="plaque"><h3>Big orders get teams</h3><p>A station can have its own sous, who splits its part again: as many levels as you allow with <code>--max-depth</code>.</p></div>
+      <div class="plaque"><h3>Nothing leaves unchecked</h3><p>Plates are merged one at a time and tasted on the merged result. If the kitchen stops, <code>sous resume</code> picks up mid-service.</p></div>
     </div>
   </section>
 
   <section>
-    <h2 style="color:var(--green)">A real service: order #0142</h2>
-    <p class="lead">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
-    <div class="service">
+    <h2>A real service: order #0142</h2>
+    <p class="lead plaque">A calculator, built five levels deep on cheap Ollama models. Each pair of bars is one minute of the real run. The quiet stretch is one cook spending 8 m 44 s on the parser while the line waited.</p>
+    <div class="service plaque">
       <div class="chart-wrap"><canvas id="chart" role="img" aria-label="Orders fired to cooks and plates through the pass, per minute, over the 29-minute calc run"></canvas></div>
       <div class="legend"><span><i style="background:var(--red)"></i>orders fired to cooks</span><span><i style="background:var(--green)"></i>plates through the pass</span></div>
       <div class="counts">
@@ -205,169 +198,200 @@ footer .wrap { padding-block: 22px 40px; display: flex; flex-wrap: wrap; justify
 
 <footer>
   <div class="wrap">
-    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="20" height="18" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
+    <button class="bell" id="ding" type="button"><canvas data-sprite="bell" width="22" height="18" aria-hidden="true"></canvas><span id="ding-text">Service!</span></button>
     <span><a href="https://github.com/krimvp/sous">github.com/krimvp/sous</a> · runs on your machine</span>
   </div>
 </footer>
 
 <script>
 (function () {
-  const P = { K: '#000000', N: '#1d2b53', M: '#7e2553', D: '#008751', B: '#ab5236', G: '#5f574f', S: '#c2c3c7', W: '#fff1e8',
-              R: '#ff004d', O: '#ffa300', Y: '#ffec27', L: '#00e436', U: '#29adff', V: '#83769c', P: '#ff77a8', F: '#ffccaa' }
+  const C = {
+    ink: '#1d2b53', plum: '#7e2553', moss: '#008751', wood: '#ab5236', woodDk: '#6e3424', woodHi: '#c06a48',
+    stone: '#5f574f', steel: '#c2c3c7', steelHi: '#eef0f1', white: '#fff1e8', red: '#ff004d', redDk: '#b8003a',
+    orange: '#ffa300', orangeDk: '#c87400', yellow: '#ffec27', yellowDk: '#d4b800', green: '#00e436', greenDk: '#00a32a',
+    blue: '#29adff', blueDk: '#0b78c4', lilac: '#83769c', pink: '#ff77a8', skin: '#ffccaa', skinDk: '#e8a07a', black: '#000000',
+    tile: '#a8dde6', tileHi: '#c4ebf0', grout: '#82b9c4',
+  }
   const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-  // ---- sprites: one character per pixel; '.' is transparent, 'C' is the coat colour, 'X' the contents ----
-  const CHEF = [
-    '....WWWW....', '..WWWWWWWW..', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '..WWWWWWWW..', '...SSSSSS...',
-    '...FFFFFF...', '...FKFFKF...', '...FFFFFF...', '....FMMF....', '..CCCCCCCC..', '.CCCWCCWCCC.',
-    '.CCCCCCCCCC.', 'FCCCCCCCCCCF', '..CCCCCCCC..', '..CCCCCCCC..']
-  const SOUS = [
-    '...WWWWWW...', '..WWWWWWWW..', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '.WWWWWWWWWW.', '..WWWWWWWW..', '...SSSSSS...',
-    '...FFFFFF...', '...FKFFKF...', '...FFFFFF...', '....FMMF....', '..CCCCCCCC..', '.CCCWCCWCCC.',
-    '.CCCCCCCCCC.', '.CCCCCCCCCC.', '..CCCCCCCC..']
-  const JAR = ['.BBBBBB.', '.BBBBBB.', 'SSSSSSSS', 'SWWWWWWS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', 'SXXXXXXS', '.SSSSSS.']
-  const POT = ['.SSSSSSSSSSSS.', 'SSWWSSSSSSSSSS', 'GSSSSSSSSSSSSG', '.SSSSSSSSSSSS.', '.SSSSSSSSSSSS.', '..SSSSSSSSSS..']
-  const PLATE = ['...XXXXXX...', '..XXLXXXXX..', 'WWWWWWWWWWWW', '.WWWWWWWWWW.', '..SSSSSSSS..']
-  const BELL = ['....YY....', '....YY....', '...YYYY...', '..YYWYYY..', '.YYWYYYYY.', '.YYYYYYYY.', 'YYYYYYYYYY', 'GGGGGGGGGG', '.GGGGGGGG.']
-  const TICKET = ['RRRRRRRRRR', 'WWWWWWWWWW', 'WGGGGGGGWW', 'WWWWWWWWWW', 'WGGGGGWWWW', 'WWWWWWWWWW', 'WGGGGGGGWW', 'WWWWWWWWWW', 'WGGGWWWWWW', 'WWWWWWWWWW', 'WVWVWVWVWV']
-
-  function sprite(ctx, rows, x, y, s, map) {
-    for (let r = 0; r < rows.length; r++) for (let c = 0; c < rows[r].length; c++) {
-      const ch = rows[r][c]; if (ch === '.') continue
-      ctx.fillStyle = (map && map[ch]) || P[ch] || ch
-      ctx.fillRect(x + c * s, y + r * s, s, s)
-    }
+  // ---- drawing helpers ----
+  const px = (g, x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w, h) }
+  function disc(g, cx, cy, r, c, maxDy = r) { g.fillStyle = c; for (let dy = -r; dy <= maxDy; dy++) for (let dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r + r * 0.6) g.fillRect(cx + dx, cy + dy, 1, 1) }
+  const FONT = {
+    A:['.#.','#.#','###','#.#','#.#'],B:['##.','#.#','##.','#.#','##.'],C:['.##','#..','#..','#..','.##'],D:['##.','#.#','#.#','#.#','##.'],
+    E:['###','#..','##.','#..','###'],F:['###','#..','##.','#..','#..'],G:['.##','#..','#.#','#.#','.##'],H:['#.#','#.#','###','#.#','#.#'],
+    I:['###','.#.','.#.','.#.','###'],K:['#.#','#.#','##.','#.#','#.#'],L:['#..','#..','#..','#..','###'],M:['#.#','###','###','#.#','#.#'],
+    N:['##.','#.#','#.#','#.#','#.#'],O:['.#.','#.#','#.#','#.#','.#.'],P:['##.','#.#','##.','#..','#..'],R:['##.','#.#','##.','#.#','#.#'],
+    S:['.##','#..','.#.','..#','##.'],T:['###','.#.','.#.','.#.','.#.'],U:['#.#','#.#','#.#','#.#','###'],V:['#.#','#.#','#.#','#.#','.#.'],
+    W:['#.#','#.#','###','###','#.#'],X:['#.#','#.#','.#.','#.#','#.#'],Y:['#.#','#.#','.#.','.#.','.#.'],Z:['###','..#','.#.','#..','###'],
+    0:['###','#.#','#.#','#.#','###'],1:['.#.','##.','.#.','.#.','###'],2:['##.','..#','.#.','#..','###'],3:['##.','..#','.#.','..#','##.'],
+    4:['#.#','#.#','###','..#','..#'],5:['###','#..','##.','..#','##.'],6:['.##','#..','###','#.#','###'],7:['###','..#','.#.','.#.','.#.'],
+    8:['###','#.#','###','#.#','###'],9:['###','#.#','###','..#','##.'],'#':['#.#','###','#.#','###','#.#'],'!':['.#.','.#.','.#.','...','.#.'],
+    '-':['...','...','###','...','...'],':':['...','.#.','...','.#.','...'],'.':['...','...','...','...','.#.'],',':['...','...','...','.#.','#..'],' ':['...','...','...','...','...'],
   }
-  const rect = (ctx, x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(x, y, w, h) }
+  function text(g, s, x, y, c, k = 1) { for (const ch of s) { const gl = FONT[ch] || FONT[' ']; for (let r = 0; r < 5; r++) for (let q = 0; q < 3; q++) if (gl[r][q] === '#') px(g, x + q * k, y + r * k, k, k, c); x += 4 * k } }
+  const textW = (s, k = 1) => s.length * 4 * k - k
 
-  // ---- small icon canvases ----
+  // ---- sprites, drawn procedurally at full detail ----
+  function chef(g, x, y, coat, coatDk, o = {}) {           // about 28 x 44
+    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx + 1, y + cy + 1, r, C.steel)
+    for (const [cx, cy, r] of [[8, 8, 6], [14, 5, 7], [20, 8, 6]]) disc(g, x + cx, y + cy, r, C.white)
+    px(g, x + 11, y + 1, 3, 1, '#ffffff'); px(g, x + 10, y + 2, 2, 1, '#ffffff')
+    px(g, x + 6, y + 11, 17, 5, C.white); px(g, x + 6, y + 15, 17, 1, C.steel); px(g, x + 19, y + 11, 4, 4, C.steelHi)
+    px(g, x + 8, y + 16, 13, 11, C.skin); px(g, x + 18, y + 16, 3, 10, C.skinDk)
+    px(g, x + 7, y + 16, 1, 5, C.woodDk); px(g, x + 21, y + 16, 1, 5, C.woodDk)
+    px(g, x + 10, y + 19, 3, 1, C.woodDk); px(g, x + 16, y + 19, 3, 1, C.woodDk)
+    px(g, x + 11, y + 20, 2, 2, C.ink); px(g, x + 16, y + 20, 2, 2, C.ink); px(g, x + 11, y + 20, 1, 1, '#ffffff'); px(g, x + 16, y + 20, 1, 1, '#ffffff')
+    px(g, x + 9, y + 23, 2, 1, C.pink); px(g, x + 18, y + 23, 2, 1, C.pink)
+    if (o.mustache) { px(g, x + 10, y + 23, 9, 2, C.woodDk); px(g, x + 9, y + 24, 1, 1, C.woodDk); px(g, x + 19, y + 24, 1, 1, C.woodDk) }
+    px(g, x + 13, y + (o.mustache ? 25 : 24), 3, 1, C.plum)
+    px(g, x + 10, y + 27, 9, 2, o.scarf || C.white)
+    px(g, x + 5, y + 29, 19, 15, coat); px(g, x + 19, y + 30, 5, 14, coatDk)
+    px(g, x + 9, y + 29, 4, 3, C.white); px(g, x + 16, y + 29, 4, 3, C.white); px(g, x + 13, y + 29, 3, 1, C.white)
+    for (const yy of [33, 37, 41]) { px(g, x + 11, y + yy, 2, 2, C.white); px(g, x + 17, y + yy, 2, 2, C.white) }
+    px(g, x + 2, y + 31, 4, 10, coat); px(g, x + 2, y + 41, 4, 3, C.skin)
+    if (o.point) { px(g, x + 23, y + 31, 9, 4, coat); px(g, x + 23, y + 34, 9, 1, coatDk); px(g, x + 32, y + 30, 4, 4, C.skin); px(g, x + 36, y + 31, 2, 1, C.skin) }
+    else if (o.stir !== undefined) { const d = o.stir % 2; px(g, x + 23, y + 30, 4, 7, coat); px(g, x + 24, y + 27 + d, 3, 3, C.skin); for (let i = 0; i < 9; i++) px(g, x + 26 + i, y + 27 + d + i, 1, 1, C.stone); px(g, x + 34, y + 35 + d, 3, 3, C.stone) }
+    else { px(g, x + 23, y + 31, 4, 10, coat); px(g, x + 23, y + 41, 4, 3, C.skin) }
+  }
+  function pot(g, x, y, f, soup) {                           // 24 x 16, burner and flames below
+    px(g, x - 1, y + 14, 26, 2, C.black)
+    ;[[2, 3], [8, 4], [14, 3], [20, 4]].forEach(([fx, h], i) => { const hh = h - ((f + i) % 2); px(g, x + fx, y + 15 - hh, 3, hh, (f + i) % 2 ? C.orange : C.red); px(g, x + fx + 1, y + 16 - hh, 1, Math.max(1, hh - 2), C.yellow) })
+    px(g, x - 2, y + 5, 2, 3, C.stone); px(g, x + 24, y + 5, 2, 3, C.stone)
+    px(g, x + 1, y + 3, 22, 11, C.steel); px(g, x + 1, y + 11, 22, 3, C.stone); px(g, x + 3, y + 5, 2, 6, C.steelHi)
+    px(g, x, y + 2, 24, 2, C.steelHi); px(g, x, y + 3, 24, 1, C.steel)
+    px(g, x + 2, y + 1, 20, 1, soup)
+    for (let i = 0; i < 3; i++) { const bx = x + 5 + ((f * 3 + i * 7) % 14), by = y - ((f + i * 2) % 3); px(g, bx, by, 2, 2, soup); px(g, bx, by, 1, 1, C.white) }
+  }
+  function jar(g, x, y, fill) {                              // 16 x 22
+    px(g, x + 3, y, 10, 4, C.wood); px(g, x + 3, y, 10, 1, C.woodHi); px(g, x + 4, y + 1, 2, 2, C.woodHi)
+    px(g, x + 2, y + 4, 12, 2, C.steel)
+    px(g, x + 1, y + 6, 14, 16, C.steel); px(g, x + 2, y + 6, 12, 15, '#e8f6f8')
+    px(g, x + 2, y + 11, 12, 10, fill); px(g, x + 2, y + 11, 12, 1, '#ffffff')
+    px(g, x + 3, y + 13, 10, 4, C.white); px(g, x + 4, y + 14, 8, 1, fill); px(g, x + 4, y + 15, 5, 1, C.stone)
+    px(g, x + 3, y + 7, 1, 13, '#ffffff')
+  }
+  function plate(g, x, y, food) {                            // 18 x 8
+    px(g, x + 4, y + 1, 10, 3, food); px(g, x + 6, y, 6, 1, food); px(g, x + 5, y + 1, 3, 1, '#ffffff')
+    px(g, x + 8, y - 1, 2, 2, C.green); px(g, x + 10, y, 1, 1, C.greenDk)
+    px(g, x, y + 4, 18, 2, C.white); px(g, x + 2, y + 6, 14, 1, C.steel); px(g, x + 1, y + 4, 16, 1, '#ffffff')
+  }
+  function bell(g, x, y) {                                   // 20 x 17
+    px(g, x + 9, y, 2, 3, C.stone); px(g, x + 8, y, 4, 1, C.stone)
+    disc(g, x + 10, y + 12, 8, C.yellowDk, 0); disc(g, x + 10, y + 11, 8, C.yellow, 0)
+    px(g, x + 1, y + 12, 18, 2, C.yellowDk); px(g, x - 1, y + 14, 22, 3, C.stone); px(g, x - 1, y + 14, 22, 1, C.steel)
+    px(g, x + 5, y + 6, 2, 4, '#ffffff'); px(g, x + 7, y + 5, 2, 1, '#ffffff')
+  }
+  function ticket(g, x, y, lines) {                          // 24 x 32
+    px(g, x + 1, y + 1, 24, 32, 'rgba(29,43,83,0.25)')
+    px(g, x, y, 24, 32, C.white); px(g, x, y, 24, 4, C.red)
+    for (let i = 0; i < 24; i += 2) px(g, x + i, y + 31, 1, 1, C.steel)
+    lines.forEach((s, i) => text(g, s, x + 2, y + 6 + i * 7, i === 0 ? C.ink : C.stone))
+  }
+  function sign(g, cx, y, s, bg = C.ink) { const w = textW(s) + 6, x = Math.round(cx - w / 2); px(g, x, y, w, 9, bg); px(g, x, y + 8, w, 1, C.black); text(g, s, x + 3, y + 2, C.white) }
+
+  // ---- icon canvases ----
   const icons = {
-    toque: (c) => sprite(c, CHEF.slice(0, 6), 0, 2, 2, {}),
-    'cook-orange': (c) => sprite(c, CHEF, 0, 0, 2, { C: P.O }),
-    'jar-orange': (c) => sprite(c, JAR, 4, 2, 2, { X: P.O }),
-    ticket: (c) => sprite(c, TICKET, 2, 1, 2),
-    station: (c) => { sprite(c, CHEF.slice(0, 11), 0, 0, 2, { C: P.P }); rect(c, 0, 22, 24, 2, P.S) },
-    bell: (c) => sprite(c, BELL, 0, 0, 2),
+    cook: (g) => chef(g, 1, 2, C.orange, C.orangeDk, { stir: 0 }),
+    jar: (g) => jar(g, 8, 14, C.orange),
+    ticket: (g) => ticket(g, 4, 8, ['HR', 'SPEC.', 'NOTES']),
+    station: (g) => { chef(g, 2, 0, C.pink, C.plum, {}); sign(g, 16, 38, 'HR', C.moss) },
+    bell: (g) => bell(g, 1, 0),
   }
-  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => { const c = cv.getContext('2d'); c.imageSmoothingEnabled = false; icons[cv.dataset.sprite](c) })
+  document.querySelectorAll('canvas[data-sprite]').forEach((cv) => icons[cv.dataset.sprite](cv.getContext('2d')))
 
-  // ---- the kitchen scene: 400 x 128 logical pixels ----
-  const W = 400, H = 128, TOP = 84
-  const cv = document.getElementById('kitchen'), ctx = cv.getContext('2d')
+  // ---- the kitchen scene: 520 x 184 ----
+  const W = 520, H = 184, TOP = 122
+  const cv = document.getElementById('kitchen'), g = cv.getContext('2d')
   cv.width = W; cv.height = H
-  const inner = document.getElementById('scene-inner'), zones = document.getElementById('zones')
-  const ZONES = [[0, 70], [70, 106], [106, 200], [200, 326], [326, 400]]
-  zones.style.gridTemplateColumns = ZONES.map(([a, b]) => `${b - a}fr`).join(' ')
-  function fit() {
-    const avail = inner.parentElement.clientWidth
-    const scale = Math.max(2, Math.min(4, avail / W))
-    const w = Math.round(W * scale)
-    cv.style.width = w + 'px'; cv.style.height = Math.round(H * scale) + 'px'; inner.style.width = w + 'px'
-  }
+  function fit() { const s = Math.max(1, Math.floor(cv.parentElement.clientWidth / W)); cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px' }
   fit(); window.addEventListener('resize', fit)
 
-  const JARS = [[P.P, 'opus'], [P.O, 'sonnet'], [P.L, 'gpt-5.5'], [P.U, 'glm'], [P.V, 'deepseek']].map(([col], i) => ({ col, x: 112 + i * 17, y: 16 }))
-  const COOKS = [{ x: 206, col: P.O }, { x: 246, col: P.U }, { x: 286, col: P.L }]
-  let t = 0, plates = [], served = 0, ding = 0, toss = null, arm = 0
+  const JARS = [C.pink, C.orange, C.green, C.blue, C.lilac].map((fill, i) => ({ fill, x: 158 + i * 24, y: 34 }))
+  const COOKS = [{ x: 290, c: C.orange, d: C.orangeDk, name: 'CLAUDE' }, { x: 338, c: C.blue, d: C.blueDk, name: 'CODEX' }, { x: 386, c: C.green, d: C.greenDk, name: 'PI' }]
+  let f = 0, plates = [{ x: 410, food: C.green }], served = 2, ding = 0, toss = null, call = 0
 
-  function background() {
-    // tiled wall
-    rect(ctx, 0, 0, W, TOP, '#a8dde6')                                // teal subway tiles, so the white toques stand out
-    for (let y = 0; y < TOP; y += 8) rect(ctx, 0, y, W, 1, '#82b9c4')
-    for (let y = 0; y < TOP; y += 8) for (let x = (y / 8) % 2 ? 0 : 8; x < W; x += 16) rect(ctx, x, y, 1, 8, '#82b9c4')
-    for (let x = 0; x < W; x += 16) { rect(ctx, x + 1, 49, 15, 7, (x / 16) % 2 ? P.R : P.U) }   // a band of coloured tiles
-    // ticket rail with three orders
-    rect(ctx, 4, 6, 62, 3, P.G); rect(ctx, 4, 6, 62, 1, P.S)
-    sprite(ctx, TICKET, 8, 9, 1); sprite(ctx, TICKET, 26, 10, 1); sprite(ctx, TICKET, 46, 9, 1)
-    rect(ctx, 26, 9, 10, 1, P.O)
-    // pantry shelf
-    rect(ctx, 106, 36, 92, 3, P.B); rect(ctx, 106, 36, 92, 1, P.O); rect(ctx, 110, 39, 2, 6, P.B); rect(ctx, 192, 39, 2, 6, P.B)
-    for (const j of JARS) sprite(ctx, JAR, j.x, j.y + 10, 1, { X: j.col })
-    // heat lamp over the pass
-    rect(ctx, 334, 0, 60, 6, P.G); rect(ctx, 340, 6, 48, 3, P.N)
-    ctx.globalAlpha = 0.18; rect(ctx, 336, 9, 56, TOP - 9, P.O); ctx.globalAlpha = 1
-    // a pass window frame
-    rect(ctx, 326, 0, 3, TOP, P.S)
+  function wall() {
+    px(g, 0, 0, W, TOP, C.tile)
+    for (let y = 0; y < TOP; y += 8) {
+      px(g, 0, y, W, 1, C.grout); px(g, 0, y + 1, W, 1, C.tileHi)
+      for (let x = (y / 8) % 2 ? 0 : 8; x < W; x += 16) { px(g, x, y, 1, 8, C.grout); px(g, x + 1, y + 1, 1, 7, C.tileHi) }
+    }
+    for (let x = 0; x < W; x += 16) { px(g, x + 1, 89, 15, 7, [C.red, C.yellow, C.blue, C.green][(x / 16) % 4]); px(g, x + 1, 89, 15, 1, '#ffffff') }
+    px(g, 6, 8, 92, 3, C.stone); px(g, 6, 8, 92, 1, C.steelHi)
+    ticket(g, 10, 11, ['0141', 'GREET', 'CLASH', 'OK']); ticket(g, 38, 12, ['0142', 'CALC', '99 UP', '166OK']); ticket(g, 66, 11, ['0143', 'FIXES', '2 MIN', 'OK'])
+    px(g, 150, 56, 128, 4, C.wood); px(g, 150, 56, 128, 1, C.woodHi); px(g, 150, 59, 128, 1, C.woodDk)
+    px(g, 156, 60, 3, 8, C.woodDk); px(g, 270, 60, 3, 8, C.woodDk)
+    for (const j of JARS) jar(g, j.x, j.y, j.fill)
+    px(g, 440, 0, 4, TOP, C.steel); px(g, 441, 0, 1, TOP, C.steelHi)
+    px(g, 450, 2, 62, 8, C.stone); px(g, 450, 2, 62, 1, C.steel)
+    for (let i = 0; i < 4; i++) { disc(g, 460 + i * 14, 12, 3, C.orange); px(g, 459 + i * 14, 11, 2, 1, C.yellow) }
+    for (let y = 16; y < TOP; y++) for (let x = 448 + (y % 2); x < 514; x += 2) if ((x + y * 3) % 9 === 0) px(g, x, y, 1, 1, C.yellow)
   }
   function counter() {
-    rect(ctx, 0, TOP, W, 6, P.S); rect(ctx, 0, TOP, W, 1, P.W)
-    rect(ctx, 0, TOP + 6, W, H - TOP - 6, P.B)
-    for (let x = 0; x < W; x += 40) { rect(ctx, x, TOP + 10, 1, H - TOP - 14, P.M); rect(ctx, x + 18, TOP + 22, 4, 2, P.O) }
-    rect(ctx, 326, TOP + 6, 74, H - TOP - 6, P.S)                     // the pass is steel
-    for (let x = 330; x < W; x += 12) rect(ctx, x, TOP + 12, 8, 1, P.G)
+    px(g, 0, TOP, W, 8, C.steel); px(g, 0, TOP, W, 2, C.steelHi); px(g, 0, TOP + 7, W, 1, C.stone)
+    px(g, 0, TOP + 8, 440, H - TOP - 8, C.wood)
+    for (let x = 0; x < 440; x += 48) { px(g, x, TOP + 8, 2, H - TOP - 8, C.woodDk); px(g, x + 2, TOP + 8, 1, H - TOP - 8, C.woodHi) }
+    for (let i = 0; i < 70; i++) { const gx = (i * 37) % 432 + 4, gy = TOP + 12 + (i * 13) % (H - TOP - 16); px(g, gx, gy, 4 + (i % 3), 1, C.woodDk) }
+    px(g, 440, TOP + 8, 80, H - TOP - 8, C.steel); px(g, 440, TOP + 8, 80, 1, C.steelHi)
+    for (let x = 446; x < W; x += 16) { px(g, x, TOP + 14, 2, 2, C.stone); px(g, x, H - 8, 2, 2, C.stone) }
+    sign(g, 52, TOP + 26, 'ORDER'); sign(g, 124, TOP + 26, 'SOUS', C.redDk); sign(g, 214, TOP + 26, 'PANTRY')
+    COOKS.forEach((k) => sign(g, k.x + 22, TOP + 26, k.name, k.d)); sign(g, 480, TOP + 26, 'PASS', C.stone)
   }
-  function people() {
-    // the sous chef, pointing at the line
-    sprite(ctx, SOUS, 76, TOP - 32, 2, { C: P.R })
-    const hx = arm % 2 ? 100 : 98, hy = arm % 2 ? TOP - 12 : TOP - 16
-    rect(ctx, 98, TOP - 8, 4, 4, P.R); rect(ctx, hx, hy, 4, 4, P.F)
-    // cooks at their pots
-    COOKS.forEach((k) => sprite(ctx, CHEF, k.x, TOP - 32, 2, { C: k.col }))
-  }
-  function pots() {
-    COOKS.forEach((k, i) => {
-      const px = k.x + 23, flick = (t + i) % 2
-      rect(ctx, px - 1, TOP - 2, 16, 2, P.K)                       // the burner
-      sprite(ctx, POT, px, TOP - 9, 1, { S: k.col === P.L ? P.S : P.S })
-      rect(ctx, px + 1, TOP - 3, 3, 1, flick ? P.O : P.Y); rect(ctx, px + 6, TOP - 3, 3, 1, flick ? P.Y : P.R); rect(ctx, px + 11, TOP - 3, 3, 1, flick ? P.R : P.O)
-      for (let s = 0; s < 2; s++) { const sy = TOP - 12 - ((t * 2 + s * 6 + i * 3) % 12); rect(ctx, px + 3 + s * 6 + (sy % 2), sy, 2, 2, P.S) }
-    })
-  }
-  function pass() {
-    for (let i = 0; i < served; i++) sprite(ctx, PLATE, 340, TOP - 5 - i * 4, 1, { X: [P.L, P.O, P.P][i % 3] })
-    const shake = ding > 0 ? (ding % 2 ? 1 : -1) : 0
-    sprite(ctx, BELL, 370 + shake, TOP - 18, 2)
-    if (ding > 0) { ctx.fillStyle = P.Y; ctx.font = 'bold 9px monospace'; ctx.fillText('DING!', 368, TOP - 24) }
-    for (const p of plates) sprite(ctx, PLATE, Math.round(p.x), TOP - 5, 1, { X: p.col })
-  }
-  function flying() {
-    if (!toss) return
-    const f = toss.f / 18
-    const x = toss.x0 + (toss.x1 - toss.x0) * f, y = toss.y0 + (toss.y1 - toss.y0) * f - Math.sin(f * Math.PI) * 26
-    rect(ctx, Math.round(x), Math.round(y), 3, 3, toss.col); rect(ctx, Math.round(x), Math.round(y), 1, 1, P.W)
-  }
-  function draw() { background(); people(); counter(); pots(); pass(); flying() }
-  function step() {
-    t++
-    if (t % 6 === 0) arm++
-    if (ding > 0) ding--
-    if (!toss && t % 22 === 0) {
-      const j = JARS[(t / 22) % JARS.length | 0], k = COOKS[(t / 22) % COOKS.length | 0]
-      toss = { x0: j.x + 3, y0: j.y + 10, x1: k.x + 10, y1: TOP - 24, col: j.col, f: 0, k }
+  function scene() {
+    wall()
+    chef(g, 108, TOP - 44, C.red, C.redDk, { point: true, mustache: true, scarf: C.yellow })
+    const callout = toss ? 'FIRE!' : (call % 4 === 0 ? 'YES CHEF' : '')
+    if (callout) { const w = textW(callout) + 8; px(g, 92, TOP - 64, w, 11, C.white); px(g, 92, TOP - 54, w, 1, C.stone); px(g, 104, TOP - 53, 3, 2, C.white); text(g, callout, 96, TOP - 61, toss ? C.red : C.ink) }
+    COOKS.forEach((k, i) => chef(g, k.x, TOP - 44, k.c, k.d, { stir: still ? 0 : f + i }))
+    counter()
+    COOKS.forEach((k, i) => pot(g, k.x + 22, TOP - 16, still ? i : f + i, k.c))
+    if (!still) COOKS.forEach((k, i) => { for (let s = 0; s < 3; s++) { const sy = TOP - 22 - ((f * 2 + s * 6 + i * 4) % 18); px(g, k.x + 28 + s * 6 + (sy % 3), sy, 2 + (s % 2), 2, C.steelHi) } })
+    for (let i = 0; i < served; i++) plate(g, 452, TOP - 8 - i * 6, [C.green, C.orange, C.pink, C.blue][i % 4])
+    for (const p of plates) plate(g, Math.round(p.x), TOP - 8, p.food)
+    bell(g, 484 + (ding > 0 ? (ding % 2 ? 1 : -1) : 0), TOP - 17)
+    if (ding > 0) { px(g, 474, TOP - 32, 30, 11, C.yellow); text(g, 'DING!', 479, TOP - 29, C.ink) }
+    if (toss) {
+      const t = toss.t / 16, x = toss.x0 + (toss.x1 - toss.x0) * t, y = toss.y0 + (toss.y1 - toss.y0) * t - Math.sin(t * Math.PI) * 34
+      disc(g, Math.round(x), Math.round(y), 2, toss.fill); px(g, Math.round(x) - 1, Math.round(y) - 1, 1, 1, '#ffffff')
     }
-    if (toss && ++toss.f > 18) toss = null
-    if (t % 34 === 0) { const k = COOKS[(t / 34) % COOKS.length | 0]; plates.push({ x: k.x + 12, col: [P.L, P.O, P.P][(t / 34) % 3 | 0] }) }
-    plates.forEach((p) => (p.x += 2.2))
-    const arrived = plates.filter((p) => p.x >= 336)
-    if (arrived.length) { plates = plates.filter((p) => p.x < 336); served = served >= 3 ? 1 : served + arrived.length; ding = 8 }
   }
-  plates.push({ x: 300, col: P.L }); served = 2
-  draw()
-  if (!still) { let last = 0; const loop = (now) => { if (now - last > 110) { last = now; step(); draw() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
+  function step() {
+    f++; if (f % 8 === 0) call++
+    if (ding > 0) ding--
+    if (!toss && f % 24 === 0) { const j = JARS[(f / 24) % JARS.length | 0], k = COOKS[(f / 24) % COOKS.length | 0]; toss = { x0: j.x + 8, y0: j.y + 12, x1: k.x + 14, y1: TOP - 40, fill: j.fill, t: 0 } }
+    if (toss && ++toss.t > 16) toss = null
+    if (f % 30 === 0) { const k = COOKS[(f / 30) % COOKS.length | 0]; plates.push({ x: k.x + 24, food: k.c }) }
+    plates.forEach((p) => (p.x += 2.5))
+    const arrived = plates.filter((p) => p.x >= 452)
+    if (arrived.length) { plates = plates.filter((p) => p.x < 452); served = served >= 4 ? 1 : served + 1; ding = 10 }
+  }
+  scene()
+  if (!still) { let last = 0; const loop = (now) => { if (now - last > 100) { last = now; step(); scene() } requestAnimationFrame(loop) }; requestAnimationFrame(loop) }
 
-  // ---- the bell in the footer ----
   const btn = document.getElementById('ding'), txt = document.getElementById('ding-text')
-  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 10; setTimeout(() => (txt.textContent = 'Service!'), 1400) })
+  btn.addEventListener('click', () => { txt.textContent = 'Ding! Service!'; ding = 12; if (still) scene(); setTimeout(() => (txt.textContent = 'Service!'), 1400) })
 
   // ---- a real service: per minute of the calc run (from its event log) ----
   const fired = [0,0,2,2,1,0,3,1,0,0,1,0,0,0,0,0,0,0,1,0,1,3,2,1,4,1,3,1,1]
   const out   = [0,0,1,1,3,0,3,0,0,1,0,0,0,0,0,0,0,0,1,1,1,3,2,1,3,2,2,1,1]
-  const ch = document.getElementById('chart'), c2 = ch.getContext('2d')
-  const n = fired.length, bar = 4, gap = 2, col = bar * 2 + gap * 2, CW = 8 + n * col + 4, CH = 70, base = 58, unit = 11
-  ch.width = CW; ch.height = CH; ch.style.width = '100%'; ch.style.minWidth = '620px'; ch.style.height = 'auto'
-  c2.fillStyle = P.N; c2.fillRect(0, 0, CW, CH)
-  for (let v = 1; v <= 4; v++) for (let x = 6; x < CW - 4; x += 4) rect(c2, x, base - v * unit, 2, 1, '#2a3a6b')
-  rect(c2, 6, base, CW - 10, 1, P.S)
+  const ch = document.getElementById('chart'), h = ch.getContext('2d')
+  const n = fired.length, bw = 5, colw = 16, L = 16, CW = L + n * colw + 6, CH = 92, base = 74, unit = 14
+  ch.width = CW; ch.height = CH
+  const cs = () => { const s = Math.max(1, Math.floor(ch.parentElement.clientWidth / CW)); ch.style.width = CW * s + 'px'; ch.style.height = CH * s + 'px' }
+  cs(); window.addEventListener('resize', cs)
+  px(h, 0, 0, CW, CH, C.steelHi)
+  for (let v = 1; v <= 4; v++) { for (let x = L; x < CW - 4; x += 4) px(h, x, base - v * unit, 2, 1, C.steel); text(h, String(v), 4, base - v * unit - 2, C.stone) }
+  px(h, L - 2, base, CW - L - 2, 2, C.ink)
   for (let i = 0; i < n; i++) {
-    const x = 8 + i * col
-    if (fired[i]) rect(c2, x, base - fired[i] * unit, bar, fired[i] * unit, P.R)
-    if (out[i]) rect(c2, x + bar + 1, base - out[i] * unit, bar, out[i] * unit, P.L)
-    if (i % 5 === 0) rect(c2, x + bar, base + 2, 1, 3, P.S)
+    const x = L + i * colw + 2
+    if (fired[i]) { px(h, x, base - fired[i] * unit, bw, fired[i] * unit, C.red); px(h, x, base - fired[i] * unit, bw, 1, C.pink); px(h, x + bw - 1, base - fired[i] * unit, 1, fired[i] * unit, C.redDk) }
+    if (out[i]) { px(h, x + bw + 1, base - out[i] * unit, bw, out[i] * unit, C.green); px(h, x + bw + 1, base - out[i] * unit, bw, 1, '#a8ffbe'); px(h, x + 2 * bw, base - out[i] * unit, 1, out[i] * unit, C.greenDk) }
+    if (i % 5 === 0) { px(h, x + bw, base + 2, 1, 3, C.ink); text(h, `${i}M`, x + bw - 3, base + 7, C.stone) }
   }
-  c2.fillStyle = P.S; c2.font = '6px monospace'
-  for (let i = 0; i < n; i += 5) c2.fillText(`${i}m`, 8 + i * col, base + 11)
-  for (let x = 8 + 10 * col; x < 8 + 18 * col; x += 4) rect(c2, x, base - 2.6 * unit, 2, 1, P.Y)
-  c2.fillStyle = P.Y; c2.fillText('one cook, the parser: 8m44s', 8 + 10 * col + 4, base - 2.6 * unit - 3)
+  const qx = L + 10 * colw, qw = 8 * colw
+  for (let x = qx; x < qx + qw; x += 4) px(h, x, base - 2.4 * unit, 2, 1, C.orangeDk)
+  text(h, 'ONE COOK: THE PARSER, 8:44', qx + 4, base - 2.4 * unit - 8, C.orangeDk)
 })()
 </script>
 </body>
