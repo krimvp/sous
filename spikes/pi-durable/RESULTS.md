@@ -17,6 +17,8 @@ the same `requestId` and waits.
 |---|---|---|
 | faux (scripted) | 3 | pass: `a`, `b`, `c` each spawned once |
 | `openai-codex/gpt-5.5` | 1 + 4 after the fix below | 5 of 5 pass; 1 earlier fail, explained below |
+| `ollama-cloud/glm-5.3` | 2 | pass; the first run's "goal submitted once" check was wrong (finding 5) |
+| `ollama-cloud/deepseek-v4.1-flash` | 3 | 3 of 3 pass |
 
 `run.sh` asserts each step and exits non-zero on failure: the first process was SIGKILLed with exactly 2
 spawns done, the resume exited 0 with the run `done`, it made 2 spawn calls (the replay of `b` and the new
@@ -40,6 +42,12 @@ continued to `c`. The resubmitted goal reused the existing submission (the goal 
    supervisor is unaffected; a one-shot process exits explicitly.
 4. **Footprint:** about 100 packages and 122 MB in `node_modules`, mostly provider SDKs pulled in by pi-ai.
    Requires Node 22.19 or later. The API is marked experimental, so versions are pinned exactly.
+5. **Ollama Cloud works through pi-ai** with a provider defined in the spike (`createProvider`, the OpenAI
+   completions API at `https://ollama.com/v1`, the `ollama-cloud` API key from the Pi login); pi-ai has no
+   built-in one. glm-5.3's thinking quoted the goal, so counting the goal text in storage overcounted;
+   the check now counts `pi.user` entries.
+6. **Pi updated to 1.1.0** (2026-10-11) in the user npm prefix (`~/.npm-global`), which comes first in PATH;
+   the root-owned 0.80.6 in `/usr/lib` is untouched. Murmuration's Pi adapter live test passes on 1.1.0.
 
 ## Run it
 
@@ -47,4 +55,5 @@ continued to `c`. The resubmitted goal reused the existing submission (the goal 
 cd spikes/pi-durable && npm install
 ./run.sh faux     # no model needed
 ./run.sh real     # uses your Pi login for openai-codex
+./run.sh ollama:deepseek-v4.1-flash   # uses your Pi login for ollama-cloud
 ```
