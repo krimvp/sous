@@ -10,7 +10,7 @@ import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './a
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { lockHolder, openLog, readEvents, writeCommand } from './log.ts'
-import { workerReceive, workerSend } from './send.ts'
+import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
@@ -42,17 +42,17 @@ export interface CliDeps {
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   // A worker's message is text, not options: `sous send b "--force is required now"`.
   if (argv[0] === 'send' || argv[0] === 'receive') {
-    const seconds = argv[0] === 'receive' ? Number(argv[1] ?? 0) : 0
-    if (argv[0] === 'send' ? argv.length !== 3 : argv.length > 2 || !Number.isFinite(seconds)) {
+    const seconds = argv[0] === 'receive' && argv[1] !== undefined && /^\d+(\.\d+)?$/.test(argv[1]) ? Number(argv[1]) : argv[1] === undefined ? 0 : NaN
+    if (argv[0] === 'send' ? argv.length !== 3 : argv.length > 2 || !(seconds >= 0 && seconds <= MAX_WAIT_SECONDS)) {
       console.error(USAGE)
       return 2
     }
-    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
-    if (!runDir || !node) {
-      console.error(`sous: sous ${argv[0]} is for a worker inside a run: SOUS_RUN_DIR and SOUS_NODE are not set`)
+    const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
+    if (!runDir || !node || !turn) {
+      console.error(`sous: sous ${argv[0]} is for a worker inside a run: SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN are not set`)
       return 1
     }
-    const r = argv[0] === 'send' ? workerSend(runDir, node, argv[1], argv[2]) : await workerReceive(runDir, node, seconds)
+    const r = argv[0] === 'send' ? workerSend(runDir, node, argv[1], argv[2]) : await workerReceive(runDir, node, Number(turn), seconds)
     ;(r.ok ? console.log : console.error)(r.text)
     return r.ok ? 0 : 1
   }

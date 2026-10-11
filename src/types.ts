@@ -155,7 +155,8 @@ export interface TurnSpec {
   model?: string
   /** Required for resume; for start, adapters that accept a preset session ID use it if given. */
   sessionId?: string
-  /** Set for a worker of the tree: `SOUS_RUN_DIR` and `SOUS_NODE`, its identity for `sous send`. Adapters add it to
+  /** Set for a worker of the tree: `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`, its identity for `sous send` and
+   * `sous receive`. Adapters add it to
    * the agent's environment and, where the harness takes MCP servers, give it sous's server (src/mcp.ts) with it.
    * Every adapter loads no other MCP server, so what a worker says to others goes through sous. */
   env?: Record<string, string>
@@ -270,8 +271,9 @@ export type EventBody =
   /** `sent`: a worker's `send` to a sibling or its lead while it works, which expects no answer; its lead gets a copy
    * of one to a sibling. */
   | { type: 'message'; from: string; to: string; body: string; mode: 'queue' | 'interrupt'; command?: string; sent?: true }
-  /** Worker `node` read its messages up to seq `upTo` during its turn (`receive`): they are not delivered again. */
-  | { type: 'inbox.read'; node: string; upTo: number; command?: string }
+  /** Worker `node` read its messages up to seq `upTo` during its turn `turn` (`receive`). They count as read once that
+   * turn ends with a result; a turn cut short gets them again when it resumes. Ignored once a later turn started. */
+  | { type: 'inbox.read'; node: string; turn: number; upTo: number; command?: string }
   /** Text delivered to a lead (its brief, a child's outcome, a message). */
   | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this

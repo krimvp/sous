@@ -94,7 +94,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     const server = { command: process.execPath, args: [new URL('../src/mcp.ts', import.meta.url).pathname], env }
     const after = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1]
     assert.ok(withSous.argv.includes('--strict-mcp-config'))
-    assert.equal(after(withSous.argv, '--setting-sources'), 'project,local')
+    assert.equal(after(withSous.argv, '--setting-sources'), 'project')
     assert.deepEqual(JSON.parse(after(withSous.argv, '--mcp-config')), { mcpServers: { sous: { type: 'stdio', ...server } } })
     assert.equal(withSous.node, 'a')
     assert.ok(standing.argv.includes('--strict-mcp-config') && !standing.argv.includes('--mcp-config'), 'a standing node gets no MCP server')

@@ -7,9 +7,9 @@ import { readEvents } from './log.ts'
 import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets, workerReceive, workerSend } from './send.ts'
 import { fold } from './state.ts'
 
-const { SOUS_RUN_DIR: runDir, SOUS_NODE: node } = process.env
-if (!runDir || !node) {
-  console.error('sous mcp: SOUS_RUN_DIR and SOUS_NODE must be set')
+const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
+if (!runDir || !node || !turn) {
+  console.error('sous mcp: SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN must be set')
   process.exit(2)
 }
 
@@ -65,7 +65,7 @@ async function handle(req: Request): Promise<unknown> {
       if (name !== 'send' && name !== 'receive') throw Object.assign(new Error(`unknown tool ${name}`), { code: -32602 })
       const r = name === 'send'
         ? workerSend(runDir!, node!, String(args?.to ?? ''), String(args?.body ?? ''))
-        : await workerReceive(runDir!, node!, Number(args?.wait_seconds ?? 0) || 0)
+        : await workerReceive(runDir!, node!, Number(turn), Number(args?.wait_seconds ?? 0) || 0)
       return { content: [{ type: 'text', text: r.text }], isError: !r.ok }
     }
     default:

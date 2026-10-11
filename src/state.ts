@@ -99,6 +99,9 @@ export interface NodeState {
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
   escalated: boolean
+  /** Workers: the messages they read during their current turn (`receive`), dropped from the inbox when the turn ends
+   * with a result. */
+  read?: { turn: number; upTo: number }
   /** Leads, in a run with a splitter: the split proposed for it. */
   split?: SplitState
 }
@@ -245,7 +248,7 @@ export function fold(events: readonly Event[]): RunState {
           number: e.turn, mode: e.mode, harness: e.harness, agent: e.agent, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
           outFile: e.outFile, errFile: e.errFile, ended: false,
         })
-        if (node) node.inbox = []
+        if (node) Object.assign(node, { inbox: [], read: undefined })
         break
       }
       case 'turn.session': {
@@ -261,6 +264,11 @@ export function fold(events: readonly Event[]): RunState {
       case 'turn.ended': {
         const t = turn(e.node, e.turn)
         if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, usage: e.usage, error: e.error })
+        const node = state.nodes.get(e.node)
+        if (node?.read?.turn === e.turn) {
+          if (e.result) node.inbox = node.inbox.filter((m) => m.seq > node.read!.upTo)
+          node.read = undefined
+        }
         break
       }
       case 'check.ended': {
@@ -280,8 +288,12 @@ export function fold(events: readonly Event[]): RunState {
         cancel(e.node, e.by, e.seq)
         break
       case 'inbox.read': {
+        // Only the node's current turn reads; what it read counts once that turn ends with a result.
         const node = state.nodes.get(e.node)
-        if (node) node.inbox = node.inbox.filter((m) => m.seq > e.upTo)
+        const t = turn(e.node, e.turn)
+        if (!node || !t || node.turns.at(-1) !== t) break
+        if (!t.ended) node.read = { turn: e.turn, upTo: Math.max(e.upTo, node.read?.upTo ?? 0) }
+        else if (t.result) node.inbox = node.inbox.filter((m) => m.seq > e.upTo)
         break
       }
       case 'lead.delivered': {

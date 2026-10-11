@@ -59,7 +59,7 @@ export type PersonCommand =
   | { type: 'answer'; node: string; text: string }
   | { type: 'approve' | 'cancel'; node: string }
   | { type: 'send'; from: string; to: string; text: string }
-  | { type: 'receive'; node: string; upTo: number }
+  | { type: 'receive'; node: string; turn: number; upTo: number }
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -375,8 +375,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
     if (cmd?.type === 'receive') {
       const n = current().nodes.get(cmd.node)
-      if (n?.spec.kind === 'work' && !n.spec.standing && !isFinal(n) && Number.isInteger(cmd.upTo)) {
-        log.append({ type: 'inbox.read', node: cmd.node, upTo: cmd.upTo, command })
+      // Only the node's current turn reads: a process left over from an earlier turn takes nothing.
+      if (n?.spec.kind === 'work' && !n.spec.standing && !isFinal(n) && Number.isInteger(cmd.upTo) && n.turns.at(-1)?.number === cmd.turn) {
+        log.append({ type: 'inbox.read', node: cmd.node, turn: cmd.turn, upTo: cmd.upTo, command })
       }
       return
     }
@@ -442,7 +443,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       outFile: join(dir, `turn-${turn}.jsonl`), errFile: join(dir, `turn-${turn}.err`),
       model: agent.model, sessionId,
       // A worker of the tree may message others while it works (`sous send`, or sous's MCP tool).
-      ...(spec.standing ? {} : { env: { SOUS_RUN_DIR: resolve(runDir), SOUS_NODE: spec.id } }),
+      ...(spec.standing ? {} : { env: { SOUS_RUN_DIR: resolve(runDir), SOUS_NODE: spec.id, SOUS_TURN: String(turn) } }),
     }
     const mode = sessionId ? 'resume' : 'start'
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
@@ -890,7 +891,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       // Stop the work of finished (cancelled or abandoned) nodes; interrupt workers that have an urgent message.
       for (const [pid, g] of groups) {
         const n = state.nodes.get(g.node)!
-        const urgent = n.inbox.find((m) => m.mode === 'interrupt')
+        // An urgent message the worker already read during its turn does not stop it.
+        const urgent = n.inbox.find((m) => m.mode === 'interrupt' && m.seq > (n.read?.upTo ?? 0))
         const serving = splitFor.get(g.node)
         const orphaned = serving !== undefined && isFinal(state.nodes.get(serving)) ? serving : undefined
         if (!isFinal(n) && !urgent && !orphaned) continue

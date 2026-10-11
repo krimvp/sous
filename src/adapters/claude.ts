@@ -14,7 +14,7 @@ function run(spec: TurnSpec, session: string[], sessionId: string) {
     '--json-schema', JSON.stringify(TURN_RESULT_SCHEMA),
     // No MCP server but sous's, and none of the person's own settings, CLAUDE.md, skills or plugins: what a worker tells
     // others goes through sous. The project's settings and CLAUDE.md still apply.
-    '--strict-mcp-config', '--setting-sources', 'project,local',
+    '--strict-mcp-config', '--setting-sources', 'project',
     ...(server ? ['--mcp-config', JSON.stringify({ mcpServers: { sous: { type: 'stdio', ...server } } })] : []),
     // Workers run with full permissions in their working directory (an open design question).
     '--permission-mode', 'bypassPermissions',

@@ -43,15 +43,17 @@ export function sendRefusal(state: RunState, from: string, to: string, body: unk
 /** How long `receive` may wait for a message. */
 export const MAX_WAIT_SECONDS = 60
 
-/** Why `node` may not receive now, if it may not: only a worker of the tree, during its work. */
-function receiveRefusal(state: RunState, node: string): string | undefined {
+/** Why `node` may not receive in turn `turn` now, if it may not: only a worker of the tree, during that turn. */
+function receiveRefusal(state: RunState, node: string, turn: number): string | undefined {
   const n = state.nodes.get(node)
   if (!n || n.spec.kind !== 'work' || n.spec.standing) return `${node} is not a worker of the tree`
-  return isFinal(n) ? `${node} is already ${n.status}` : undefined
+  if (isFinal(n)) return `${node} is already ${n.status}`
+  const current = n.turns.at(-1)
+  return current?.number === turn && !current.ended ? undefined : `turn ${turn} of ${node} is over`
 }
 
-/** The highest seq that `receive` commands of `node` not yet applied have taken. */
-function pendingReceives(runDir: string, node: string): number {
+/** The highest seq that `receive` commands of `node` in turn `turn`, not yet applied, have taken. */
+function pendingReceives(runDir: string, node: string, turn: number): number {
   let upTo = 0
   let files: string[] = []
   try {
@@ -60,25 +62,29 @@ function pendingReceives(runDir: string, node: string): number {
   for (const f of files) {
     try {
       const cmd = JSON.parse(readFileSync(join(runDir, 'commands', f), 'utf8'))
-      if (cmd?.type === 'receive' && cmd.node === node && typeof cmd.upTo === 'number') upTo = Math.max(upTo, cmd.upTo)
+      if (cmd?.type === 'receive' && cmd.node === node && cmd.turn === turn && typeof cmd.upTo === 'number') upTo = Math.max(upTo, cmd.upTo)
     } catch {} // applied and removed meanwhile: the log has it
   }
   return upTo
 }
 
-/** `sous receive` and the MCP tool: the messages waiting for worker `node`, waiting up to `waitSeconds` for one. They
- * are taken: the supervisor records them read, so they are not delivered again when the turn ends. */
-export async function workerReceive(runDir: string, node: string, waitSeconds = 0): Promise<{ ok: boolean; text: string }> {
+/** `sous receive` and the MCP tool: the messages waiting for worker `node` in its turn `turn`, waiting up to
+ * `waitSeconds` for one. They are taken: the supervisor records them read, so they are not delivered again once the
+ * turn ends with a result (a turn cut short gets them again). */
+export async function workerReceive(runDir: string, node: string, turn: number, waitSeconds = 0): Promise<{ ok: boolean; text: string }> {
   const deadline = Date.now() + Math.min(Math.max(waitSeconds, 0), MAX_WAIT_SECONDS) * 1000
   for (;;) {
-    // Pending commands first: one applied in between is then in the log.
-    const taken = pendingReceives(runDir, node)
+    // Pending commands first: one applied in between is then in the log. Everything from here to the command written
+    // runs without yielding, so receives in one process never hand out the same message.
+    const pending = pendingReceives(runDir, node, turn)
     const state = fold(readEvents(runDir))
-    const why = receiveRefusal(state, node)
+    const why = receiveRefusal(state, node, turn)
     if (why) return { ok: false, text: `cannot receive: ${why}` }
-    const waiting: InboxMessage[] = state.nodes.get(node)!.inbox.filter((m) => m.seq > taken)
+    const n = state.nodes.get(node)!
+    const taken = Math.max(pending, n.read?.turn === turn ? n.read.upTo : 0)
+    const waiting: InboxMessage[] = n.inbox.filter((m) => m.seq > taken)
     if (waiting.length) {
-      writeCommand(runDir, { type: 'receive', node, upTo: Math.max(...waiting.map((m) => m.seq)) })
+      writeCommand(runDir, { type: 'receive', node, turn, upTo: Math.max(...waiting.map((m) => m.seq)) })
       return { ok: true, text: waiting.map((m) => `Message from ${m.from}:\n${m.body}`).join('\n\n') }
     }
     if (Date.now() >= deadline) return { ok: true, text: 'No messages.' }
