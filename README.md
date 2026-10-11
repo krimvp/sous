@@ -75,3 +75,9 @@ the `model` a lead sets on a child that names its agent. A goal run takes the sa
 npm install          # the lead runner's Pi packages and the type checker
 npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex, Pi and lead runs
 ```
+
+## For agents
+
+The `murmuration` skill in [.agents/skills/murmuration](.agents/skills/murmuration/SKILL.md) (linked for Claude Code
+from `.claude/skills`) teaches an agent to start, watch, steer, resume and export runs. A landing page is in
+[site/index.html](site/index.html).
