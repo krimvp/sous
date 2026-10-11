@@ -23,6 +23,8 @@ export interface NodeSpec {
   agent?: string
   /** Overrides the agent's model for this node. */
   model?: string
+  /** Leads: the agents that fill roles for this lead and its subtree (see Roles). */
+  roles?: Roles
   /** A standing node is an independent agent of the run (the integrator): it takes requests through its
    * inbox, goes idle between them, and never completes on its own. Internal; not allowed in graph files. */
   standing?: boolean
@@ -56,9 +58,19 @@ export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
 
-/** Node ID and agent name reserved for the run's splitter: when the run defines an agent with this name (on a CLI
- * harness), it proposes how each lead splits its task before the lead receives its brief. */
-export const SPLITTER = 'splitter'
+/** Roles: agents that serve every lead of a subtree instead of doing a node. A lead's agent for a role is the nearest
+ * `roles` entry from the lead up through its ancestors, else the run's agent named after the role, if it defines one.
+ * Each agent in a role runs as a standing node (see `roleNode`). `splitter`: proposes how each lead splits its task
+ * before the lead receives its brief. */
+export const ROLES = ['splitter'] as const
+export type Role = (typeof ROLES)[number]
+export type Roles = Partial<Record<Role, string>>
+
+export const SPLITTER: Role = 'splitter'
+
+/** The standing node of `agent` in `role`: the role's name for the agent named after it, else `<role>.<agent>`. IDs
+ * equal to a role, or starting with `<role>.`, are reserved. */
+export const roleNode = (role: Role, agent: string) => (agent === role ? role : `${role}.${agent}`)
 
 /** The runtimes leads may define agents on, and the models they may choose there (the first is the default): for a
  * new agent, or as a `ChildSpec.model` override of a named agent. A runtime without a list gets no agent defined and
@@ -176,6 +188,8 @@ export interface ChildSpec {
   needs?: string[]
   /** Agent name, as for nodes, or a new agent defined for this child. */
   agent?: string | NewAgent
+  /** Lead children: agents for roles in its subtree, each one the run's definitions (graph or agents file) define. */
+  roles?: Roles
   /** Overrides the model of the agent the child names (a string `agent`), from the run's `models` for that agent's
    * runtime. Not allowed without a named agent; a new agent carries its own model. */
   model?: string
@@ -277,8 +291,8 @@ export type EventBody =
   | { type: 'merge.done'; node: string; commit: string; by: 'supervisor' | 'integrator' | 'nothing' }
   /** The integrator could not merge it; the node fails and its parent is told. */
   | { type: 'merge.failed'; node: string; reason: string }
-  /** Lead `node` is ready and the run has a splitter: it waits for a proposed split before its brief. */
-  | { type: 'split.requested'; node: string }
+  /** Lead `node` is ready and has a splitter, `agent`: it waits for a proposed split before its brief. */
+  | { type: 'split.requested'; node: string; agent: string }
   /** The splitter's proposal for lead `node`, valid as a spawn when it was made; the lead's brief carries it. */
   | { type: 'split.proposed'; node: string; parts: ChildSpec[]; summary: string }
   /** No valid proposal for lead `node`; it splits its task on its own. */

@@ -230,21 +230,39 @@ told). A gate takes no messages, and a lead waiting only on a gate is not remind
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
+## Roles
+
+A **role** is a job an agent does for every lead of a subtree, rather than a node of its own. `ROLES` in
+`src/types.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
+
+- **Assigning.** A lead node in a graph file may set `roles: { "<role>": "<agent>" }`, naming any agent of the graph
+  or a built-in. A lead may set `roles` on a lead child it spawns, naming only agents the person defined (in the
+  graph or `--agents` file), so the strategies stay the person's. Either way the agent must run a CLI harness.
+- **Resolving.** A lead's agent for a role is the nearest `roles` entry from the lead up through its ancestors, else
+  the run's agent named after the role (an agent named `splitter`), if it defines one. A sub-lead keeps its lead's
+  agent unless it sets its own, so a subtree can have a different strategy, harness or model.
+- **Running.** Each agent in a role is one standing node: `<role>` for the agent named after the role, else
+  `<role>.<agent>` (both reserved as node IDs). It keeps one session for the run, and different agents in a role work
+  in parallel.
+- **Telling leads.** When the person defined agents, a lead's brief says which agent is its splitter and which
+  agents it may give a lead child, and a splitter may propose `roles` for the lead parts it proposes.
+
 ## Splitting
 
 A lead both plans (splits its task into children) and coordinates (reacts to their outcomes). A run may give the
-planning to a **splitter**: an agent the graph file or `--agents` file defines under the reserved name `splitter`,
-on a CLI harness (`claude`, `codex` or `pi`; `lead` is rejected at load). Its `instructions` are the splitting
-strategy ("one part per module", "tests first") and its model may differ from the leads': a strong splitter with
-cheap leads. Without a splitter, leads split on their own, as before.
+planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex` or
+`pi`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
+part per module", "tests first") and its model may differ from the leads': a strong splitter with cheap leads.
+Without a splitter, leads split on their own, as before.
 
-- **When.** A lead that becomes ready (its `needs` complete), top-level or not, gets `split.requested` instead of its
-  brief, so the whole tree splits the same way. The splitter takes requests one at a time, in that order.
-- **The splitter** is the run's second standing node (id `splitter`): created on the first request, resumed in the
-  same session for later ones, never completing, not counted toward the run's completion. Each request is a
-  `message` from `supervisor` with what the lead will know: its task, acceptance criteria and notes, the agents and
-  models its children may use, its depth, the IDs already taken, and the file to write.
-- **It reads the code.** It works in its own worktree `worktrees/splitter/` (branch `sous/<run>.splitter`), reset to
+- **When.** A lead that becomes ready (its `needs` complete), top-level or not, with a splitter gets `split.requested`
+  (naming the splitter agent) instead of its brief. A splitter takes its requests one at a time, in that order;
+  different splitters work in parallel.
+- **A splitter** is a standing node (see Roles): created on its first request, resumed in the same session for later
+  ones, never completing, not counted toward the run's completion. Each request is a `message` from `supervisor`
+  with what the lead will know: its task, acceptance criteria and notes, the agents and models its children may use,
+  its depth, the IDs already taken, and the file to write.
+- **It reads the code.** It works in its own worktree `worktrees/<its node>/` (branch `sous/<run>.<its node>`), reset to
   the head of the integration branch before each request (`git reset --hard`, `git clean -fd`). It sees the work
   merged so far, and nothing it writes reaches the run: it is told to change nothing, and the reset makes that safe
   without per-agent tool limits.
@@ -506,7 +524,7 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | **v2** (done) | `sous resume` and crash recovery; `gate` nodes | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
 | **v3** (done) | Agents as the unit of work (definitions, availability defaults, standing agents); worktrees, merge queue and the integrator | parallel writing children of a lead are merged into `sous/<run>`, one real conflict resolved by the integrator |
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
-| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits` | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
+| **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -564,3 +582,8 @@ fake-harness tests only.
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.
+- Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
+  `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
+  smallest step is a bridge process that mirrors chosen events to Comitia and turns Comitia messages into command
+  files, keeping the supervisor the only writer. Next would be a runtime whose turns are Comitia requests with a
+  deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.

@@ -35,13 +35,14 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `o
 
 | Field | Kinds | Meaning |
 |---|---|---|
-| `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person`, `integrator` and `splitter` are reserved |
+| `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person`, `integrator`, `splitter` and `splitter.*` are reserved |
 | `kind` | all | `work` (agent in its own worktree), `check` (shell command, exit 0 passes, runs on the merged result), `lead` (splits work), `gate` (waits for `sous approve`) |
 | `brief` | work, lead, gate | the task, or what the person approves |
 | `acceptance` | work, lead | criteria shown to the agent |
 | `command` | check, work | a check's command, or a work node's acceptance check |
 | `needs` | all | node IDs that must complete first (work nodes: once merged); any nodes in the file, without cycles. A lead's children may only need earlier siblings |
 | `agent`, `model` | work, lead | which agent; a model for this node only |
+| `roles` | lead | `{ "splitter": "<agent>" }`: the splitter for this lead and its subtree (inherited; overrides the agent named `splitter`); a CLI agent |
 
 Leads have no `command`; a deterministic gate under a lead is a `check` child.
 
@@ -50,7 +51,7 @@ Leads have no `command`; a deterministic gate under a lead is a `check` child.
 Tools: `spawn`, `send` (queue or interrupt), `note` (shared with the subtree), `cancel`, `complete`, `fail`,
 `escalate` (to the parent lead, or to the person). In `spawn`, a child's `agent` is a name, or a new agent
 `{ "name", "runs", "model"?, "instructions"? }` on a runtime listed in `models` (model from that list, default
-its first). New agents exist for the rest of the run.
+its first). New agents exist for the rest of the run. A lead child may set `roles` naming agents the person defined.
 
 ## Files
 

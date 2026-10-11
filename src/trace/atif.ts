@@ -169,7 +169,7 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     } else if (e.type === 'merge.failed') {
       add({ source: 'system', timestamp: e.at, message: `Merge failed: ${e.reason}` })
     } else if (e.type === 'split.requested') {
-      add({ source: 'system', timestamp: e.at, message: 'Split requested from the splitter' })
+      add({ source: 'system', timestamp: e.at, message: `Split requested from splitter ${e.agent}` })
     } else if (e.type === 'split.proposed') {
       add({ source: 'system', timestamp: e.at, message: `Split proposed by the splitter: ${e.summary}`, extra: { parts: e.parts } })
     } else if (e.type === 'split.failed') {

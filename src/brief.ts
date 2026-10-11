@@ -97,9 +97,19 @@ function splitSection(split: SplitState): string {
   ].join('\n')
 }
 
+/** The roles a lead may give a lead child's subtree, when the run defines agents for them. */
+function rolesSection(roles: { splitter?: string; choices: string[] }): string[] {
+  if (!roles.choices.length) return []
+  return [[
+    `A lead child may take roles {"splitter": "<agent>"}: that agent then proposes how every lead in the child's subtree`,
+    `splits its task (yours: ${roles.splitter ?? 'none'}; without roles a child keeps yours). Agents for roles: ${roles.choices.join(', ')}.`,
+  ].join(' ')]
+}
+
 /** A lead's first delivery, with its agent's standing instructions, the agents its children may name (with their
- * runtime when it differs from their name), the runtimes and models it may define agents on, and its proposed split. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState): string {
+ * runtime when it differs from their name), the runtimes and models it may define agents on, the roles it may give
+ * a lead child, and its proposed split. */
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }): string {
   const names = (list: string[]) => agentNames(agents, list)
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
@@ -117,6 +127,7 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents:
   ].join('; '), models(agents.models), depth.at < depth.max
     ? `You are a lead at depth ${depth.at}; leads may nest ${depth.max} deep, so your lead children are at depth ${depth.at + 1}.`
     : `You are a lead at depth ${depth.at}, the deepest allowed: spawn no lead children.`)
+  if (depth.at < depth.max) parts.push(...rolesSection(roles))
   if (split) parts.push(splitSection(split))
   return parts.join('\n\n') + '\n'
 }
@@ -202,7 +213,7 @@ export function splitterPrompt(goal: string, node: NodeSpec, inbox: InboxMessage
 }
 
 /** One request to the splitter: everything lead `node` will know about its task, and where the proposal goes. */
-export function splitRequest(node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, opts: { cwd: string; commit: string; file: string; used: string[]; maxParts: number }): string {
+export function splitRequest(node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, opts: { cwd: string; commit: string; file: string; used: string[]; maxParts: number; roleChoices: string[] }): string {
   const parts = [`Propose a split for lead ${node.id}.`, `Its task:\n${node.brief ?? ''}`]
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   if (notes.length) parts.push(`Notes from its leads:\n${list(notes)}`)
@@ -219,7 +230,9 @@ export function splitRequest(node: NodeSpec, notes: string[], agents: ReturnType
       ? `A work or lead part may instead define a new agent {name, runs, model?, instructions?} on: ${runtimes.join('; ')}.`
       : 'Parts may not define agents or set a model: the run lists no models.',
     depth.at < depth.max
-      ? `Lead ${node.id} is at depth ${depth.at} of at most ${depth.max}, so it may have lead parts.`
+      ? `Lead ${node.id} is at depth ${depth.at} of at most ${depth.max}, so it may have lead parts.` + (opts.roleChoices.length
+        ? ` A lead part may set roles {"splitter": "<agent>"} to give its subtree another splitter, one of ${opts.roleChoices.join(', ')}; without it, the subtree keeps this split's splitter.`
+        : '')
       : `Lead ${node.id} is at the deepest level allowed: propose no lead parts.`,
     [
       `Propose at most ${opts.maxParts} parts. Ids must be new in the run (taken: ${opts.used.join(', ')}); make them specific to`,
