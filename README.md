@@ -81,5 +81,6 @@ npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex
 ## For agents
 
 The `murmuration` skill in [.agents/skills/murmuration](.agents/skills/murmuration/SKILL.md) (linked for Claude Code
-from `.claude/skills`) teaches an agent to start, watch, steer, resume and export runs. A landing page is in
-[site/index.html](site/index.html).
+from `.claude/skills`) teaches an agent to start, watch, steer, resume and export runs. The landing page is
+[site/index.html](site/index.html), published at https://krimvp.github.io/murmuration/ with
+`scripts/publish-site.sh`.
