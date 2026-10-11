@@ -191,8 +191,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       return result
     },
     settled(node, turn) {
-      if (closed) return
       const { requestId, status, text, model, usage } = turn
+      // After a crash the runner may report a delivery a second time; the first report stands.
+      if (closed || log.events.some((e) => e.type === 'lead.turn' && e.node === node && e.requestId === requestId)) return
       log.append({ type: 'lead.turn', node, requestId, status, text, model, ...(usage ? { usage } : {}) })
       wakeUp()
     },

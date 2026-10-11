@@ -205,7 +205,8 @@ with the message. An `interrupt` message to a running worker stops its process g
 `turn.interrupted`, and resumes the session with the message. Notes from every ancestor lead are added to a
 child's brief.
 
-**Idle leads.** When a lead settles (`lead.turn`) with no running or pending children, no undelivered
+**Idle leads.** A lead is idle once it has answered every delivery (it may answer an earlier one after a later
+one was delivered, and the runner may report one twice after a crash; the second report is ignored). When it settles idle with no running or pending children, no undelivered
 messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
 reminders without progress the lead fails.
 
@@ -326,8 +327,21 @@ Development dependency: `typescript` for type checking. Tests use `node:test`.
 | Version | Scope | Done when |
 |---|---|---|
 | **v0** (done) | Fixed graph file; `work` and `check` nodes run in the workspace directory, writing nodes one at a time; Claude, Codex and Pi adapters; event log; `murm run`, `status`; ATIF and OTLP exporters | a two-node graph (work, then check) runs to completion on each harness and exports a valid ATIF file and a Langfuse trace |
-| **v1** (in progress) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
+| **v1** (done) | `lead` nodes and their tools; inboxes; `queue` and `interrupt`; notes; `answer`, `cancel` | a goal given to a root lead is split into children that complete, with one interrupt exercised |
 | **v2** | `murm resume` and crash recovery; worktree merge; `review` and `gate` nodes; budgets | killing the supervisor mid-run and resuming completes the run without repeating finished turns |
+
+v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
+(its default `ollama-cloud/glm-5.2`). A goal split into two work children and a check completed and exported a valid
+ATIF file with the children nested under the lead; a lead escalated a choice and finished with the answer
+given by `murm answer` from another process; `murm cancel` of a running worker, and of the lead, stopped the
+processes (Pi's tool command included) and failed the subtree; a lead told to interrupt its running worker
+did, and the worker resumed its session with the message. Limitations found:
+
+- The interrupt was exercised only when the goal told the lead to send it, and it reached the worker before
+  its first tool call; an interrupt mid-command is covered by the fake-harness tests only.
+- Pi runs its tool commands in their own session, outside the turn's process group. Pi stops them on
+  SIGTERM; if a turn needs SIGKILL, they can outlive it.
+- Ollama Cloud reports no prices, so lead and Pi worker usage is in tokens only.
 
 ## Open questions
 

@@ -324,3 +324,48 @@ test("an interrupt send during a worker's acceptance check stops the check and r
   const session = JSON.parse(readFileSync(join(sessions, `${w.turns[0].sessionId}.json`), 'utf8'))
   assert.match(session.prompts[1], /^Message from lead:\nChange of plan\./)
 })
+
+test('a second settled for a delivery already answered is ignored', async () => {
+  // The lead runner may report a delivery twice after a crash; the second report must change nothing.
+  const { outcome, events } = await runGraph([lead([
+    { calls: [{ tool: 'spawn', children: [{ id: 'a', kind: 'work', brief: `a\n${fakePlan([{ result: done('a') }])}` }] }] },
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])], undefined, {
+    createLeadRunner: (o) => fakeLeadRunner({ ...o, host: { ...o.host, settled(node, turn) {
+      o.host.settled(node, turn)
+      o.host.settled(node, { ...turn, text: 'reported again' })
+    } } }),
+  })
+  assert.equal(outcome, 'completed')
+  const turns = events.flatMap((e) => (e.type === 'lead.turn' ? [e.requestId] : []))
+  assert.deepEqual(turns, [...new Set(turns)])
+  assert.equal(turns.length, 2)
+})
+
+test('a lead that answers an earlier delivery while a later one waits is not idle and gets no reminder', async () => {
+  let held: (() => void) | undefined
+  let deliveries = 0
+  const { outcome, events } = await runGraph([lead([
+    { calls: [{ tool: 'spawn', children: [
+      { id: 'a', kind: 'work', brief: `a\n${fakePlan([{ result: done('a') }])}` },
+      { id: 'b', kind: 'work', brief: `b\n${fakePlan([{ result: done('b') }])}`, needs: ['a'] },
+    ] }] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])], undefined, {
+    createLeadRunner: (o) => {
+      // The answer to a's outcome is reported only after b's outcome was delivered, which the lead takes a while to answer.
+      const runner = fakeLeadRunner({ ...o, host: { ...o.host, settled(node, turn) {
+        if (deliveries === 2) held = () => o.host.settled(node, turn)
+        else o.host.settled(node, turn)
+      } } })
+      return { ...runner, deliver(node, text, opts) {
+        if (++deliveries !== 3) return runner.deliver(node, text, opts)
+        held!()
+        return new Promise((r) => setTimeout(r, 300)).then(() => runner.deliver(node, text, opts))
+      } }
+    },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child'])
+})

@@ -11,8 +11,21 @@ keeps everything moving, delivers messages between levels, and recovers after a 
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.
 
-Status: v0 works: fixed graph files of `work` and `check` nodes on Claude, Codex or Pi, with ATIF and
-Langfuse export. Leads (agents that split work) come in v1. Read [docs/design.md](docs/design.md).
+Status: v1 works: give `murm run` a goal and a lead agent splits it into workers and checks, answers their
+questions, and asks you when it cannot. Fixed graph files of `work` and `check` nodes still run as in v0.
+Crash recovery (`murm resume`) comes in v2. Read [docs/design.md](docs/design.md).
+
+```bash
+node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"
+node src/cli.ts answer lead "Use Grace."   # from another terminal: answer a question the run printed
+node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree
+```
+
+Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
+`pi` once to log in or refresh). Their workers default to Claude Code with its default model; a goal can
+ask for another harness, e.g. "use harness pi for every work child".
+
+Or give it a fixed graph file:
 
 ```json
 { "goal": "Add a greeting", "harness": "claude",
@@ -32,6 +45,6 @@ node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY
 Workers run with full permissions in the workspace (see the design's harness facts).
 
 ```bash
-npm install          # type checker only
-npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex and Pi runs
+npm install          # the lead runner's Pi packages and the type checker
+npm run check        # type check and tests; MURM_LIVE=1 adds real Claude, Codex, Pi and lead runs
 ```
