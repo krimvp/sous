@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Murmuration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a flock-filled hero, then one reading column (~70ch) widening for the parts grid, the cast table and the proof strip. */
+:root {
+  --sky: #eef1f3;        /* pale winter sky */
+  --paper: #ffffff;
+  --ink: #141b21;        /* starling black */
+  --muted: #56626d;
+  --rule: #d3dae0;
+  --sheen: #2b7a6a;      /* starling's green sheen: the accent */
+  --violet: #6a4b8f;     /* the purple sheen, used sparingly for leads */
+  --amber: #9a6412;      /* checks */
+  --bird: rgba(20, 27, 33, 0.72);
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky: #0d1216; --paper: #141b21; --ink: #e6ebef; --muted: #9aa6b0; --rule: #26313a;
+    --sheen: #5fbfa9; --violet: #c2a0dc; --amber: #e2aa50; --bird: rgba(214, 224, 232, 0.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sky: #0d1216; --paper: #141b21; --ink: #e6ebef; --muted: #9aa6b0; --rule: #26313a;
+  --sheen: #5fbfa9; --violet: #c2a0dc; --amber: #e2aa50; --bird: rgba(214, 224, 232, 0.6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--sky); color: var(--ink); font: 16px/1.6 var(--font-body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 16px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.1; }
+h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); font-weight: 600; letter-spacing: -0.01em; }
+h3 { font-size: 1.08rem; font-weight: 600; }
+p { margin: 0; }
+code, pre { font-family: var(--font-mono); }
+code { font-size: 0.9em; background: color-mix(in srgb, var(--rule) 50%, transparent); padding: 0.05em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+a { color: var(--sheen); }
+:focus-visible { outline: 2px solid var(--sheen); outline-offset: 2px; }
+.eyebrow { font: 500 0.76rem/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
+/* Hero */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--rule); }
+.hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hero .wrap { position: relative; padding-block: clamp(56px, 10vw, 112px) clamp(44px, 7vw, 80px); display: grid; gap: 22px; }
+.hero h1 { font-size: clamp(3rem, 11vw, 7.2rem); font-weight: 800; letter-spacing: -0.035em; }
+.hero .tag { font: 400 clamp(1.25rem, 2.6vw, 1.7rem)/1.35 var(--font-display); max-width: 30ch; }
+.hero .sub { max-width: 60ch; color: var(--muted); font-size: 1.05rem; }
+.quick { display: grid; gap: 8px; max-width: 760px; }
+pre.cmd { margin: 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 0.92rem; line-height: 1.55; }
+pre .c { color: var(--muted); }
+pre .p { color: var(--sheen); user-select: none; }
+
+main.wrap { display: grid; gap: clamp(64px, 9vw, 104px); padding-block: clamp(56px, 8vw, 96px) 96px; }
+section { display: grid; gap: 22px; }
+.lead-in { max-width: 66ch; color: var(--muted); font-size: 1.05rem; }
+
+/* Flow */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0; border-top: 2px solid var(--ink); }
+.flow li { padding: 16px 16px 4px 0; display: grid; gap: 6px; align-content: start; min-width: 0; counter-increment: step; }
+.flow li::before { content: counter(step); font: 600 0.82rem var(--font-mono); color: var(--sheen); }
+.flow { counter-reset: step; }
+.flow p { color: var(--muted); font-size: 0.95rem; }
+
+/* Parts */
+.parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 28px 40px; }
+.parts > div { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.parts h3 { display: flex; align-items: center; gap: 9px; }
+.mark { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.parts p { color: var(--muted); font-size: 0.97rem; }
+
+/* Cast */
+.cast { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 820px) { .cast { grid-template-columns: 1fr; } }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.94rem; }
+th, td { text-align: left; padding: 9px 12px 9px 0; border-top: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 0.76rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border-top: 0; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+
+/* Proof */
+.proof { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: clamp(18px, 3vw, 28px); display: grid; gap: 22px; }
+.nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 18px; }
+.nums div { display: grid; gap: 2px; }
+.nums b { font: 600 clamp(1.7rem, 4vw, 2.3rem)/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.nums span { color: var(--muted); font-size: 0.88rem; }
+
+/* Harnesses */
+.harness { display: flex; flex-wrap: wrap; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.harness li { border: 1px solid var(--rule); border-radius: 999px; padding: 6px 14px; font-size: 0.93rem; background: var(--paper); }
+.harness li.on { border-color: var(--sheen); }
+.harness li.on::before { content: "●"; color: var(--sheen); margin-right: 7px; font-size: 0.7em; vertical-align: 0.15em; }
+.harness li.next { color: var(--muted); }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; }
+.two > div { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.two p { color: var(--muted); }
+
+footer { border-top: 1px solid var(--rule); }
+footer .wrap { padding-block: 28px 40px; display: flex; flex-wrap: wrap; gap: 10px 28px; justify-content: space-between; color: var(--muted); font-size: 0.9rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body style="margin:0">
+
+<header class="hero">
+  <canvas id="flock" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <p class="eyebrow">Local agent orchestration</p>
+    <h1>Murmuration</h1>
+    <p class="tag">Give it a goal. A flock of agents splits it, builds it, merges it and checks it, until it is done.</p>
+    <p class="sub">Lead agents plan and delegate. Claude Code, Codex and Pi do the work, each in its own git worktree. Plain code keeps everything moving, merges every branch, and picks up where it stopped after a crash. It runs on your machine, from your terminal.</p>
+    <div class="quick">
+      <pre class="cmd"><span class="c"># in the repository the agents should work in</span>
+<span class="p">$ </span>murm run "Add a --precision N option to the CLI, with tests"
+<span class="p">$ </span>murm status                       <span class="c"># the live tree, from another terminal</span>
+<span class="p">$ </span>murm answer lead "Round half up."  <span class="c"># reply to a question, or steer a lead</span></pre>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <p class="eyebrow">How a goal becomes finished work</p>
+    <h2>One goal in, one branch out</h2>
+    <ol class="flow">
+      <li><h3>A lead takes the goal</h3><p>It writes shared notes (interfaces, conventions) and splits the goal into children.</p></li>
+      <li><h3>Work spreads out</h3><p>Children are workers, checks, approval gates or sub-leads that split further, as deep as you allow.</p></li>
+      <li><h3>Workers build in parallel</h3><p>Each worker gets its own git worktree and branch, and ends every turn with a structured result.</p></li>
+      <li><h3>Every branch is merged</h3><p>One merge at a time onto the run's branch, then the checks run on the merged result.</p></li>
+      <li><h3>Conflicts get an agent</h3><p>A conflict or a failing check after a merge goes to the integrator, which resolves it.</p></li>
+      <li><h3>The result waits for you</h3><p>Everything lands on <code>murm/&lt;run&gt;</code>. Your own branch is untouched until you merge it.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">The parts</p>
+    <h2>Models decide. Code keeps it moving.</h2>
+    <div class="parts">
+      <div><h3><span class="mark" style="background:var(--violet)"></span>Leads</h3><p>LLM agents whose only tools are orchestration: spawn, send, note, cancel, complete, fail, escalate. Each is a durable conversation that wakes when its children report.</p></div>
+      <div><h3><span class="mark" style="background:var(--sheen)"></span>Workers</h3><p>Claude Code, Codex or Pi, in their own worktrees. Messages wait for the next turn, or interrupt the current one; the session resumes either way.</p></div>
+      <div><h3><span class="mark" style="background:var(--amber)"></span>Checks and gates</h3><p>Checks are shell commands that must pass on the merged result. Gates stop and wait for <code>murm approve</code>.</p></div>
+      <div><h3><span class="mark" style="background:var(--ink)"></span>The supervisor</h3><p>One process per run and the only writer of its event log. It starts every agent, routes every message, enforces the limits and merges every branch.</p></div>
+      <div><h3><span class="mark" style="background:var(--muted)"></span>The integrator</h3><p>A standing agent of the run. It is called only when a merge conflicts or a check fails after a merge.</p></div>
+      <div><h3><span class="mark" style="background:transparent;border:1.5px solid var(--ink)"></span>You</h3><p>The parent of the top-level work: answer questions, approve gates, cancel a subtree, or resume a stopped run, from any terminal.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Define the cast</p>
+    <h2>You set the cast and the limits. Leads hire within them.</h2>
+    <div class="cast">
+      <pre class="cmd">{
+  "agents": {
+    "reviewer": { "runs": "codex",
+                  "instructions": "Review only. Never edit files." },
+    "senior":   { "runs": "claude", "model": "opus" }
+  },
+  "models": {
+    "claude": ["sonnet", "haiku"],
+    "pi":     ["ollama-cloud/glm-5.3"]
+  }
+}</pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Who</th><th>Can</th></tr></thead>
+          <tbody>
+            <tr><td>You, before the run</td><td>define agents (any model), the models leads may use per harness, the default worker, the integrator, how deep leads may nest</td></tr>
+            <tr><td>Leads, during the run</td><td>use any agent you defined, or create new ones on a listed harness with a listed model and their own instructions</td></tr>
+            <tr><td>You, during the run</td><td><code>answer</code>, <code>approve</code>, <code>cancel</code>, <code>resume</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Tried for real</p>
+    <h2>A calculator, built by a tree five levels deep</h2>
+    <div class="proof">
+      <p class="lead-in" style="color:var(--ink)">One goal, four levels of leads, workers at the fifth. The top lead froze the interfaces in three notes, gave every function one file, and the tree built <code>calc</code> in under half an hour on cheap Ollama models.</p>
+      <div class="nums">
+        <div><b>99</b><span>nodes: 41 leads, 28 workers, 30 checks</span></div>
+        <div><b>27 / 0</b><span>branches merged / merge conflicts</span></div>
+        <div><b>166</b><span>tests passing on the result</span></div>
+        <div><b>28 m 54 s</b><span>goal to completed run</span></div>
+      </div>
+      <p><a href="https://claude.ai/artifact/7c8HrXM2WRGTmWcNXRZA9u">Read how the run unfolded</a></p>
+    </div>
+  </section>
+
+  <section>
+    <div class="two">
+      <div>
+        <p class="eyebrow">Built to survive</p>
+        <h2>Kill it. Resume it.</h2>
+        <p>The event log is the whole state of a run. <code>murm resume</code> records turns that finished while it was down, stops orphaned processes, resumes interrupted sessions, and never repeats a finished turn, spawn or merge; recorded check results are kept. Leads recover through their own durable storage.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Portable traces</p>
+        <h2>ATIF and Langfuse</h2>
+        <p>Export any run as an ATIF trajectory with every agent nested under the lead that spawned it, or send it to Langfuse over OpenTelemetry. The deep run's trace passes Harbor's validator.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Harnesses</p>
+    <h2>Agents run on the tools you already use</h2>
+    <ul class="harness" aria-label="Supported and planned harnesses">
+      <li class="on">Claude Code</li><li class="on">Codex</li><li class="on">Pi</li>
+      <li class="next">Gemini CLI</li><li class="next">OpenCode</li><li class="next">Factory Droid</li><li class="next">Cursor CLI</li>
+      <li class="next">GitHub Copilot CLI</li><li class="next">Amp</li><li class="next">Goose</li><li class="next">Qwen Code</li><li class="next">Aider</li>
+    </ul>
+    <p class="lead-in">Leads run in process on Pi's durable runtime, on Ollama Cloud or your ChatGPT login. Every other harness is a small adapter away; each has an issue with the checklist.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">What's next</p>
+    <h2>Watch the flock, and let it talk to others</h2>
+    <div class="two">
+      <div>
+        <h3>Observe a run as it happens</h3>
+        <p>Today you follow a run through <code>murm status</code>, its log, and traces exported afterwards. Next: a live view of the tree (who is working, waiting, merging or asking), the event stream sent to Langfuse while the run goes, and the numbers that matter at a glance: turns, tokens, merges and time per subtree.</p>
+      </div>
+      <div>
+        <h3>A link with Comitia</h3>
+        <p>Comitia is a durable message service for local agents. Linked to it, a run would mirror its events into a shared context that other tools and people can read, and agents Murmuration did not start, such as a Claude session you open yourself, could join the run as independent agents, take requests and report back.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Murmuration · local only · Node 22, few dependencies</span>
+    <span><a href="https://github.com/krimvp/murmuration">github.com/krimvp/murmuration</a> · design in <code>docs/design.md</code></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  const canvas = document.getElementById('flock')
+  const ctx = canvas.getContext('2d')
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  let W = 0, H = 0, birds = []
+  const color = () => getComputedStyle(document.documentElement).getPropertyValue('--bird').trim() || 'rgba(20,27,33,.7)'
+  function size() {
+    const r = canvas.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2)
+    W = r.width; H = r.height
+    canvas.width = W * d; canvas.height = H * d
+    ctx.setTransform(d, 0, 0, d, 0, 0)
+  }
+  function seed() {
+    const n = Math.round(Math.min(260, Math.max(90, W * H / 4200)))
+    birds = Array.from({ length: n }, () => {
+      const a = Math.random() * Math.PI * 2
+      return { x: W * (0.55 + Math.random() * 0.4), y: H * (0.15 + Math.random() * 0.6), vx: Math.cos(a), vy: Math.sin(a) }
+    })
+  }
+  function step(t) {
+    const cx = W * (0.72 + 0.16 * Math.sin(t / 5200)), cy = H * (0.45 + 0.22 * Math.sin(t / 3700))
+    for (const b of birds) {
+      let ax = 0, ay = 0, mx = 0, my = 0, sx = 0, sy = 0, n = 0
+      for (const o of birds) {
+        if (o === b) continue
+        const dx = o.x - b.x, dy = o.y - b.y, d2 = dx * dx + dy * dy
+        if (d2 < 1600) { ax += o.x; ay += o.y; mx += o.vx; my += o.vy; n++; if (d2 < 120) { sx -= dx; sy -= dy } }
+      }
+      if (n) { b.vx += ((mx / n) - b.vx) * 0.06 + ((ax / n) - b.x) * 0.0009; b.vy += ((my / n) - b.vy) * 0.06 + ((ay / n) - b.y) * 0.0009 }
+      b.vx += sx * 0.012 + (cx - b.x) * 0.00035; b.vy += sy * 0.012 + (cy - b.y) * 0.00035
+      const s = Math.hypot(b.vx, b.vy) || 1, v = Math.min(2.2, Math.max(1.1, s))
+      b.vx = b.vx / s * v; b.vy = b.vy / s * v
+      b.x += b.vx; b.y += b.vy
+    }
+  }
+  function draw() {
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = color()
+    for (const b of birds) {
+      const a = Math.atan2(b.vy, b.vx)
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(a)
+      ctx.beginPath(); ctx.moveTo(3.2, 0); ctx.lineTo(-2.4, 1.6); ctx.lineTo(-1.4, 0); ctx.lineTo(-2.4, -1.6); ctx.closePath(); ctx.fill()
+      ctx.restore()
+    }
+  }
+  function frame(t) { step(t); draw(); if (!document.hidden) requestAnimationFrame(frame) }
+  size(); seed()
+  for (let i = 0; i < 120; i++) step(i * 16)   // settle into a flock before the first frame
+  draw()
+  if (!still) requestAnimationFrame(frame)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !still) requestAnimationFrame(frame) })
+  window.addEventListener('resize', () => { size(); seed(); for (let i = 0; i < 60; i++) step(i * 16); draw() })
+})()
+</script>
+</body>
+</html>
