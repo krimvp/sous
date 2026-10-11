@@ -118,22 +118,24 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
   ])
 })
 
-test('conflict markers committed by the integrator fail verification; it gets one retry, then the merge is done', async () => {
-  const { integration, outcome, events, state, prompts } = await runGraph([
-    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
-  ], {
-    files: { 'f.txt': 'base\n' },
-    agents: integrator([
-      { sh: `git add f.txt && ${COMMIT}`, result: done('committed') },
-      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} -m fix`, result: done('removed the markers') },
-    ]),
-  })
-  assert.equal(outcome, 'completed')
-  assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
-  assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: conflict markers remain in f\.txt/)
-  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
-  assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\nb\n')
+test('conflict markers committed by the integrator fail verification, at any marker size; one retry, then the merge is done', async () => {
+  for (const attributes of [{}, { '.gitattributes': 'f.txt conflict-marker-size=10\n' }] as Record<string, string>[]) {
+    const { integration, outcome, events, state, prompts } = await runGraph([
+      work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+      work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+    ], {
+      files: { 'f.txt': 'base\n', ...attributes },
+      agents: integrator([
+        { sh: `git add f.txt && ${COMMIT}`, result: done('committed') },
+        { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} -m fix`, result: done('removed the markers') },
+      ]),
+    })
+    assert.equal(outcome, 'completed')
+    assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
+    assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: conflict markers remain in f\.txt/)
+    assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+    assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\nb\n')
+  }
 })
 
 test('an integrator that aborts the merge does not get it accepted: after a retry the merge fails', async () => {
