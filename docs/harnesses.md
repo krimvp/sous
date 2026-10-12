@@ -2,7 +2,8 @@
 
 A harness is the coding-agent CLI a worker runs on. sous starts it for each turn in the worker's own git worktree,
 reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
-same name (`claude`, `codex`, `pi`, `droid`), available when its CLI is on your `PATH` and logged in.
+same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
+also be logged in, or the nodes it gets fail.
 
 | Harness | CLI | Login | Messages between workers | Certified |
 |---|---|---|---|---|
@@ -19,14 +20,15 @@ file (`sous run --agents agents.json "…"`) or a graph file:
 { "agents": { "fast": { "runs": "droid", "model": "claude-sonnet-5" } }, "agent": "fast" }
 ```
 
-Without a `model`, a harness uses the one its own settings choose.
+Without a `model`, a harness uses its own default: for Claude Code the project's settings or Claude's built-in default
+(workers leave out your user settings), for the others your own settings.
 
 ## What every harness guarantees
 
-Each harness passes the same conformance suite before it is merged
+Every harness passes the same conformance suite, and a new one must pass it before it is merged
 ([design: Harness conformance](design.md#harness-conformance)). In a live certification with the real CLI it must:
 
-- read a file with a tool and end with a structured result: done, blocked, or a question for its lead;
+- read a file with a tool and end with a structured result, and end another turn with a question for its lead;
 - resume its session twice and still remember the first turn;
 - stop cleanly mid-command when sous stops it, leaving nothing running, and resume afterwards;
 - survive being killed mid-command, and resume;
@@ -34,22 +36,26 @@ Each harness passes the same conformance suite before it is merged
 - start no MCP server that the project configures;
 - finish a run that `sous resume` takes over after the supervisor was killed.
 
-Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`.
+Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Certifying Codex adds an entry for each
+temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
 
 ## What sous keeps out of workers
 
 Workers talk to the run's other agents only through sous, and get as little of your own setup as each harness allows.
-The project's own instructions (`AGENTS.md`, `CLAUDE.md`) still apply.
+The project's own instruction files still apply, as each harness reads them:
 
-- **Claude Code:** no MCP server but sous's; none of your user settings, skills, plugins or hooks. It still reads
-  `CLAUDE.md` files in the directories above the worktree.
-- **Codex:** your MCP servers and the project's are disabled; rules, hooks, apps, plugins and skills are off. Your
-  global `~/.codex/AGENTS.md` still loads. Codex records each workspace it runs in as trusted in your
-  `~/.codex/config.toml`.
-- **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`.
+- **Claude Code:** no MCP server but sous's; none of your user settings, skills, plugins or hooks; the project's
+  settings apply. It reads the project's `CLAUDE.md` and `CLAUDE.local.md`, and those in the directories above the
+  worktree, your workspace's included.
+- **Codex:** your MCP servers and the project's are disabled; rules, hooks, apps, plugins and skills are off. It reads
+  the project's `AGENTS.md`, and your global `~/.codex/AGENTS.md` still loads. A server whose name has a dot is not
+  disabled, nor are your servers when `codex mcp list` fails (sous says so on stderr). Codex records each workspace it
+  runs in as trusted in your `~/.codex/config.toml`.
+- **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`,
+  which sous passes to it.
 - **Droid:** your MCP servers and the project's are disabled, hooks are off, and your skills (yours and your plugins')
-  are off. Your custom droids, and MCP servers or droids your plugins bring, still load. A resumed turn continues a
-  fork of the session, so it works without a Factory login.
+  are off. It reads the worktree's `AGENTS.md`. Your custom droids, and MCP servers or droids your plugins bring, still
+  load. A resumed turn continues a fork of the session, so it works without a Factory login.
 
 Workers run with full permissions in their worktree and still have a shell, your files and your network: this keeps
 honest workers inside sous rather than sandboxing them. The details per harness are in the
@@ -57,7 +63,8 @@ honest workers inside sous rather than sandboxing them. The details per harness 
 
 ## Adding a harness
 
-1. Write its adapter in `src/adapters/` and add its name to `HARNESSES` in `src/types.ts`.
+1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
+   to the worker and integrator preference lists, in `src/types.ts`.
 2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one.
 3. Record its conformance fixtures and pass certification: `SOUS_HARNESS=<name> SOUS_RECORD=1 npm run certify`, then
    `npm run check`.
