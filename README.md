@@ -42,6 +42,9 @@ custom droids and what your plugins bring besides skills. So what workers tell e
 stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
 interrupted more than 3 times fails.
 
+Workers run on a harness: Claude Code, Codex, Pi or Factory Droid, each certified by the same conformance suite
+([docs/harnesses.md](docs/harnesses.md): what each needs, what sous keeps out of it, how to add one).
+
 Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
 `pi` once to log in or refresh). Their workers default to the first agent whose CLI is on your `PATH`: Claude
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
