@@ -645,7 +645,11 @@ and `cancel`.
 Node 22.19 or later runs the TypeScript sources directly (type stripping). Only the lead runner has
 runtime dependencies: `@earendil-works/pi-durable`, `pi-ai` and `chord`, pinned to exact versions because
 the API is experimental. The supervisor, adapters and exporters use Node built-ins only.
-Development dependency: `typescript` for type checking. Tests use `node:test`.
+Development dependency: `typescript` for type checking, and for the npm package (`@krimvp/sous`): Node does not
+strip types from files under `node_modules`, so `npm pack`/`npm publish` first compile `src/` to `dist/`
+(`tsconfig.build.json`, `.ts` imports rewritten to `.js`; `ui.html` copied). Paths a run hands to another process
+(sous's MCP server, the `sous send` command) take the extension of the running file. Tests use `node:test`;
+`test/package.test.ts` runs the compiled package from a `node_modules` directory.
 
 ## Roadmap
 

@@ -2,7 +2,7 @@
 
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../types.ts'
@@ -43,7 +43,8 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
 /** sous's MCP server for a worker of the tree (one with `spec.env`), as the harness should start it. */
 export function sousServer(spec: TurnSpec): { command: string; args: string[]; env: Record<string, string> } | undefined {
   if (!spec.env) return undefined
-  return { command: process.execPath, args: [fileURLToPath(new URL('../mcp.ts', import.meta.url))], env: spec.env }
+  // mcp.ts in the sources, mcp.js in the published package.
+  return { command: process.execPath, args: [fileURLToPath(new URL(`../mcp${extname(import.meta.url)}`, import.meta.url))], env: spec.env }
 }
 
 // Harness output is data from another program: every field is optional and may have any type.
