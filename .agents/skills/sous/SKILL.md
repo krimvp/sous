@@ -1,6 +1,6 @@
 ---
 name: sous
-description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex or Pi workers do the work in git worktrees, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
+description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex, Pi or Factory Droid workers do the work in git worktrees, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
 ---
 
 # sous
@@ -53,7 +53,7 @@ result lands on branch `sous/<run-id>`; the person's own branch is never touched
 
 ## Rules that save time
 
-- Agents that exist: built-ins `claude`, `codex`, `pi`, `lead`, plus what the run defines. The run prints
+- Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. The run prints
   `agents: …; not available: …` at start; a CLI must be on PATH and logged in.
 - Workers run with full permissions inside their own worktree. Say so if the user has not accepted that.
 - Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.

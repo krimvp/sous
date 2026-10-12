@@ -1,11 +1,11 @@
 // Shared pieces of the worker adapters: starting a turn's process and reading harness output.
 
 import { spawn } from 'node:child_process'
-import { closeSync, mkdirSync, openSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
-import type { RunningTurn, TurnResult, TurnSpec } from '../types.ts'
+import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../types.ts'
 
 export type Exit = Awaited<RunningTurn['exit']>
 
@@ -93,4 +93,48 @@ export function toTurnResult(value: unknown): TurnResult | undefined {
   if (typeof question === 'string') result.question = question
   if (typeof note_for_parent === 'string') result.note_for_parent = note_for_parent
   return result
+}
+
+/** For harnesses without a structured-output flag (Pi, Droid): the prompt asks for the result in a fence, and
+ * `lastJsonFence` reads it back from the final message. */
+export const RESULT_INSTRUCTION = [
+  'When you finish, end your final message with your result as a JSON object in a ```json fenced block:',
+  '{"status": "done" | "blocked" | "needs_input", "summary": "...", "question": "... (only when needs_input)",',
+  '"note_for_parent": "... (optional)"}',
+].join('\n')
+
+export function lastJsonFence(text: string): string | undefined {
+  const fences = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)]
+  return fences.at(-1)?.[1]
+}
+
+/** Poll a turn's output until `parse` finds its session ID; reject if the process exits first. For harnesses that
+ * report the ID in the stream instead of taking it up front. */
+export function sessionFromOutput(cmd: string, outFile: string, exit: Promise<Exit>, parse: (raw: string) => ParsedTurn): Promise<string> {
+  const find = () => {
+    try {
+      return parse(readFileSync(outFile, 'utf8')).sessionId
+    } catch {
+      return undefined
+    }
+  }
+  const id = new Promise<string>((resolve, reject) => {
+    const timer = setInterval(() => {
+      const found = find()
+      if (found) {
+        clearInterval(timer)
+        resolve(found)
+      }
+    }, 100)
+    const settle = () => {
+      clearInterval(timer)
+      const found = find()
+      if (found) resolve(found)
+      else reject(new Error(`${cmd} exited without reporting a session ID (see ${outFile})`))
+    }
+    exit.then(settle, settle)
+  })
+  // Callers that never ask for the ID must not crash the process with an unhandled rejection.
+  id.catch(() => {})
+  return id
 }

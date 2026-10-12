@@ -79,7 +79,7 @@ test('the splitter reads the merged work in its own worktree and proposes a spli
   assert.match(prompt, /^You are the splitter of a larger goal\.\n\nGoal: test goal\n\nYour standing instructions:\nFAKE_PLAN/)
   assert.match(prompt, /Message from supervisor:\nPropose a split for lead lead\.\n\nIts task:\nLead the test goal\./)
   assert.match(prompt, new RegExp(`The worktree ${worktree} holds the run's merged work at commit [0-9a-f]{40}\\.`))
-  assert.match(prompt, /A work part may name an agent of claude, codex, pi \(default [a-z]+\); a lead part one of lead/)
+  assert.match(prompt, /A work part may name an agent of claude, codex, pi, droid \(default [a-z]+\); a lead part one of lead/)
   assert.match(prompt, /Lead lead is at depth 1 of at most 3, so it may have lead parts\./)
   assert.match(prompt, /Propose at most 12 parts\. Ids must be new in the run \(taken: lead\)/)
   assert.ok(prompt.includes(`Write the proposal as a JSON object to ${join(runDir, 'splits', 'lead.json')} (its directory exists):`))

@@ -1,7 +1,7 @@
 # sous design
 
 sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
-lead agents plan and split, worker agents (Claude Code, Codex, Pi or a custom agent) do it, and plain
+lead agents plan and split, worker agents (Claude Code, Codex, Pi, Factory Droid or a custom agent) do it, and plain
 code keeps everything moving. It is local only, keeps runtime dependencies to the lead runner, and keeps its
 whole state in files you can read.
 
@@ -20,7 +20,7 @@ cooks do it (workers), and plates are checked at the pass (merges and checks).
 3. **One writer, one log.** The supervisor is the only process that writes state. The append-only event
    log is the source of truth, and everything else (status, inboxes, traces) is derived from it.
 4. **Workers are not framework agents.** A worker sits behind a small adapter interface. Claude, Codex,
-   Pi and in-process agents all look the same to the supervisor.
+   Pi, Droid and in-process agents all look the same to the supervisor.
 5. **Enforce in code, not in prompts.** Depth, fan-out, budgets, who may message whom and which worker
    kinds a node may use are checked by the supervisor when a lead calls a tool.
 
@@ -50,7 +50,7 @@ engine can be tested without a lead.
 | Kind | Run by | Purpose |
 |---|---|---|
 | `lead` | an LLM with orchestration tools only | splits its node into children, reacts to events, completes itself |
-| `work` | a worker adapter (Claude, Codex, Pi, custom) | does the work in a git worktree |
+| `work` | a worker adapter (Claude, Codex, Pi, Droid, custom) | does the work in a git worktree |
 | `check` | a shell command | deterministic gate; exit code 0 passes |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
 | `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
@@ -78,7 +78,7 @@ parent completes only through its own acceptance check, never just because every
 ## Architecture
 
 ```
-sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | custom) ──▶ worker processes
+sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | droid | custom) ──▶ worker processes
                │   ▲                                                        │
                │   └──────────── turn output files (.sous/runs/<id>/nodes/) ◀┘
                ├──▶ lead runner (LLM + orchestration tools; tool calls become events)
@@ -109,7 +109,7 @@ interface WorkerAdapter {
 }
 interface RunningTurn {
   pid: number                                // process-group leader
-  sessionId: Promise<string>                 // known up front for Claude and Pi; parsed from the stream for Codex
+  sessionId: Promise<string>                 // known up front for Claude and Pi; parsed from the stream for Codex and Droid
   exit: Promise<{ code, signal }>            // the process exited; the outcome is parsed from the output file
 }
 ```
@@ -174,7 +174,7 @@ later, when an agent the supervisor did not launch needs to take part.
 A worker that learns something a sibling or its lead must know while it works (an interface it settled, a file it
 moved, a change of plan) tells them with `send`, without stopping, and reads what others tell it with `receive`.
 
-- **Two ways in, one way through.** Claude and Codex workers have `send` and `receive` tools from sous's MCP server
+- **Two ways in, one way through.** Claude, Codex and Droid workers have `send` and `receive` tools from sous's MCP server
   (`src/mcp.ts`, stdio JSON-RPC on Node built-ins), which their harness starts for the turn; every worker can also run
   `sous send <to> 'text'`, whose full command its brief gives (Pi workers use only this). Both check the message and
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
@@ -203,18 +203,20 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   supervisor applies it (the run moved on) comes back to its sender from `supervisor`, unless the sender is already
   waiting to merge (telling it would take it out of the merge queue). A sibling lead gets a worker's message too, as
   something it cannot answer (its `send` reaches only its own children and parent).
-- **Only through sous.** Workers load no MCP server but sous's, and as little of the person's own setup as each
+- **Only through sous.** Workers load no MCP server but sous's (Droid workers: none the person configured, but those
+  their plugins bring still load), and as little of the person's own setup as each
   harness allows, while the project's instructions still apply; their brief tells them to talk to the run's
-  other agents only with `send` and `receive`. Per harness (checked with `claude -p` init events and answers, and
-  `codex debug prompt-input`):
+  other agents only with `send` and `receive`. Per harness (checked with `claude -p` init events and answers,
+  `codex debug prompt-input`, and Droid runs with a project hook, a project MCP server and the person's skills):
 
   | Harness | MCP | The person's own setup |
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
   | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges), sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
   | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended |
+  | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
-  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
+  A project skill named like one of the person's is disabled too. If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
   a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
   shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
   determined one from reaching another service; that needs sandboxed workers.
@@ -346,14 +348,14 @@ Without a splitter, leads split on their own, as before.
 ## Agents
 
 An **agent** is what does work; a harness is only how an agent runs. An agent has a name, a runtime (`claude`,
-`codex`, `pi` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
+`codex`, `pi`, `droid` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
 every brief it receives (`AgentSpec` in `src/types.ts`).
 
-- **Built-in agents** `claude`, `codex`, `pi` and `lead` exist without being defined. A graph file may define
+- **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined. A graph file may define
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
-  first available of `claude`, `codex`, `pi`. Naming an unavailable agent fails the node with a clear reason.
+  first available of `claude`, `codex`, `pi`, `droid`. Naming an unavailable agent fails the node with a clear reason.
   Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
@@ -365,7 +367,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   with its child, and it exists for the rest of the run: any later spawn, by any lead, may name it. Kind rules are
   unchanged: a lead child needs `runs: 'lead'`, a work child another runtime, and the runtime must be available.
   Leads may still name any existing agent as it is. Status, ATIF and OTLP show the agent by its name.
-- **Model limits.** A graph file or agents file may set `models: { claude?, codex?, pi?, lead? }`, lists of
+- **Model limits.** A graph file or agents file may set `models: { claude?, codex?, pi?, droid?, lead? }`, lists of
   models by runtime (`provider/model` for `pi` and `lead`, checked at load). They bound what leads choose: the
   runtimes they may define agents on and those agents' models, and a child's `model` override. An override needs
   a child that names its agent (a string); it must be listed for that agent's runtime. A child with no agent, or
@@ -499,7 +501,31 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
 - A Codex `turn.failed` ends a turn without a result. A Pi `agent_end` with `willRetry: true` is not the end
   of the turn; only the final one is.
 - Workers run with full permissions in their worktree: Claude `--permission-mode bypassPermissions`,
-  Codex `-s danger-full-access`, Pi's default tools.
+  Codex `-s danger-full-access`, Pi's default tools, Droid `--skip-permissions-unsafe` (`--auto high` still ends
+  the turn at a command it rates riskier, and an MCP tool needs at least `--auto medium`).
+
+### Droid (Factory Droid 0.210.0, 2026-10-12)
+
+- `droid exec -o stream-json` takes the prompt on stdin and writes `system`/`init`, `message`, `reasoning` (each
+  reasoning event twice, same ID), `tool_call`, `tool_result` (`value`, or `error.message` when `isError`), `error`
+  and a final `completion` with `finalText` and `usage` (`input_tokens` excludes cache reads; cache writes were 0 in
+  every run seen, so whether it excludes them too is assumed; `factory_credits` are not a price). A failed exec
+  writes `error` events (one ending early repeats its assistant message as one) and exits 1 without `completion`.
+- `spikes/resume-after-kill.sh droid` passed with SIGTERM and SIGKILL. On SIGTERM Droid sees its command killed,
+  may start it again, and exits 0 without `completion`. Like Pi, it runs tool commands in their own process group,
+  with a watcher that kills that group once Droid is gone; on SIGTERM it stops the command itself.
+- No session ID up front: every event carries `session_id`. **Resume forks.** `exec -s <id>` loads the session
+  from Factory's servers and exits 1 with nothing on stdout without a Factory login (a person on custom models, such
+  as Ollama Cloud, has none); `exec --fork <id>` continues it locally under a new ID, which the turn records. A fork
+  can be forked again; each fork copies the session's file.
+- No structured-output flag in `exec` (Droid has one only in its JSON-RPC mode), so the result is a fenced JSON
+  block, as for Pi; a final message that is the bare object is accepted too.
+- The init event names the exec default model even when the person's settings choose another, so no model is read
+  from it.
+- Runtime settings (`--settings`) take general settings at the top level plus `mcp`, `hooks`, `skills`, `droids`,
+  `commands` and `outputStyles`; an MCP server named there replaces the same name's entry from every other source.
+  `enabledPlugins` there does not turn a plugin's skills off. MCP tools appear as `<server>___<tool>`, deferred behind
+  Droid's `ToolSearch`.
 
 ## Traces: ATIF and Langfuse
 
@@ -517,7 +543,7 @@ from them, so traces can move between tools later.
   ID; `session_id` = run ID), referenced from the parent step's observation through
   `subagent_trajectory_ref`. Nesting follows the node tree.
 - A worker node's steps come from parsing its turn output files: Claude stream-json, Codex `--json` items,
-  Pi `--mode json` events. A tool call and its result must share one step (`source_call_id` matches a
+  Pi `--mode json` events, Droid stream-json. A tool call and its result must share one step (`source_call_id` matches a
   `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt is a `system`
   step.
 - sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
@@ -666,10 +692,21 @@ findings: `app` first read the person's global Comitia skill, since harnesses st
 instructions and skills; and it read `events.jsonl` to learn its messages before its turn ended, since a worker
 receives messages only between turns.
 
+The Droid adapter was verified on 2026-10-12 with Factory Droid 0.210.0 on an Ollama Cloud custom model (`glm-5.3`):
+the live test started a session and resumed it twice by forking, remembering the codeword. A graph run had two Droid
+siblings, `a` telling `b` a file name with the MCP `send` tool while `b` waited for it with `receive`; both merged and
+the check passed. The workspace's own MCP server and `SessionStart` hook stayed out (Droid offered only `sous___send`
+and `sous___receive`, and the hook's file was not written), and the exported ATIF passed `test/atif-checker.ts`
+(Harbor was not installed). In a third run `sous run` was killed with SIGKILL while its Droid worker ran `sleep 45`;
+`sous resume` stopped the orphaned turn (Droid ended the `sleep`), resumed it as a fork with the recovery note, and
+the work merged and the check passed.
+
 ## Open questions
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.
+- Droid workers still load the person's custom droids and whatever MCP servers or droids their plugins bring;
+  sous does not read plugin manifests. Whether Droid reads a global `~/.factory/AGENTS.md` was not checked.
 - Codex workers still read the person's global `~/.codex/AGENTS.md`, and Claude workers the `CLAUDE.md` files above
   the worktree; leaving them out needs a Codex option or a separate `CODEX_HOME` that shares the login safely, and
   worktrees outside the workspace.

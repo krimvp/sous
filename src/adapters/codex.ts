@@ -2,12 +2,12 @@
 // `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, sousServer, spawnTurn, toTurnResult } from './common.ts'
-import type { Exit, Json } from './common.ts'
+import { jsonLines, sessionFromOutput, sousServer, spawnTurn, toTurnResult } from './common.ts'
+import type { Json } from './common.ts'
 
 // OpenAI's strict structured output requires every property to be listed in `required`;
 // optional properties become nullable instead.
@@ -75,7 +75,7 @@ export const codex: WorkerAdapter = {
   start(spec) {
     // Full permissions in the working directory: workspace-write cannot write .git and has no network.
     const turn = run(spec, ['exec', '-s', 'danger-full-access'])
-    return { ...turn, sessionId: threadId(spec.outFile, turn.exit) }
+    return { ...turn, sessionId: sessionFromOutput('codex', spec.outFile, turn.exit, (raw) => codex.parse(raw)) }
   },
 
   resume(spec) {
@@ -160,34 +160,4 @@ function usageOf(usage: Json): Usage {
     cachedTokens: usage.cached_input_tokens ?? 0,
     ...(typeof usage.cache_write_input_tokens === 'number' ? { cacheWriteTokens: usage.cache_write_input_tokens } : {}),
   }
-}
-
-/** Poll the turn's output until `thread.started` names the thread; reject if the process exits first. */
-function threadId(outFile: string, exit: Promise<Exit>): Promise<string> {
-  const find = () => {
-    try {
-      return codex.parse(readFileSync(outFile, 'utf8')).sessionId
-    } catch {
-      return undefined
-    }
-  }
-  const id = new Promise<string>((resolve, reject) => {
-    const timer = setInterval(() => {
-      const found = find()
-      if (found) {
-        clearInterval(timer)
-        resolve(found)
-      }
-    }, 100)
-    const settle = () => {
-      clearInterval(timer)
-      const found = find()
-      if (found) resolve(found)
-      else reject(new Error(`codex exited without reporting a thread ID (see ${outFile})`))
-    }
-    exit.then(settle, settle)
-  })
-  // Callers that never ask for the ID must not crash the process with an unhandled rejection.
-  id.catch(() => {})
-  return id
 }
