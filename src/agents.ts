@@ -26,8 +26,8 @@ type AgentDefs = Pick<Definitions, 'agents'> | undefined
 type Defs = Definitions | undefined
 
 /** Every runtime an agent can run on. */
-export const RUNTIMES = ['claude', 'codex', 'pi', 'lead'] as const satisfies readonly AgentRuntime[]
-const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
+export const RUNTIMES = ['claude', 'codex', 'pi', 'droid', 'lead'] as const satisfies readonly AgentRuntime[]
+const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi', 'droid']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
 const providerOf = (model: string | undefined) => (model ?? DEFAULT_LEAD_MODEL).split('/')[0]
 

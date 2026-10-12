@@ -100,7 +100,59 @@ test('pi: parses a recorded --mode json turn', () => {
   assert.match(final.text, /```json/)
 })
 
-const END_MARKERS = { claude: 'result', codex: 'turn.completed', pi: 'agent_end' } as const
+test('droid: parses a recorded stream-json turn', () => {
+  const turn = getAdapter('droid').parse(fixture('droid'))
+  assert.equal(turn.sessionId, 'bca2cfbb-f912-45c7-b710-3b85f6c7393c')
+  assert.equal(turn.ended, true)
+  assert.deepEqual(turn.result, { status: 'done', summary: 'Read note.txt; it names mango as the secret fruit.' })
+  // input_tokens 432 + cache reads 13184.
+  assert.deepEqual(turn.usage, { inputTokens: 13616, outputTokens: 101, cachedTokens: 13184, cacheWriteTokens: 0 })
+  assert.match((readCall(turn, 'Read').arguments as { file_path: string }).file_path, /\/note\.txt$/)
+  assertPaired(turn)
+  assert.deepEqual(turn.items.map((item) => item.kind), ['tool_call', 'tool_result', 'message'])
+})
+
+const droidFixture = (name: string) => readFileSync(new URL(`fixtures/droid/${name}.jsonl`, import.meta.url), 'utf8')
+
+test('droid: repeated reasoning counts once, as its own step before a call or on the message it goes with', () => {
+  // A recorded worker turn that waits for its sibling with sous's MCP receive tool.
+  const turn = getAdapter('droid').parse(droidFixture('receive'))
+  assert.equal(turn.ended, true)
+  assert.equal(turn.result?.status, 'done')
+  assertPaired(turn)
+  const steps = turn.items.map((item) => item.kind === 'message' ? `${item.text ? 'says' : 'thinks'}${item.reasoning ? '+reasoning' : ''}` : item.kind === 'tool_call' ? item.name : 'result')
+  assert.deepEqual(steps, [
+    'thinks+reasoning', 'ToolSearch', 'result',
+    'says+reasoning', 'sous___receive', 'result',
+    'says+reasoning', 'Create', 'result', 'Execute', 'result',
+    'says',
+  ])
+  const reasoning = turn.items.flatMap((item) => (item.kind === 'message' && item.reasoning ? [item.reasoning] : []))
+  // Droid sends each reasoning event twice; a step holds it once.
+  assert.equal(reasoning.length, 3)
+  for (const r of reasoning) assert.equal(r.indexOf(r.slice(0, 40), 1), -1, r)
+  const received = turn.items.find((item) => item.kind === 'tool_result' && item.content.startsWith('Message from a'))
+  assert.ok(received)
+})
+
+test('droid: an exec that ends early has no end marker, and its reason is kept once', () => {
+  // A recorded turn whose MCP call needed more autonomy than it had.
+  const turn = getAdapter('droid').parse(droidFixture('ended-early'))
+  assert.equal(turn.ended, false)
+  assert.equal(turn.result, undefined)
+  const failed = turn.items.find((item) => item.kind === 'tool_result' && item.isError)
+  assert.ok(failed?.kind === 'tool_result')
+  assert.match(failed.content, /requires higher autonomy/)
+  const said = turn.items.filter((item) => item.kind === 'message' && /^Exec ended early/.test(item.text))
+  assert.equal(said.length, 1)
+})
+
+test('droid: a final message that is the bare JSON object is the result', () => {
+  const turn = getAdapter('droid').parse(droidFixture('bare-result'))
+  assert.deepEqual(turn.result, { status: 'done', summary: 'noted' })
+})
+
+const END_MARKERS = { claude: 'result', codex: 'turn.completed', pi: 'agent_end', droid: 'completion' } as const
 
 for (const [harness, marker] of Object.entries(END_MARKERS) as [HarnessName, string][]) {
   test(`${harness}: a stream cut before its end marker has no result and keeps earlier items`, () => {

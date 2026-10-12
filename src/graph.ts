@@ -105,7 +105,7 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
       for (const key of ['model', 'instructions'] as const) {
         if (agent[key] !== undefined && typeof agent[key] !== 'string') throw new Error(`${where}: ${key} must be a string`)
       }
-      if ((ROLES as readonly string[]).includes(name) && agent.runs === 'lead') throw new Error(`${where}: the ${name} runs a CLI harness (claude, codex or pi), not lead`)
+      if ((ROLES as readonly string[]).includes(name) && agent.runs === 'lead') throw new Error(`${where}: the ${name} runs a CLI harness (claude, codex, pi or droid), not lead`)
     }
   }
   if (raw.models !== undefined) {

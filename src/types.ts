@@ -1,7 +1,7 @@
 // Shared contracts between the supervisor, the worker adapters and the trace exporters.
 // See docs/design.md. Changing a type here changes a boundary: update every side in the same change.
 
-export type HarnessName = 'claude' | 'codex' | 'pi'
+export type HarnessName = 'claude' | 'codex' | 'pi' | 'droid'
 
 export type NodeKind = 'work' | 'check' | 'lead' | 'review' | 'gate'
 
@@ -18,7 +18,7 @@ export interface NodeSpec {
   command?: string
   /** Acceptance criteria shown to the agent in its brief. */
   acceptance?: string[]
-  /** Name of the agent that does this node: a built-in (`claude`, `codex`, `pi`, `lead`) or one the graph
+  /** Name of the agent that does this node: a built-in (`claude`, `codex`, `pi`, `droid`, `lead`) or one the graph
    * defines. Default: the first available worker agent; for leads, `lead`. */
   agent?: string
   /** Overrides the agent's model for this node. */
@@ -47,13 +47,14 @@ export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = {
   claude: { runs: 'claude' },
   codex: { runs: 'codex' },
   pi: { runs: 'pi' },
+  droid: { runs: 'droid' },
   lead: { runs: 'lead' },
 }
 
 /** When nothing names an agent, the first available one in these lists is used. A graph that defines an
  * agent named `integrator` overrides the integrator choice. */
-export const WORKER_AGENT_PREFERENCE = ['claude', 'codex', 'pi'] as const
-export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi'] as const
+export const WORKER_AGENT_PREFERENCE = ['claude', 'codex', 'pi', 'droid'] as const
+export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi', 'droid'] as const
 
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
@@ -137,7 +138,7 @@ export interface ParsedTurn {
   items: TraceItem[]
   /** Present when the harness reached its end-of-turn marker with a parsable result. */
   result?: TurnResult
-  /** True when the end-of-turn marker was seen (Claude `result`, Codex `turn.completed`, Pi `agent_end`). */
+  /** True when the end-of-turn marker was seen (Claude `result`, Codex `turn.completed`, Pi `agent_end`, Droid `completion`). */
   ended: boolean
   usage?: Usage
 }
@@ -165,7 +166,7 @@ export interface TurnSpec {
 export interface RunningTurn {
   /** Leader of the turn's own process group: signal `-pid` to stop the whole turn. */
   pid: number
-  /** Resolves once the session ID is known (immediately for Claude and Pi). */
+  /** Resolves once the session ID is known (immediately for Claude and Pi; a resumed Droid turn reports a new one). */
   sessionId: Promise<string>
   /** Resolves when the process exits. The turn's outcome is read from outFile with `parse`. */
   exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>

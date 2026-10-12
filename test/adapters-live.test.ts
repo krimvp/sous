@@ -1,4 +1,4 @@
-// Real harness turns: start, then resume the same session and prove it kept context.
+// Real harness turns: start, then resume the session and prove it kept context.
 // Costs money; runs only with SOUS_LIVE=1.
 
 import assert from 'node:assert/strict'
@@ -12,9 +12,9 @@ import type { HarnessName, RunningTurn, TurnSpec } from '../src/types.ts'
 
 const live = process.env.SOUS_LIVE === '1'
 // Claude also exercises --model with a cheap model; the others use their configured default.
-const MODELS: Record<HarnessName, string | undefined> = { claude: 'haiku', codex: undefined, pi: undefined }
+const MODELS: Record<HarnessName, string | undefined> = { claude: 'haiku', codex: undefined, pi: undefined, droid: undefined }
 
-for (const harness of ['claude', 'codex', 'pi'] as const) {
+for (const harness of ['claude', 'codex', 'pi', 'droid'] as const) {
   test(`${harness}: a resumed session remembers the first turn`, { skip: !live, timeout: 600_000 }, async () => {
     const adapter = getAdapter(harness)
     const cwd = mkdtempSync(join(tmpdir(), `sous-live-${harness}-`))
@@ -41,9 +41,18 @@ for (const harness of ['claude', 'codex', 'pi'] as const) {
 
     const second = spec(2, 'What is the codeword I gave you? Do not use any tools. Finish with status done and the codeword alone as the summary.')
     const resumed = adapter.resume({ ...second, sessionId })
-    assert.equal(await resumed.sessionId, sessionId)
+    // Droid resumes by forking the session, under a new ID.
+    const resumedId = await resumed.sessionId
+    if (harness !== 'droid') assert.equal(resumedId, sessionId)
     const two = await finish(resumed, second.outFile)
-    assert.equal(two.sessionId, sessionId)
+    assert.equal(two.sessionId, resumedId)
     assert.match(two.result!.summary, new RegExp(codeword))
+
+    // A third turn resumes the resumed session (for Droid, a fork of a fork).
+    const third = spec(3, 'Repeat the codeword once more. Do not use any tools. Finish with status done and the codeword alone as the summary.')
+    const again = adapter.resume({ ...third, sessionId: resumedId })
+    const three = await finish(again, third.outFile)
+    assert.equal(three.sessionId, await again.sessionId)
+    assert.match(three.result!.summary, new RegExp(codeword))
   })
 }

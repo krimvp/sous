@@ -1,9 +1,10 @@
 import type { HarnessName, WorkerAdapter } from '../types.ts'
 import { claude } from './claude.ts'
 import { codex } from './codex.ts'
+import { droid } from './droid.ts'
 import { pi } from './pi.ts'
 
-const adapters: Record<HarnessName, WorkerAdapter> = { claude, codex, pi }
+const adapters: Record<HarnessName, WorkerAdapter> = { claude, codex, pi, droid }
 
 export function getAdapter(name: HarnessName): WorkerAdapter {
   const adapter = adapters[name]

@@ -2,7 +2,7 @@
 
 Give it a task, or a set of tasks, and it runs them to completion on your machine with a tree of agents.
 Like a kitchen brigade: you call the order, lead agents split it across stations, workers (Claude Code, Codex,
-Pi or your own agent) cook, and checks and merges inspect every plate at the pass. Plain code keeps everything
+Pi, Factory Droid or your own agent) cook, and checks and merges inspect every plate at the pass. Plain code keeps everything
 moving, delivers messages between levels, and recovers after a crash.
 
 - **Local only.** One supervisor process per run, state in `.sous/runs/<id>/` as plain files. Runs from
@@ -30,12 +30,13 @@ node src/cli.ts resume                     # continue the latest run after Ctrl-
 ```
 
 While they work, workers may tell a sibling or their lead what the others must know (an interface they settled, a file
-they moved) with a `send` tool (sous's own MCP server, for Claude and Codex) or `sous send <to> 'text'`, and read what
-they are told, or wait for it, with `receive` / `sous receive [seconds]`. Their lead sees every message. Workers load
-no other MCP server and as little of your own setup as each harness allows: no user skills, plugins or hooks, and for
-Claude none of your user settings (so your default model, `env`, permission rules and hooks do not apply to workers).
-The project's instructions still apply; Codex still reads your global `AGENTS.md`, and Claude the `CLAUDE.md` files
-above the worktree. So what workers tell each other stays in the run's log.
+they moved) with a `send` tool (sous's own MCP server, for Claude, Codex and Droid) or `sous send <to> 'text'`, and
+read what they are told, or wait for it, with `receive` / `sous receive [seconds]`. Their lead sees every message.
+Workers load no other MCP server (for Droid: none you configured; your plugins' servers still load) and as little of
+your own setup as each harness allows: no user skills, plugins or hooks, and for Claude none of your user settings (so
+your default model, `env`, permission rules and hooks do not apply to workers). The project's instructions still
+apply; Codex still reads your global `AGENTS.md`, Claude the `CLAUDE.md` files above the worktree, and Droid your
+custom droids and what your plugins bring besides skills. So what workers tell each other stays in the run's log.
 
 `sous resume` takes over the stopped run: a turn that finished meanwhile is recorded, a turn still running is
 stopped, and an interrupted worker continues its session with a note to re-check the workspace. A node
@@ -43,13 +44,13 @@ interrupted more than 3 times fails.
 
 Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
 `pi` once to log in or refresh). Their workers default to the first agent whose CLI is on your `PATH`: Claude
-Code, else Codex, else Pi, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
+Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
 The workspace must be a git repository with at least one commit. Each work node runs in its own git worktree,
 in parallel with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one
 merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
-(Codex, else Claude, else Pi; or a graph agent named `integrator`) that resolves it in the integration worktree.
+(Codex, else Claude, else Pi, else Droid; or a graph agent named `integrator`) that resolves it in the integration worktree.
 Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
 
 Or give it a fixed graph file:
@@ -78,9 +79,9 @@ folded by team beside a timeline of every lead's and worker's busy time, merges 
 a lead's decisions in order, or a worker's turns with their messages, tool calls and results. It follows a running run
 as its log grows, and lists what waits for you with the command that answers it. It only reads the run's files.
 
-An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi` or `lead`, with an optional
-`model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`
-and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
+An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi`, `droid` or `lead`, with an optional
+`model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`,
+`droid` and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
 worktree (see the design's harness facts).
 
 A lead may define a new agent for a child, `{ "name": "hr", "runs": "pi", "instructions": "…" }`, which later
@@ -89,7 +90,7 @@ first): `"models": { "claude": ["haiku"], "pi": ["ollama-cloud/glm-5.2"] }` in a
 the `model` a lead sets on a child that names its agent. A goal run takes the same
 `agent`, `agents` and `models` from a file: `node src/cli.ts run --agents agents.json "…"`.
 
-A run may hand splitting to a **splitter**: define an agent named `splitter` on `claude`, `codex` or `pi`, with your
+A run may hand splitting to a **splitter**: define an agent named `splitter` on `claude`, `codex`, `pi` or `droid`, with your
 splitting strategy as its `instructions`, e.g. `"splitter": { "runs": "claude", "model": "opus", "instructions":
 "One part per module, tests first." }`. Before each lead (sub-leads included) gets its brief, the splitter reads the
 code merged so far in a throwaway worktree and proposes the lead's children; the lead receives the proposal and
@@ -100,7 +101,7 @@ inherit it.
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker
-npm run check        # type check and tests; SOUS_LIVE=1 adds real Claude, Codex, Pi and lead runs
+npm run check        # type check and tests; SOUS_LIVE=1 adds real Claude, Codex, Pi, Droid and lead runs
 ```
 
 ## For agents
