@@ -13,6 +13,13 @@ if (!runDir || !node || !turn) {
   process.exit(2)
 }
 
+const SEND_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['to', 'body'],
+  properties: { to: { type: 'string', description: 'The node ID of your lead or of a sibling' }, body: { type: 'string' } },
+}
+
 /** The `send` tool, with the worker's current lead and siblings in its description. */
 function sendTool() {
   const { lead, siblings } = sendTargets(fold(readEvents(runDir!)), node!)
@@ -22,12 +29,7 @@ function sendTool() {
     description: `Tell ${whom || 'nobody (you have no lead or siblings)'} something they must know while you work: an interface you ` +
       `settled, a file you moved, a change of plan. ${lead ? 'Your lead sees every message. ' : ''}At most ${MAX_SENDS} messages; ` +
       'they are read when the recipient\'s turn ends, so do not wait for an answer.',
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['to', 'body'],
-      properties: { to: { type: 'string', description: 'The node ID of your lead or of a sibling' }, body: { type: 'string' } },
-    },
+    inputSchema: SEND_SCHEMA,
   }
 }
 
@@ -64,7 +66,7 @@ async function handle(req: Request): Promise<unknown> {
       const { name, arguments: args } = req.params ?? {}
       if (name !== 'send' && name !== 'receive') throw Object.assign(new Error(`unknown tool ${name}`), { code: -32602 })
       // An argument the tool does not take is refused, so the model corrects the call instead of trusting an empty answer.
-      const takes = name === 'send' ? ['to', 'body'] : ['wait_seconds']
+      const takes = Object.keys((name === 'send' ? SEND_SCHEMA : RECEIVE_TOOL.inputSchema).properties)
       const unknown = Object.keys(args ?? {}).filter((k) => !takes.includes(k))
       if (unknown.length) {
         return { content: [{ type: 'text', text: `not done: ${name} takes ${takes.join(' and ')}, not ${unknown.join(', ')}` }], isError: true }

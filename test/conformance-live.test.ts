@@ -1,5 +1,5 @@
 // Live certification: what every harness must do with its real CLI before it merges to main. Costs money; runs only with
-// SOUS_LIVE=1 (`npm run certify`). SOUS_HARNESS=droid,pi limits it to some harnesses; SOUS_RECORD=1 also rewrites the
+// SOUS_CERTIFY=1 (`npm run certify`), never as part of `npm run check`. SOUS_HARNESS=droid,pi limits it to some harnesses; SOUS_RECORD=1 also rewrites the
 // recordings the free suite reads (test/fixtures/conformance/).
 
 import assert from 'node:assert/strict'
@@ -21,11 +21,11 @@ import { CONFORMANCE, NEEDS_INPUT_PROMPT, NOTE, READ_FILE_PROMPT, recordingUrl }
 import type { Recording } from './conformance/harnesses.ts'
 import { git, gitWorkspace } from './fixtures/git-repo.ts'
 
-const live = process.env.SOUS_LIVE === '1'
+const live = process.env.SOUS_CERTIFY === '1'
 const record = process.env.SOUS_RECORD === '1'
-const only = process.env.SOUS_HARNESS?.split(',').map((h) => h.trim())
+const only = process.env.SOUS_HARNESS?.split(',').map((h) => h.trim()).filter(Boolean)
 const unknown = only?.filter((h) => !(HARNESSES as readonly string[]).includes(h))
-if (unknown?.length) throw new Error(`SOUS_HARNESS names no harness: ${unknown.join(', ')} (harnesses: ${HARNESSES.join(', ')})`)
+if (live && unknown?.length) throw new Error(`SOUS_HARNESS names no harness: ${unknown.join(', ')} (harnesses: ${HARNESSES.join(', ')})`)
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 const MINUTES = 60_000
 
@@ -50,7 +50,7 @@ async function until(check: () => boolean, ms: number): Promise<boolean> {
   return check()
 }
 
-for (const harness of HARNESSES.filter((h) => !only || only.includes(h))) {
+for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))) {
   const { liveModel, mcp } = CONFORMANCE[harness]
   const adapter = getAdapter(harness)
   const spec = (cwd: string, turn: number, prompt: string): TurnSpec => ({
@@ -180,8 +180,9 @@ for (const harness of HARNESSES.filter((h) => !only || only.includes(h))) {
       if (mcp) {
         // Through sous's MCP tool, not the `sous send` command every worker also has.
         const turns = events.flatMap((e) => (e.type === 'turn.started' && e.node === 'a' ? [e.outFile] : []))
-        const calls = turns.flatMap((f) => adapter.parse(readFileSync(resolve(runDir, f), 'utf8')).items)
-        assert.ok(calls.some((i) => i.kind === 'tool_call' && /send$/.test(i.name) && !/shell|bash|execute/i.test(i.name)), 'a used the MCP send tool')
+        const items = turns.flatMap((f) => adapter.parse(readFileSync(resolve(runDir, f), 'utf8')).items)
+        const sends = items.flatMap((i) => (i.kind === 'tool_call' && /send$/.test(i.name) && !/shell|bash|execute/i.test(i.name) ? [i.id] : []))
+        assert.ok(items.some((i) => i.kind === 'tool_result' && sends.includes(i.callId) && !i.isError), 'a sent with the MCP send tool')
       }
       assert.ok(events.some((e) => e.type === 'inbox.read' && e.node === 'b'), 'b received mid-turn')
       assert.ok(!existsSync(marker), `a project MCP server started, by:\n${existsSync(marker) && readFileSync(marker, 'utf8')}\n${run.output}`)

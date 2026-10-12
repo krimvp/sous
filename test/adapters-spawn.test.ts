@@ -100,6 +100,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
       'model = "m"', 'mcp_servers.dotted.command = "d"',
       '[mcp_servers."web"]', 'url = "https://example.com/mcp" # remote',
       '[mcp_servers.canary]', 'command = "canary"', '[mcp_servers.canary.env]', 'A = "1"',
+      "[mcp_servers.'literal']", '"url" = "https://example.com/l"',
       '[mcp_servers]', 'inline = { url = "https://example.com/i" }', 'plain = { command = "p" }',
       '[other]', 'notaserver = { url = "x" }',
     ].join('\r\n'))
@@ -128,7 +129,8 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     assert.deepEqual(overrides.filter((o: string) => o.startsWith('mcp_servers')), [
       'mcp_servers.comitia.enabled=false', 'mcp_servers.docs.enabled=false',
       'mcp_servers.dotted={command="false",args=[],enabled=false}', 'mcp_servers.web={url="http://127.0.0.1:9/",enabled=false}',
-      'mcp_servers.canary={command="false",args=[],enabled=false}', 'mcp_servers.inline={url="http://127.0.0.1:9/",enabled=false}',
+      'mcp_servers.canary={command="false",args=[],enabled=false}', 'mcp_servers.literal={url="http://127.0.0.1:9/",enabled=false}',
+      'mcp_servers.inline={url="http://127.0.0.1:9/",enabled=false}',
       'mcp_servers.plain={command="false",args=[],enabled=false}',
       `mcp_servers.sous={command=${JSON.stringify(server.command)},args=[${JSON.stringify(server.args[0])}],env={SOUS_RUN_DIR="/run",SOUS_NODE="a"},tool_timeout_sec=90}`,
     ])

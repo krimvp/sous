@@ -51,7 +51,10 @@ function projectServers(cwd: string): Map<string, boolean> {
   }
   const servers = new Map<string, boolean>()
   const add = (name: string, url: boolean) => servers.set(name, (servers.get(name) ?? false) || url)
-  const KEY = String.raw`(?:"([^"]*)"|([A-Za-z0-9_-]+))`
+  // A TOML key: bare, "basic" or 'literal'.
+  const KEY = String.raw`(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_-]+))`
+  const keyOf = (m: RegExpMatchArray) => m[1] ?? m[2] ?? m[3]!
+  const URL_KEY = String.raw`(?:url|"url"|'url')\s*=`
   // Where each line is: in a server's table, in the [mcp_servers] table, in another table, or at the top.
   let at: { server: string } | 'servers' | 'other' | 'top' = 'top'
   for (const raw of toml.split(/\r?\n/)) {
@@ -59,13 +62,15 @@ function projectServers(cwd: string): Map<string, boolean> {
     const header = line.match(/^\[\s*([^\]]+?)\s*\]/)
     if (header) {
       const server = header[1]!.match(new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}`))
-      at = server ? { server: server[1] ?? server[2]! } : header[1] === 'mcp_servers' ? 'servers' : 'other'
+      at = server ? { server: keyOf(server) } : header[1] === 'mcp_servers' ? 'servers' : 'other'
       if (typeof at === 'object') add(at.server, false)
     } else if (typeof at === 'object') {
-      if (/^url\s*=/.test(line)) add(at.server, true)
+      if (new RegExp(`^${URL_KEY}`).test(line)) add(at.server, true)
+    } else if (at === 'top' && /^mcp_servers\s*=/.test(line)) {
+      console.error(`sous: cannot read the inline mcp_servers table of ${file}; Codex workers may load its servers`)
     } else if (at === 'servers' || at === 'top') {
-      const entry = line.match(new RegExp(String.raw`^${at === 'top' ? String.raw`mcp_servers\s*\.\s*` : ''}${KEY}\s*(\.\s*url\s*=|[.=])`))
-      if (entry) add(entry[1] ?? entry[2]!, entry[3]!.includes('url') || /[{,]\s*url\s*=/.test(line))
+      const entry = line.match(new RegExp(String.raw`^${at === 'top' ? String.raw`mcp_servers\s*\.\s*` : ''}${KEY}\s*(\.\s*${URL_KEY}|[.=])`))
+      if (entry) add(keyOf(entry), entry[4]!.length > 1 || new RegExp(`[{,]\\s*${URL_KEY}`).test(line))
     }
   }
   for (const name of servers.keys()) {

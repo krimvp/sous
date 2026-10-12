@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
     "check": "npm run typecheck && npm test",
-    "certify": "SOUS_LIVE=1 node --test --test-concurrency=1 test/conformance-live.test.ts"
+    "certify": "SOUS_CERTIFY=1 node --test --test-concurrency=1 test/conformance-live.test.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
