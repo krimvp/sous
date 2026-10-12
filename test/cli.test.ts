@@ -12,6 +12,7 @@ import { fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
 import { fakeBin, sous, runDirOf, waitFor } from './fixtures/sous-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
+import { HARNESSES } from '../src/types.ts'
 
 function setup(steps: FakeStep[]) {
   const workspace = gitWorkspace('sous-cli-')
@@ -55,10 +56,10 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
       { id: 'pinned', kind: 'work', agent: 'claude', brief: `Write b.\n${fakePlan([{ result: { status: 'done', summary: 'wrote b' } }])}` },
     ],
   }))
-  // Only codex, pi and git are on PATH: no claude, and no other directory.
+  // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 1, run.output())
-  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\)$/m)
+  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\), droid \(droid not found\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
   assert.equal(state.nodes.get('pinned')!.reason, 'agent claude is not available (claude not found)')
@@ -183,13 +184,13 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   ])}`
   const run = sous(['run', goal, '--agents', file], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /^agents: claude, codex, pi, lead, hr$/m)
+  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead, hr$`, 'm'))
   const runDir = runDirOf(workspace)!
   const events = readEvents(runDir)
   const created = events[0]
   assert.deepEqual(created.type === 'run.created' && [created.definitions, created.graph], [definitions, undefined])
   const brief0 = events.find((e) => e.type === 'lead.delivered')!
-  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', /for work children claude, codex, pi, hr \(runs claude\)[\s\S]*on these runtimes: claude \(models haiku\)/)
+  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', new RegExp(`for work children ${HARNESSES.join(', ')}, hr \\(runs claude\\)[\\s\\S]*on these runtimes: claude \\(models haiku\\)`))
   const hire = fold(events).nodes.get('hire')!
   assert.equal(hire.turns[0].agent, 'hr')
   const prompt = JSON.parse(readFileSync(join(sessions, `${hire.turns[0].sessionId}.json`), 'utf8')).prompts[0]

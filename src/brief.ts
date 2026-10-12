@@ -1,4 +1,5 @@
 // Harness-neutral prompts for work nodes and the texts delivered to leads. Adapters add their own result mechanics.
+import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
@@ -30,7 +31,7 @@ export interface Folders {
 
 /** The command a worker runs to send or receive messages, when its harness has no MCP tool for it. */
 const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
-const SOUS_COMMAND = `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL('./cli.ts', import.meta.url)))}`
+const SOUS_COMMAND = `${shellQuote(process.execPath)} ${shellQuote(fileURLToPath(new URL(`./cli${extname(import.meta.url)}`, import.meta.url)))}`
 
 /** Whom a worker may message while it works, how, and how it reads what others tell it. */
 function contactsSection(contacts: { lead?: string; siblings: string[]; max: number; maxWait: number }): string[] {

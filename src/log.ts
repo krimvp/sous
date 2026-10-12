@@ -1,6 +1,6 @@
 // The append-only event log of one run (<runDir>/events.jsonl) and the single-writer lock.
 import { randomBytes } from 'node:crypto'
-import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Event, EventBody } from './types.ts'
 
@@ -10,6 +10,14 @@ export interface EventLog {
   append(body: EventBody): Event
   /** Close the log and release the lock. */
   close(): void
+}
+
+/** The workspace's runs directory and its run IDs, oldest first. Only directories with an event log are runs: an agent
+ * may leave something else there. */
+export function listRuns(workspace: string): { runsDir: string; ids: string[] } {
+  const runsDir = join(workspace, '.sous', 'runs')
+  const ids = existsSync(runsDir) ? readdirSync(runsDir).filter((id) => existsSync(join(runsDir, id, 'events.jsonl'))).sort() : []
+  return { runsDir, ids }
 }
 
 /** Read a run's events. A truncated final line (no trailing newline) is ignored. */

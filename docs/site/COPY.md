@@ -80,15 +80,19 @@ A calculator, built by a tree five levels deep on cheap Ollama models.
 
 ## Get started
 
-Node 22.19+, git, and Claude Code, Codex or Pi logged in. Leads use your Pi login.
+Node 22.19+, git, and one harness logged in: Claude Code, Codex, Pi or Droid. Leads use your Pi login.
 
-- `npm install -g @krimvp/sous`: Install the CLI (coming to npm).
+*"harness" links to docs/harnesses.md on GitHub.*
+
+- `npm install -g @krimvp/sous`: Install the CLI.
 - `sous run "goal"`: Start a run inside your git repository.
 - `sous status`: See the tree and what waits for you.
 
 ## Footer
 
-sous · runs on your machine · github.com/krimvp/sous
+sous · runs on your machine · harnesses · github.com/krimvp/sous
+
+*"harnesses" links to docs/harnesses.md on GitHub.*
 
 ---
 
@@ -103,10 +107,16 @@ sous · runs on your machine · github.com/krimvp/sous
 - Resume without repeating finished turns: README; SKILL.md step 5; docs/design.md §Recovery.
 - ATIF and Langfuse (OTLP) export: docs/design.md §Traces. No sandbox, full permissions: §Out of scope, §Harness facts.
 - Requirements and the Pi login for leads: README; package.json `engines`.
+- The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
+  docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
-- `@krimvp/sous`: SKILL.md; package.json is still `"private": true` (hence "coming to npm").
+- `@krimvp/sous`: package.json `name`; published to npm as 0.1.0.
 
 ## Changelog
+
+**v4.1 → v4.2:** the install card drops "(coming to npm)": `@krimvp/sous` is on npm.
+
+**v4 → v4.1:** Get started names Droid and links "harness" to docs/harnesses.md; the footer links it too.
 
 **v3 → v4 (editor's cut, owner: "no one will read this")**
 - Visible words went from 1,817 (pass-v4.html) to about 290 (243 of copy, plus about 44 scene and UI labels). Every remaining sentence is a shortened form of

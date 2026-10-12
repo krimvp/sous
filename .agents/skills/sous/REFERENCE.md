@@ -10,6 +10,7 @@ sous answer <node> "text" [--workspace <dir>]
 sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
+sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
@@ -23,14 +24,15 @@ names an existing file is a graph file; anything else is a goal. `--agents` is f
 
 | Key | Meaning |
 |---|---|
-| `agent` | default agent for work nodes that name none (else the first available of `claude`, `codex`, `pi`) |
-| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
+| `agent` | default agent for work nodes that name none (else the first available of `claude`, `codex`, `pi`, `droid`) |
+| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
-(Claude's, Codex's or Pi's own settings; for `lead`, `ollama-cloud/deepseek-v4.1-flash`).
+(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, `ollama-cloud/deepseek-v4.1-flash`).
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
+Droid model IDs (`claude-sonnet-5`, or a custom model `custom:…`),
 and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `openai-codex/gpt-5.5`).
 
 ## Nodes (graph files)

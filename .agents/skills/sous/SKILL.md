@@ -1,6 +1,6 @@
 ---
 name: sous
-description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex or Pi workers do the work (code, research, writing) in git worktrees or their own folders, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
+description: Run a task to completion with a tree of agents using sous, named after the kitchen brigade: a lead agent splits the goal like a sous chef, Claude Code, Codex, Pi or Factory Droid workers do the work (code, research, writing) in git worktrees or their own folders, checks and merges keep the result correct. Use when the user wants work delegated to several agents, a goal decomposed and executed, a graph of agent steps run, or a sous run started, watched, answered, resumed or exported.
 ---
 
 # sous
@@ -52,11 +52,12 @@ write checks such as `test -s results/report.md`.
 6. **Check the result yourself** on `sous/<run-id>` or in the output folder (run the tests, try the program,
    read the files) before telling the user it works. Merging that branch into their branch is the user's decision.
 7. **Export traces** if asked: `$M export atif` (writes `.sous/runs/<id>/trace.atif.json`) or `$M export otlp`
-   (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`).
+   (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`). For the user to watch or revisit runs in
+   a browser, start `$M ui` in the background and give them the address it prints (it serves until stopped).
 
 ## Rules that save time
 
-- Agents that exist: built-ins `claude`, `codex`, `pi`, `lead`, plus what the run defines. The run prints
+- Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. The run prints
   `agents: …; not available: …` at start; a CLI must be on PATH and logged in.
 - Workers run with full permissions inside their own worktree or folder. Say so if the user has not accepted that.
 - Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.

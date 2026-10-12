@@ -3,8 +3,8 @@
 // or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
-import type { AgentRuntime, AgentSpec, Definitions, NewAgent, HarnessName, NodeSpec } from './types.ts'
+import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
+import type { AgentRuntime, AgentSpec, Definitions, NewAgent, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
 export interface Agent {
@@ -26,8 +26,7 @@ type AgentDefs = Pick<Definitions, 'agents'> | undefined
 type Defs = Definitions | undefined
 
 /** Every runtime an agent can run on. */
-export const RUNTIMES = ['claude', 'codex', 'pi', 'lead'] as const satisfies readonly AgentRuntime[]
-const HARNESSES: HarnessName[] = ['claude', 'codex', 'pi']
+export const RUNTIMES: readonly AgentRuntime[] = [...HARNESSES, 'lead']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
 const providerOf = (model: string | undefined) => (model ?? DEFAULT_LEAD_MODEL).split('/')[0]
 

@@ -229,6 +229,12 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.deepEqual((await call(7, 'tools/call', { name: 'receive', arguments: { wait_seconds: 0 } })).result, {
       content: [{ type: 'text', text: 'No messages.' }], isError: false,
     })
+    // A misnamed argument is refused, not ignored: Claude once called receive with {"seconds": "60"} and took "No messages."
+    // as a minute's wait.
+    assert.deepEqual((await call(8, 'tools/call', { name: 'receive', arguments: { seconds: '60' } })).result, {
+      content: [{ type: 'text', text: 'not done: receive takes wait_seconds, not seconds' }], isError: true,
+    })
+    assert.equal((await call(9, 'tools/call', { name: 'receive', arguments: { wait_seconds: '0' } })).result.isError, false)
     assert.equal((await call(5, 'resources/list')).error.code, -32601)
     server.stdin.write('null\n')
     assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })

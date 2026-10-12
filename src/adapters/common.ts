@@ -1,11 +1,11 @@
 // Shared pieces of the worker adapters: starting a turn's process and reading harness output.
 
 import { spawn } from 'node:child_process'
-import { closeSync, mkdirSync, openSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
+import { dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
-import type { RunningTurn, TurnResult, TurnSpec } from '../types.ts'
+import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../types.ts'
 
 export type Exit = Awaited<RunningTurn['exit']>
 
@@ -43,7 +43,8 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
 /** sous's MCP server for a worker of the tree (one with `spec.env`), as the harness should start it. */
 export function sousServer(spec: TurnSpec): { command: string; args: string[]; env: Record<string, string> } | undefined {
   if (!spec.env) return undefined
-  return { command: process.execPath, args: [fileURLToPath(new URL('../mcp.ts', import.meta.url))], env: spec.env }
+  // mcp.ts in the sources, mcp.js in the published package.
+  return { command: process.execPath, args: [fileURLToPath(new URL(`../mcp${extname(import.meta.url)}`, import.meta.url))], env: spec.env }
 }
 
 // Harness output is data from another program: every field is optional and may have any type.
@@ -93,4 +94,48 @@ export function toTurnResult(value: unknown): TurnResult | undefined {
   if (typeof question === 'string') result.question = question
   if (typeof note_for_parent === 'string') result.note_for_parent = note_for_parent
   return result
+}
+
+/** For harnesses without a structured-output flag (Pi, Droid): the prompt asks for the result in a fence, and
+ * `lastJsonFence` reads it back from the final message. */
+export const RESULT_INSTRUCTION = [
+  'When you finish, end your final message with your result as a JSON object in a ```json fenced block:',
+  '{"status": "done" | "blocked" | "needs_input", "summary": "...", "question": "... (only when needs_input)",',
+  '"note_for_parent": "... (optional)"}',
+].join('\n')
+
+export function lastJsonFence(text: string): string | undefined {
+  const fences = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)]
+  return fences.at(-1)?.[1]
+}
+
+/** Poll a turn's output until `parse` finds its session ID; reject if the process exits first. For harnesses that
+ * report the ID in the stream instead of taking it up front. */
+export function sessionFromOutput(cmd: string, outFile: string, exit: Promise<Exit>, parse: (raw: string) => ParsedTurn): Promise<string> {
+  const find = () => {
+    try {
+      return parse(readFileSync(outFile, 'utf8')).sessionId
+    } catch {
+      return undefined
+    }
+  }
+  const id = new Promise<string>((resolve, reject) => {
+    const timer = setInterval(() => {
+      const found = find()
+      if (found) {
+        clearInterval(timer)
+        resolve(found)
+      }
+    }, 100)
+    const settle = () => {
+      clearInterval(timer)
+      const found = find()
+      if (found) resolve(found)
+      else reject(new Error(`${cmd} exited without reporting a session ID (see ${outFile})`))
+    }
+    exit.then(settle, settle)
+  })
+  // Callers that never ask for the ID must not crash the process with an unhandled rejection.
+  id.catch(() => {})
+  return id
 }

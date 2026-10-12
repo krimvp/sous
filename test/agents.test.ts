@@ -3,13 +3,14 @@ import { test } from 'node:test'
 import { checkAgents, integratorAgent } from '../src/agents.ts'
 import { fakeBin } from './fixtures/sous-proc.ts'
 
-test('the integrator is the graph\'s integrator agent, else the first available of codex, claude, pi', () => {
+test('the integrator is the graph\'s integrator agent, else the first available of codex, claude, pi, droid', () => {
   const missing = (...commands: string[]) => ({ commands, leadProviders: [] })
-  const none = missing('codex', 'claude', 'pi')
+  const none = missing('codex', 'claude', 'pi', 'droid')
   assert.equal(integratorAgent({ agents: { integrator: { runs: 'pi', instructions: 'Merge carefully.' } } }, none), 'integrator')
   assert.equal(integratorAgent(undefined, missing()), 'codex')
   assert.equal(integratorAgent({ agents: { reviewer: { runs: 'codex' } } }, missing('codex')), 'claude')
   assert.equal(integratorAgent(undefined, missing('codex', 'claude')), 'pi')
+  assert.equal(integratorAgent(undefined, missing('codex', 'claude', 'pi')), 'droid')
   assert.equal(integratorAgent(undefined, none), undefined)
 })
 
@@ -28,7 +29,7 @@ test('checkAgents finds the commands missing from PATH and the lead providers th
       nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
     }
     const unavailable = await checkAgents(graph, async (provider) => provider === 'ollama-cloud')
-    assert.deepEqual(unavailable, { commands: ['claude', 'codex'], leadProviders: ['openai-codex', 'other'] })
+    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['openai-codex', 'other'] })
   } finally {
     process.env.PATH = path
   }

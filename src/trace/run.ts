@@ -53,7 +53,9 @@ function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, defs:
   return runs === 'lead' ? undefined : runs
 }
 
-export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
+/** `parses` picks the nodes whose turn files are read and parsed; the others get empty turns (their usage still comes
+ * from the log). The UI parses only the node a person opens. */
+export function loadRun(runDir: string, parseTurn: ParseTurn, parses: (node: string) => boolean = () => true): LoadedRun {
   const events = readEvents(resolve(runDir, 'events.jsonl'))
   const defs = fold(events).agents
   const specs = new Map<string, NodeSpec>()
@@ -64,7 +66,7 @@ export function loadRun(runDir: string, parseTurn: ParseTurn): LoadedRun {
     if (e.type !== 'turn.started') continue
     const harness = harnessOf(e, specs.get(e.node), defs)
     const file = resolve(runDir, e.outFile)
-    turns[turnKey(e.node, e.turn)] = harness && existsSync(file)
+    turns[turnKey(e.node, e.turn)] = harness && parses(e.node) && existsSync(file)
       ? parseTurn(harness, readFileSync(file, 'utf8'))
       : { items: [], ended: false }
   }

@@ -5,13 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, spawnTurn, textOf, toTurnResult } from './common.ts'
-
-const RESULT_INSTRUCTION = [
-  'When you finish, end your final message with your result as a JSON object in a ```json fenced block:',
-  '{"status": "done" | "blocked" | "needs_input", "summary": "...", "question": "... (only when needs_input)",',
-  '"note_for_parent": "... (optional)"}',
-].join('\n')
+import { jsonLines, lastJsonFence, RESULT_INSTRUCTION, spawnTurn, textOf, toTurnResult } from './common.ts'
 
 function run(spec: TurnSpec, sessionId: string) {
   // Pi creates the session when the ID is new and continues it otherwise. Default tools, no MCP: a worker tells others
@@ -88,9 +82,4 @@ export const pi: WorkerAdapter = {
     if (turn.ended && last) turn.result = toTurnResult(lastJsonFence(last))
     return turn
   },
-}
-
-function lastJsonFence(text: string): string | undefined {
-  const fences = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)]
-  return fences.at(-1)?.[1]
 }

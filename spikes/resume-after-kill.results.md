@@ -40,3 +40,21 @@ turn2 exit: 0
 KOQZSPDE
 RESULT pi KILL: PASS (KOQZSPDE recalled)
 ```
+
+Droid run on 2026-10-12 with Factory Droid 0.210.0 (`--auto medium`, an Ollama Cloud custom model); turn 2 forks the
+session. On SIGTERM Droid saw its command killed, started it again, then exited 0 without a `completion` event.
+
+```
+mid-turn: sleep observed
+turn1 exit: 0
+session: 3769fc3e-3bcf-44db-b1fc-b8340d4a047e
+turn2 exit: 0
+OESNUKHA
+RESULT droid TERM: PASS (OESNUKHA recalled)
+mid-turn: sleep observed
+turn1 exit: 137
+session: 915f7d38-5f8c-423f-88cd-8dafee9bf1de
+turn2 exit: 0
+HOZUJMQY
+RESULT droid KILL: PASS (HOZUJMQY recalled)
+```

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { openLog, readEvents } from '../src/log.ts'
+import { HARNESSES } from '../src/types.ts'
 import type { EventBody, TurnSpec } from '../src/types.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
@@ -220,13 +221,13 @@ test('a lead spawns a child by agent name: a defined agent does it, an unknown a
   ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { agents: { reviewer: { runs: 'pi', instructions: 'Only review.' } } })
   assert.equal(outcome, 'completed')
   assert.deepEqual(calls(events).map((c) => c.result), [
-    'refused: child x: unknown agent gpt (known: claude, codex, pi, lead, reviewer)',
+    `refused: child x: unknown agent gpt (known: ${HARNESSES.join(', ')}, lead, reviewer)`,
     'spawned r; their outcomes will be delivered to you',
     'completed',
   ])
   assert.deepEqual([started, state.nodes.get('r')!.turns[0].agent], [[['pi', undefined]], 'reviewer'])
   assert.match(promptOf(sessions, state.nodes.get('r')!), /Your standing instructions:\nOnly review\./)
-  assert.match(delivered(events)[0].text, /Agents a child may name: for work children claude, codex, pi, reviewer \(runs pi\) \(default claude\); for lead children lead/)
+  assert.match(delivered(events)[0].text, new RegExp(`Agents a child may name: for work children ${HARNESSES.join(', ')}, reviewer \\(runs pi\\) \\(default claude\\); for lead children lead`))
 })
 
 test('a lead defines hr on claude: its workers get its instructions and the default model, a later spawn names it', async () => {

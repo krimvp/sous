@@ -2,7 +2,7 @@
 // sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
 // running run.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -10,7 +10,7 @@ import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './a
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
-import { lockHolder, openLog, readEvents, writeCommand } from './log.ts'
+import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.ts'
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
@@ -18,6 +18,7 @@ import { runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
+import { startUi } from './ui.ts'
 import { PERSON, SPLITTER } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
@@ -30,7 +31,8 @@ const USAGE = `usage:
   sous cancel <node> [--workspace <dir>]
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
-  sous export atif|otlp [run-id] [--workspace <dir>]`
+  sous export atif|otlp [run-id] [--workspace <dir>]
+  sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
@@ -61,6 +63,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
       workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
+      port: { type: 'string' },
     } })
   } catch (err) {
     console.error(`${(err as Error).message}\n${USAGE}`)
@@ -96,6 +99,14 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
+      case 'ui': {
+        const port = Number(parsed.values.port ?? 0)
+        if (args.length || !(Number.isInteger(port) && port >= 0 && port < 65536)) break
+        const ui = await startUi(workspace, (h, raw) => deps.getAdapter(h).parse(raw), port)
+        console.log(`sous ui: ${ui.url}\n(Ctrl-C stops it)`)
+        // Serves until the process is stopped.
+        return await new Promise<number>(() => {})
+      }
     }
   } catch (err) {
     console.error(`sous: ${(err as Error).message}`)
@@ -252,11 +263,9 @@ function printEvent(e: Event): void {
   console.log(`${time} ${e.type.padEnd(16)} ${oneLine(text)}`)
 }
 
-/** The run directory for `runId`, or the latest run. Only directories with an event log are runs: an agent may leave
- * something else there. */
+/** The run directory for `runId`, or the latest run. */
 function findRun(workspace: string, runId?: string): { id: string; runDir: string } {
-  const runsDir = join(workspace, '.sous', 'runs')
-  const ids = existsSync(runsDir) ? readdirSync(runsDir).filter((id) => existsSync(join(runsDir, id, 'events.jsonl'))).sort() : []
+  const { runsDir, ids } = listRuns(workspace)
   const id = runId ?? ids.at(-1)
   if (!id || !ids.includes(id)) throw new Error(runId ? `no run ${runId} in ${runsDir}` : `no runs in ${runsDir}`)
   return { id, runDir: join(runsDir, id) }
