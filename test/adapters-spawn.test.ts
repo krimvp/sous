@@ -94,6 +94,15 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     const cwd = tempDir()
     writeFileSync(join(cwd, 'AGENTS.md'), '# Project rules\n')
     write(join(cwd, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp', args: [] } } }))
+    // The project's own Codex servers, which `codex mcp list` leaves out until Codex trusts the project.
+    // Every form of TOML that names a server: dotted keys at the top, a quoted table, a sub-table, the [mcp_servers] table.
+    write(join(cwd, '.codex', 'config.toml'), [
+      'model = "m"', 'mcp_servers.dotted.command = "d"',
+      '[mcp_servers."web"]', 'url = "https://example.com/mcp" # remote',
+      '[mcp_servers.canary]', 'command = "canary"', '[mcp_servers.canary.env]', 'A = "1"',
+      '[mcp_servers]', 'inline = { url = "https://example.com/i" }', 'plain = { command = "p" }',
+      '[other]', 'notaserver = { url = "x" }',
+    ].join('\r\n'))
     const spec = (turn: number, env?: Record<string, string>) =>
       ({ nodeId: 'a', turn, cwd, prompt: 'p', outFile: join(cwd, `${turn}.jsonl`), errFile: join(cwd, `${turn}.err`), ...(env ? { env } : {}) })
     const env = { SOUS_RUN_DIR: '/run', SOUS_NODE: 'a' }
@@ -118,6 +127,9 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     assert.ok(cx.argv.includes('--ignore-rules'))
     assert.deepEqual(overrides.filter((o: string) => o.startsWith('mcp_servers')), [
       'mcp_servers.comitia.enabled=false', 'mcp_servers.docs.enabled=false',
+      'mcp_servers.dotted={command="false",args=[],enabled=false}', 'mcp_servers.web={url="http://127.0.0.1:9/",enabled=false}',
+      'mcp_servers.canary={command="false",args=[],enabled=false}', 'mcp_servers.inline={url="http://127.0.0.1:9/",enabled=false}',
+      'mcp_servers.plain={command="false",args=[],enabled=false}',
       `mcp_servers.sous={command=${JSON.stringify(server.command)},args=[${JSON.stringify(server.args[0])}],env={SOUS_RUN_DIR="/run",SOUS_NODE="a"},tool_timeout_sec=90}`,
     ])
     for (const flag of ['--no-mcp', '--no-skills', '--no-prompt-templates', '--no-context-files']) assert.ok(p.argv.includes(flag), flag)

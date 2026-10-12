@@ -212,11 +212,13 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   | Harness | MCP | The person's own setup |
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
-  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges), sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key; a name outside `A-Za-z0-9_-` is reported on stderr and not disabled) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
   | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended |
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
-  A project skill named like one of the person's is disabled too. If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
+  A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
+  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait).
+  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
   a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
   shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
   determined one from reaching another service; that needs sandboxed workers.
@@ -477,6 +479,36 @@ after `sous run` was killed with SIGKILL, Pi and its running `sleep` survived (r
 sent SIGTERM to Pi's group and Pi stopped its tool command before exiting. Had Pi needed SIGKILL, its tool
 command could have outlived it.
 
+## Harness conformance
+
+Every harness in `HARNESSES` (`src/types.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
+entry in `test/conformance/harnesses.ts` (`Record<HarnessName, …>`: end marker, whether workers get sous's MCP server,
+the certification model) is required by the type checker.
+
+- **Free, in `npm run check`** (`test/conformance.test.ts`). Its recordings in `test/fixtures/conformance/<harness>/`
+  (`read-file`, `needs-input`, `stopped`) parse to a session, an end only at the end marker, a `done` result with paired
+  tool calls that read the note, usage with cached tokens inside the input, a `needs_input` question (in `question`,
+  else `summary`, as the supervisor asks), and a stopped turn that names its session; every cut of them parses without a
+  result before the end, with the same session and growing tool calls. A stand-in CLI checks that a turn runs in its
+  directory with the whole prompt and the model, writes its output, settles its session, gets `SOUS_*` and sous's MCP
+  server exactly once as a worker and neither as a standing node, names the session it resumes, and stops with its
+  process group; and that the supervisor completes a work node with the adapter.
+- **Live certification** (`npm run certify`, `SOUS_HARNESS=<names>`, costs money; `test/conformance-live.test.ts`).
+  With the real CLI: a file read; a `needs_input` turn; a session resumed twice; a turn stopped mid-command by the
+  supervisor's stop (no result, nothing left running, resumes); a turn killed with SIGKILL (resumes); two siblings that
+  settle a name with `send` and `receive` in a real `sous run` while an MCP canary configured in every project location
+  a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; and a
+  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings. Pi reads a
+  project's MCP servers only in projects the person trusted; Codex records trust itself (see the isolation table), and
+  so each certification adds entries for its temporary workspaces to `~/.codex/config.toml`.
+- **Merging a harness requires a passing certification**, its output in the PR. Isolation from the person's own setup
+  (user-level servers, skills, hooks) is not certified, since it would need another home directory and so another login;
+  each harness's isolation is a written fact in the isolation table.
+
+Certification on 2026-10-12 (Claude Code 2.1.296 on `haiku`, Codex 0.160.0, Pi 1.1.0, Droid 0.210.0; Pi and Droid on
+Ollama Cloud models) found two faults, both fixed: a Codex worker's first run in a workspace started the project's own
+MCP server, and Claude's `receive` with a misnamed argument returned at once.
+
 ## Harness facts (spike, 2026-10-11)
 
 `spikes/resume-after-kill.sh` stops each CLI while it runs a foreground command, with SIGTERM and with
@@ -705,6 +737,8 @@ the work merged and the check passed.
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.
+- Codex merges configuration layers, so a project server named like one of the person's with another transport, or a
+  project server named `sous`, may combine with the override into an invalid or disabled server (not checked).
 - Droid workers still load the person's custom droids and whatever MCP servers or droids their plugins bring;
   sous does not read plugin manifests. Whether Droid reads a global `~/.factory/AGENTS.md` was not checked.
 - Codex workers still read the person's global `~/.codex/AGENTS.md`, and Claude workers the `CLAUDE.md` files above

@@ -6,6 +6,7 @@ import { delimiter, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readEvents } from '../../src/log.ts'
 import type { Event } from '../../src/types.ts'
+import { HARNESSES } from '../../src/types.ts'
 
 const SOUS = new URL('./sous-fake.ts', import.meta.url).pathname
 
@@ -13,7 +14,7 @@ const GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).t
 
 /** A directory with stand-ins for the harness commands `names`, so the agents that run them count as available,
  * and the real git. The stand-ins are never run: the fake adapter runs every worker. */
-export function fakeBin(names = ['claude', 'codex', 'pi', 'droid']): string {
+export function fakeBin(names: readonly string[] = HARNESSES): string {
   const dir = mkdtempSync(join(tmpdir(), 'sous-bin-'))
   symlinkSync(GIT, join(dir, 'git'))
   for (const name of names) writeFileSync(join(dir, name), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
