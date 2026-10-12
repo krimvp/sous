@@ -9,8 +9,8 @@ Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries
   the same change.
 - **Tests earn their place.** Test observable behaviour at the strongest practical boundary (real processes,
   real files). No tests of private helpers or copied constants. A regression test must fail before its fix.
-- **Real harness checks are separate from unit tests.** Tests that run Claude, Codex, Pi or Droid cost money and
-  run only when `SOUS_LIVE=1` is set.
+- **Real harness checks are separate from unit tests.** Tests that run a real model cost money and run only when asked:
+  the live lead run with `SOUS_LIVE=1`, the harness certification with `npm run certify` (never in `npm run check`).
 - **A harness merges only certified.** A new harness, or a change to an adapter, passes the conformance suite
   (`test/conformance/harnesses.ts`; see the design's Harness conformance) and `SOUS_HARNESS=<name> npm run certify`,
   whose output goes in the PR.
