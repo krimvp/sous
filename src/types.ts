@@ -219,11 +219,24 @@ export type LeadCall =
   | { tool: 'fail'; reason: string }
   | { tool: 'escalate'; question: string }
 
+/** A lead's read-only look at the run's files: the workspace and the results so far. Paths are relative; in folder mode
+ * they start with `workspace/` or `results/`. Reads change nothing and are recorded as `lead.read`. */
+export type LeadRead =
+  | { tool: 'list_files'; path?: string }
+  | { tool: 'read_file'; path: string; offset?: number }
+
+/** How a run keeps its results, decided once when it is created. `git`: the workspace is in a git work tree; work nodes
+ * get worktrees and are merged into branch `sous/<run>`. `folder`: no git; each work node writes in its own folder and its
+ * files are collected into `<runDir>/output/`. */
+export type RunMode = 'git' | 'folder'
+
 /** What the supervisor offers the lead runner. */
 export interface LeadHost {
   /** Apply one tool call of lead `node` and return the text the model sees. Idempotent per `callId`:
    * a repeated callId returns the first result unchanged and applies nothing. */
   act(node: string, callId: string, call: LeadCall): string
+  /** Lead `node` lists or reads files; returns the text the model sees. Read-only, so a replayed call simply reads again. */
+  read(node: string, callId: string, call: LeadRead): string
   /** Lead `node` finished answering a delivery and is idle. */
   settled(node: string, turn: { requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }): void
 }
@@ -254,8 +267,9 @@ export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
 export type EventBody =
   /** `maxDepth`: how deep leads may nest in this run (`sous run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
    * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`.
-   * `approveSplits`: the person approves each split the splitter proposes before its lead receives it. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean }
+   * `approveSplits`: the person approves each split the splitter proposes before its lead receives it.
+   * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
@@ -278,6 +292,9 @@ export type EventBody =
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
    * one event in the fold, so a call applies atomically. `ok: false` means policy refused it and nothing changed. */
   | { type: 'lead.call'; node: string; callId: string; call: LeadCall; ok: boolean; result: string }
+  /** A lead listed or read files: what it looked at (`path`, as the lead gave it; absent for the top level) and how many
+   * bytes of text it got back, or why the read was refused. The text itself is not recorded. */
+  | { type: 'lead.read'; node: string; callId: string; tool: LeadRead['tool']; path?: string; offset?: number; bytes: number; refused?: string }
   /** A lead answered a delivery and is idle again. */
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
@@ -288,16 +305,19 @@ export type EventBody =
   | { type: 'integration.created'; branch: string; path: string; base: string }
   /** A node's own worktree and branch, created from the integration branch at `base` (a commit). */
   | { type: 'worktree.created'; node: string; branch: string; path: string; base: string }
-  /** A finished node's branch joined the merge queue. */
-  | { type: 'merge.queued'; node: string; branch: string }
+  /** A finished node joined the merge queue: its branch (git mode), or its folder's files (folder mode, no branch). */
+  | { type: 'merge.queued'; node: string; branch?: string }
   /** A queued node got messages before its merge started: it leaves the queue, and its worker resumes with them. */
   | { type: 'merge.withdrawn'; node: string }
   /** The merge needs the integrator: it conflicted (`files`, left in progress in the integration worktree), or the
    * node's check failed after a clean merge (the merge commit stays). `onto`: the integration commit before the
    * merge, where a failed merge leaves the branch. */
   | { type: 'merge.conflict'; node: string; reason: string; files: string[]; onto: string }
-  /** The node's work is on the integration branch at `commit`. `nothing` when its branch had no changes. */
-  | { type: 'merge.done'; node: string; commit: string; by: 'supervisor' | 'integrator' | 'nothing' }
+  /** The node's work is in the results: on the integration branch at `commit` (git mode), or collected into the output
+   * folder (folder mode, no commit). `nothing` when it changed no file. `files`: the files it produced, relative to the
+   * results (git mode: changed by its commits; folder mode: as collected). `renamed` (folder mode): files kept under a new
+   * name, `<name>.<node>.<ext>`, because the results already held a different file at that path, by original path. */
+  | { type: 'merge.done'; node: string; commit?: string; by: 'supervisor' | 'integrator' | 'nothing'; files?: string[]; renamed?: Record<string, string> }
   /** The integrator could not merge it; the node fails and its parent is told. */
   | { type: 'merge.failed'; node: string; reason: string }
   /** Lead `node` is ready and has a splitter, `agent`: it waits for a proposed split before its brief. */

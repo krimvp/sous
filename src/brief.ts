@@ -3,8 +3,9 @@ import { extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
+import { completedText } from './state.ts'
 import type { InboxMessage, NodeState, SplitState } from './state.ts'
-import type { ChildSpec, ModelLimits, NodeSpec } from './types.ts'
+import type { ChildSpec, ModelLimits, NodeSpec, RunMode } from './types.ts'
 
 const RESULT = [
   'When you finish, end your turn with the structured result:',
@@ -21,6 +22,12 @@ const fromLeads = (notes: string[]) => (notes.length ? [`Notes from your leads:\
 const messages = (inbox: InboxMessage[]) => inbox.map((m) => `Message from ${m.from}:\n${m.body}`)
 
 const standing = (instructions?: string) => (instructions?.trim() ? [`Your standing instructions:\n${instructions.trim()}`] : [])
+
+/** Folder mode: the workspace a worker reads its inputs from, and the output folder with the results so far. */
+export interface Folders {
+  workspace: string
+  output: string
+}
 
 /** The command a worker runs to send or receive messages, when its harness has no MCP tool for it. */
 const shellQuote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
@@ -43,8 +50,8 @@ function contactsSection(contacts: { lead?: string; siblings: string[]; max: num
 }
 
 /** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes, any messages already
- * waiting, and whom it may message while it works. */
-export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number; maxWait: number }): string {
+ * waiting, and whom it may message while it works. `folders` in folder mode, where `cwd` is the node's own folder. */
+export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number; maxWait: number }, folders?: Folders): string {
   const parts = [
     `You are one worker on a larger goal.\n\nGoal: ${goal}`,
     ...standing(instructions),
@@ -52,7 +59,15 @@ export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: s
   ]
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   if (node.command) parts.push(`After you report done, this check runs in ${cwd} and must exit 0:\n${node.command}`)
-  parts.push(...fromLeads(notes), ...messages(inbox), `Work in the directory ${cwd}. Do only this task.`, ...(contacts ? contactsSection(contacts) : []), RESULT)
+  const where = folders
+    ? [
+      `You work in your own folder, ${cwd}. It has two read-only links: workspace/ holds the inputs (${folders.workspace})`,
+      `and results/ the results of earlier tasks so far (${folders.output}). Read them; do not modify them.`,
+      'Write your own output files at the top of your folder, not inside workspace/ or results/; they are added to the',
+      'results when you finish. Do only this task.',
+    ].join('\n')
+    : `Work in the directory ${cwd}. Do only this task.`
+  parts.push(...fromLeads(notes), ...messages(inbox), where, ...(contacts ? contactsSection(contacts) : []), RESULT)
   return parts.join('\n\n') + '\n'
 }
 
@@ -75,7 +90,7 @@ export function fixPrompt(command: string, exitCode: number | null, output: stri
 /** Resume prompt after a supervisor stop cut the last turn short, with the messages that arrived meanwhile. */
 export function recoveryPrompt(inbox: InboxMessage[]): string {
   return [
-    'You were interrupted: sous stopped while you worked. Re-check the workspace, since some of your last',
+    'You were interrupted: sous stopped while you worked. Re-check your files, since some of your last',
     'steps may not have happened, then continue your task.',
   ].join(' ') + '\n\n' + [...messages(inbox), RESULT].join('\n\n') + '\n'
 }
@@ -99,11 +114,28 @@ function models(limits: ModelLimits): string {
   ].join(' ')
 }
 
-const KINDS = [
-  'work children are coding agents, each in its own git worktree, run in parallel',
-  'and merged into the run\'s branch when done; check children are shell commands that must exit 0 on the merged',
-  'result; lead children split a large part further; gate children wait for the person to approve what their',
-  'brief describes. Children with needs start after those siblings complete (work children: once merged).',
+/** What each kind of child is, in this run's mode. */
+const kinds = (mode: RunMode) => (mode === 'git'
+  ? [
+    'work children are agents (for code, research, writing or analysis), each in its own git worktree, run in parallel',
+    'and merged into the run\'s branch when done; check children are shell commands that must exit 0 on the merged',
+    'result; lead children split a large part further; gate children wait for the person to approve what their',
+    'brief describes. Children with needs start after those siblings complete (work children: once merged).',
+  ]
+  : [
+    'work children are agents (for code, research, writing or analysis), each writing its files in its own folder, run',
+    'in parallel; when one is done its files are added to the run\'s results. Check children are shell commands that must',
+    'exit 0; lead children split a large part further; gate children wait for the person to approve what their brief',
+    'describes. Children with needs start after those siblings complete (work children: once their files are in the results).',
+  ]).join('\n')
+
+/** Folder mode: what workspace/ and results/ mean, the same for a lead's tools, its workers and its checks; `whose` is
+ * "your" for the lead itself, "the lead's" for its splitter. */
+const folderPaths = (whose: string) => [
+  `workspace/ holds the inputs, results/ the files ${whose === 'your' ? 'your' : 'its'} children produced so far. These names mean the same`,
+  `for ${whose} tools, work children and checks: workers and checks run in a folder of their own where workspace/ and`,
+  'results/ are read-only links, so a check of a result is, say, test -s results/report.md. Tell workers which file',
+  'names to write; they write them at the top of their folder, and those files appear at the top of results/.',
 ].join('\n')
 
 const agentNames = (agents: ReturnType<typeof childAgents>, list: string[]) =>
@@ -131,18 +163,19 @@ function rolesSection(roles: { splitter?: string; choices: string[] }): string[]
 /** A lead's first delivery, with its agent's standing instructions, the agents its children may name (with their
  * runtime when it differs from their name), the runtimes and models it may define agents on, the roles it may give
  * a lead child, and its proposed split. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }): string {
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }, mode: RunMode = 'git'): string {
   const names = (list: string[]) => agentNames(agents, list)
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
   parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
+  const look = `Before you split, you may look at the files with list_files and read_file: ${mode === 'git' ? 'paths are relative to the workspace, which includes the work merged so far.' : folderPaths('your')}`
   parts.push(...fromLeads(notes), [
-    `Split the task with spawn: ${KINDS}`,
+    `Split the task with spawn: ${kinds(mode)}`,
     'Their outcomes and questions arrive as messages. Answer a child with send; record',
     'facts every child should know with note; ask your parent with escalate. Finish with complete or fail once',
     'no child is still working. End each turn with a short answer: the next message wakes you.',
-  ].join('\n'), [
+  ].join('\n'), look, [
     `Agents a child may name: for work children ${names(agents.work) || 'none'}` +
       (agents.defaultWork ? ` (default ${agents.defaultWork})` : ''),
     `for lead children ${names(agents.lead) || 'none'} (default: your own agent).`,
@@ -154,9 +187,21 @@ export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents:
   return parts.join('\n\n') + '\n'
 }
 
-/** A child's outcome, delivered to its lead. */
+const MAX_NAMED_FILES = 20
+
+/** A child's outcome, delivered to its lead, with the files a work child added to the results. */
 export function outcomeText(child: NodeState): string {
-  return child.status === 'completed' ? `Child ${child.spec.id} completed: ${child.summary}` : `Child ${child.spec.id} failed: ${child.reason}`
+  if (child.status !== 'completed') return `Child ${child.spec.id} failed: ${child.reason}`
+  const parts = [`Child ${child.spec.id} ${child.failedChecks?.length ? completedText(child) : `completed: ${child.summary}`}`]
+  const files = child.files ?? []
+  if (files.length) {
+    const more = files.length > MAX_NAMED_FILES ? ` and ${files.length - MAX_NAMED_FILES} more` : ''
+    parts.push(`Files: ${files.slice(0, MAX_NAMED_FILES).join(', ')}${more}`)
+  }
+  const renamed = Object.entries(child.renamed ?? {})
+  for (const [from, to] of renamed.slice(0, MAX_NAMED_FILES)) parts.push(`${from} was saved as ${to}: the results already had a different ${from}.`)
+  if (renamed.length > MAX_NAMED_FILES) parts.push(`${renamed.length - MAX_NAMED_FILES} more files were saved under new names.`)
+  return parts.join('\n')
 }
 
 /** A message delivered to a lead; `fromChild` when it comes from a child: a question, or what it tells the lead or a
@@ -222,14 +267,17 @@ export function mergeRequest(node: NodeSpec, branch: string, into: string, files
 export const SPLITTER_BRIEF = 'Propose how each lead of the run splits its task into children. The leads decide; you do no work on the task.'
 
 /** The splitter's first prompt: its role, its standing instructions (the splitting strategy), and its first request. */
-export function splitterPrompt(goal: string, node: NodeSpec, inbox: InboxMessage[], instructions?: string): string {
+export function splitterPrompt(goal: string, node: NodeSpec, inbox: InboxMessage[], instructions?: string, mode: RunMode = 'git'): string {
   return [
     `You are the splitter of a larger goal.\n\nGoal: ${goal}`,
     ...standing(instructions),
     `Your role (node ${node.id}):\n${node.brief ?? ''}`,
     [
-      'Each request names one lead and a worktree that holds the run\'s merged work at that point. Read the code there',
-      'to split well, but change nothing: the worktree is reset before every request. Write the proposal to the file',
+      ...(mode === 'git'
+        ? ['Each request names one lead and a worktree that holds the run\'s merged work at that point. Read the code there',
+          'to split well, but change nothing: the worktree is reset before every request. Write the proposal to the file']
+        : ['Each request names one lead and your folder, where workspace/ holds the inputs and results/ the results so far.',
+          'Read them to split well, but change nothing there. Write the proposal to the file']),
       'the request names, then report done with a one-line summary of how you split the task, or blocked when you cannot',
       'propose a split.',
     ].join(' '),
@@ -239,15 +287,17 @@ export function splitterPrompt(goal: string, node: NodeSpec, inbox: InboxMessage
 }
 
 /** One request to the splitter: everything lead `node` will know about its task, and where the proposal goes. */
-export function splitRequest(node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, opts: { cwd: string; commit: string; file: string; used: string[]; maxParts: number; roleChoices: string[] }): string {
+export function splitRequest(node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, opts: { cwd: string; commit?: string; file: string; used: string[]; maxParts: number; roleChoices: string[] }): string {
   const parts = [`Propose a split for lead ${node.id}.`, `Its task:\n${node.brief ?? ''}`]
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
   if (notes.length) parts.push(`Notes from its leads:\n${list(notes)}`)
   const limits = agents.models
   const runtimes = RUNTIMES.filter((r) => limits[r]?.length).map((r) => `${r} (models ${limits[r]!.join(', ')})`)
   parts.push(
-    `The worktree ${opts.cwd} holds the run's merged work at commit ${opts.commit}.`,
-    `Parts are the lead's children: ${KINDS}`,
+    opts.commit
+      ? `The worktree ${opts.cwd} holds the run's merged work at commit ${opts.commit}.`
+      : `Your folder ${opts.cwd} has workspace/ and results/: ${folderPaths("the lead's")}`,
+    `Parts are the lead's children: ${kinds(opts.commit ? 'git' : 'folder')}`,
     [
       `A work part may name an agent of ${agentNames(agents, agents.work) || 'none'}` + (agents.defaultWork ? ` (default ${agents.defaultWork})` : ''),
       `a lead part one of ${agentNames(agents, agents.lead) || 'none'} (default: the lead's own agent).`,

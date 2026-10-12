@@ -392,7 +392,7 @@ function drawRun() {
   const end = runEnd()
   const totals = r.nodes.reduce((a, n) => a + n.turns, 0)
   const head = `<section class="run-head">
-    <div class="no">${status(r.status)}<span class="mono">${esc(r.id)}</span><span>started ${esc(when(r.createdAt))}</span>${r.branch ? `<span>result <code>${esc(r.branch)}</code></span>` : ''}</div>
+    <div class="no">${status(r.status)}<span class="mono">${esc(r.id)}</span><span>started ${esc(when(r.createdAt))}</span>${r.result ? `<span>result <code>${esc(r.result)}</code></span>` : ''}</div>
     <h1>${esc(r.goal)}</h1>
     ${r.summary ? `<p class="outcome">${esc(r.summary)}</p>` : ''}${r.reason ? `<p class="outcome bad">${esc(r.reason)}</p>` : ''}
     ${r.status === 'stopped' ? `<div class="asks"><h3>The supervisor stopped</h3><div class="cmdline"><code>sous resume ${esc(r.id)}</code>${copyBtn(`sous resume ${r.id}`)}</div></div>` : ''}
@@ -592,10 +592,12 @@ function trajectory(d, t0) {
       case 'node.failed': return step(e.at, t0, 'bad', '<b>failed</b>', txt(e.reason))
       case 'node.cancelled': return step(e.at, t0, 'bad', `<b>cancelled</b> ${e.node === d.spec.id ? '' : `(with ${nodeLink(e.node)})`} by ${esc(e.by)}`)
       case 'worktree.created': return step(e.at, t0, '', `<b>worktree</b> <code>${esc(e.branch)}</code>`)
-      case 'merge.queued': return step(e.at, t0, '', `<b>queued to merge</b> <code>${esc(e.branch)}</code>`)
+      case 'merge.queued': return step(e.at, t0, '', e.branch ? `<b>queued to merge</b> <code>${esc(e.branch)}</code>` : '<b>queued to collect</b>')
       case 'merge.withdrawn': return step(e.at, t0, 'in', '<b>left the merge queue</b>', txt('Messages arrived; its worker resumes.'))
       case 'merge.conflict': return step(e.at, t0, 'bad', '<b>merge needs the integrator</b>', txt(e.reason) + (e.files.length ? `<div class="txt mono">${e.files.map(esc).join('\n')}</div>` : ''))
-      case 'merge.done': return step(e.at, t0, 'good', `<b>merged</b> <span class="chip ok">${esc(e.by)}</span> <code>${esc(e.commit.slice(0, 10))}</code>`)
+      case 'merge.done': return e.commit
+        ? step(e.at, t0, 'good', `<b>merged</b> <span class="chip ok">${esc(e.by)}</span> <code>${esc(e.commit.slice(0, 10))}</code>`)
+        : step(e.at, t0, 'good', `<b>collected</b> ${(e.files ?? []).length} files`, (e.files ?? []).length ? `<div class="txt mono">${(e.files ?? []).map((f) => esc(Object.entries(e.renamed ?? {}).find(([, to]) => to === f)?.[0]?.concat(' → ', f) ?? f)).join('\n')}</div>` : '')
       case 'merge.failed': return step(e.at, t0, 'bad', '<b>merge failed</b>', txt(e.reason))
       case 'split.requested': return step(e.at, t0, '', `<b>split requested</b> from <span class="chip">${esc(e.agent)}</span>`)
       case 'split.proposed': return step(e.at, t0, 'in', `<b>split proposed</b> ${e.parts.length} parts`, txt(e.summary) + kids(e.parts))

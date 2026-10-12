@@ -26,9 +26,9 @@ cooks do it (workers), and plates are checked at the pass (merges and checks).
 
 ## Out of scope for now
 
-No sandbox (workers run as the user's own CLIs, in a git worktree), no multi-host execution, no remote pushes or
-PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only reads runs for now;
-steering a run from it is #60.
+No sandbox (workers run as the user's own CLIs, in a git worktree or their own folder), no multi-host execution,
+no remote pushes or PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only
+reads runs for now; steering a run from it is #60.
 
 Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
 product; sous shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
@@ -49,8 +49,8 @@ engine can be tested without a lead.
 
 | Kind | Run by | Purpose |
 |---|---|---|
-| `lead` | an LLM with orchestration tools only | splits its node into children, reacts to events, completes itself |
-| `work` | a worker adapter (Claude, Codex, Pi, Droid, custom) | does the work in a git worktree |
+| `lead` | an LLM with orchestration tools and read-only file tools | splits its node into children, reacts to events, completes itself |
+| `work` | a worker adapter (Claude, Codex, Pi, Droid, custom) | does the work (code, research, writing, analysis) in a git worktree or its own folder |
 | `check` | a shell command | deterministic gate; exit code 0 passes |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
 | `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
@@ -128,9 +128,10 @@ reopened lead continues where it stopped.
 - **Events reach a lead as submissions:** a follow-up when it is idle, a steer when it must change course
   now (its own `queue` and `interrupt`). Each carries a `requestId` derived from the event's `seq`, so
   redelivery after a crash is ignored.
-- **Its only tools are the orchestration tools below**, offered through one extension. Each is
-  `replay: "safe"`, keyed by the model's tool call ID, and **returns the original result on replay**: in
-  the spike, a different replay result made the model stop early.
+- **Its only tools are the orchestration tools and two read-only file tools below**, offered through one
+  extension. Each is `replay: "safe"`, keyed by the model's tool call ID. An orchestration tool **returns the
+  original result on replay**: in the spike, a different replay result made the model stop early. A read
+  changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
   (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
   from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
@@ -147,6 +148,14 @@ Its tools:
 | `cancel(node)` | cancel a child subtree |
 | `complete(summary)` / `fail(reason)` | finish this node |
 | `escalate(question)` | ask the parent (the root's parent is the person) |
+| `list_files(path?)` / `read_file(path, offset?)` | look at the workspace and the results so far before splitting (read only) |
+
+**Reading files.** Leads do no work, but they may look before they split. The files are the results worktree in git
+mode (the workspace as committed plus the work merged so far; paths relative to it) and, in folder mode, `workspace/`
+(the inputs) and `results/` (the output folder). Real paths are checked: anything outside these roots, through `..` or
+a symbolic link, is refused. Listings are recursive, leave out `.git`, `.sous` and `node_modules`, and stop at 200
+entries; a read takes regular files only (a FIFO or device is refused without opening it blocking) and returns at most 32 KB of text (`offset` reads on) and refuses files with NUL bytes. Each read is
+recorded as `lead.read` with its path and byte count, not its text, and shows in the traces as a tool call.
 
 A lead ends its turn by answering, not with a tool; the next delivery wakes it. Each tool call is
 validated against policy and appended as an event before the supervisor acts on it. The
@@ -213,7 +222,7 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
   | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key; a name outside `A-Za-z0-9_-` is reported on stderr and not disabled) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
-  | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended |
+  | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended (none in a folder-mode node's folder) |
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
   A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
@@ -225,7 +234,7 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
 
 ## Leads
 
-The contracts are `ChildSpec`, `LeadCall`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
+The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
 events in `src/types.ts`.
 
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
@@ -237,7 +246,8 @@ waits for the lead's proposed split and carries it (see Splitting).
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
 before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event that caused it:
 
-- a child's outcome: completed with its summary, failed with its reason;
+- a child's outcome: completed with its summary and the files it added to the results (at most 20 named, and any
+  renamed in folder mode), failed with its reason;
 - a question from a child (a worker's `needs_input` or `blocked` result, or a child lead's `escalate`);
 - a message sent to it by its parent or by the person (`sous answer`).
 
@@ -282,7 +292,12 @@ it as an approval request and `sous status` lists it. `sous approve <gate>` comp
 by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
 told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
 
-**Completion.** A run whose top-level nodes include a lead completes when every top-level node completes.
+**Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
+several top-level nodes its summary names each top-level lead that completed with failed checks.
+A lead may complete over a failed check child (its judgment), but it is recorded: a check child counts as failed
+when it failed (not cancelled) and no check child added after it passed. The fold keeps these on the lead
+(`failedChecks`, derived from the `complete` call's place in the log), the call's result says "completed with failed
+checks: …", and so do the lead's outcome for its parent, `run.completed` and `sous status`.
 Cancelling a node fails its subtree with reason `cancelled by <who>`, stops its running processes, and
 calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing more to a cancelled node.
 
@@ -322,13 +337,15 @@ Without a splitter, leads split on their own, as before.
 - **It reads the code.** It works in its own worktree `worktrees/<its node>/` (branch `sous/<run>.<its node>`), reset to
   the head of the integration branch before each request (`git reset --hard`, `git clean -fd`). It sees the work
   merged so far, and nothing it writes reaches the run: it is told to change nothing, and the reset makes that safe
-  without per-agent tool limits.
+  without per-agent tool limits. In folder mode it works in its own folder `work/<its node>/`, whose links `workspace`
+  and `results` show the inputs and the current results (see Folder mode); its folder is never collected, and nothing
+  runs git.
 - **The proposal** is `{"parts": [ChildSpec, …]}`, written to `<runDir>/splits/<lead>.json`, then a `done` result
   whose summary describes the split. The supervisor checks it exactly as it checks the lead's `spawn` (kinds,
   briefs, IDs, `needs`, agents, models, depth, children per lead); an invalid proposal goes back to the splitter
   once, with the reason. A valid one is recorded as `split.proposed` (parts and summary). Otherwise `split.failed`
   records why: no valid proposal after the retry, the splitter `blocked` or `needs_input`, its agent not available,
-  or the workspace not a git repository.
+  or (git mode) the workspace a git repository without a commit.
 - **Advisory.** The lead's brief ends with the proposal as JSON ("spawn these children as they are, adjust them,
   or split differently") or with why there is none. The lead acts through its normal `spawn` calls, under every
   usual limit; nothing is spawned for it. Proposals for sibling leads are each checked when made, so their IDs may
@@ -388,9 +405,13 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 
 ## Merging
 
-Every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The workspace
-must be a git repository with at least one commit; when it is not, the run fails with that reason before the first
-work or check node starts.
+A run's mode is decided once, when it is created, and recorded in `run.created.mode` so `sous resume` keeps it (a log
+without it is git mode). **Git mode** applies when `git` runs and the workspace is inside a git work tree; otherwise the
+run uses **folder mode** (below), with no setting either way.
+
+In git mode every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The
+workspace must be a git repository with at least one commit; when it is not, the run fails with that reason before the
+first work or check node starts.
 
 1. **Integration branch.** Before the first work or check node starts (or the first split), the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`
@@ -428,7 +449,8 @@ work or check node starts.
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
 6. **The result** is branch `sous/<run>`. Merging it into the person's own branch is their decision; `sous
-   status` and the end of `sous run` name the branch.
+   status` and the end of `sous run` name the branch. `merge.done.files` lists the files the node's commits changed,
+   so its lead hears them with its outcome.
 7. **Traces.** Worktree and merge events are system steps in the node's ATIF trajectory and spans under the
    node in Langfuse; the integrator is its own trajectory under the root.
 
@@ -437,6 +459,35 @@ are appended only when the branch was newly created; on resume the existing work
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
 usual; queued merges continue in order.
+
+### Folder mode
+
+For non-code work and machines without git. Nothing runs git.
+
+1. **Folders.** The results gather in `.sous/runs/<run>/output/`. Each work node, each `check` node and each splitter gets a
+   folder of its own, `.sous/runs/<run>/work/<node>/`, as its working directory, holding two links: `workspace` (to
+   the workspace, the inputs) and `results` (to the output folder). So `workspace/` and `results/` mean the same to a
+   lead's read tools, its workers and its checks; a check of a result reads, say, `results/report.md`. A worker's
+   brief says both are read only and to write its own files at the top of its folder. Its acceptance check runs in
+   its folder too. A link that cannot be created (a system without symbolic links) fails the node; there is no
+   fallback. Worker messages work as in git mode: `send` and `receive` find the run through the turn's environment,
+   not its directory, and a node waiting to be collected takes no worker messages (a lead's or the person's message
+   withdraws it, see below).
+2. **Collecting.** A done node joins the same queue (`merge.queued` without a branch). One at a time, its regular files
+   (not `.git`, `.sous`, `node_modules` or symbolic links, so not the two links) are copied into the output folder by relative path. A file
+   that is already there with the same content is skipped, so collecting again after a crash changes nothing. When a
+   different file, a directory or a link is in the way, both are kept: the new one gets the first of
+   `<name>.<node>.<ext>`, `<name>.<node>-2.<ext>`, … that is free or already holds the same content. A file or link in
+   the way of a directory is renamed around the same way, at the first segment that clashes (`notes/report.md` lands
+   in `notes.<node>/report.md`). So nothing in the results is ever replaced or followed, every rename is listed, and
+   resume picks the same names. Each copy is staged under a unique name in the run directory (`.collect-<uuid>`, created
+   exclusively) and renamed into place. Then
+   `merge.done` (no commit; `nothing` when the folder is empty) records `files` and `renamed`, and the node's lead
+   hears both. As in git mode, a node with messages waiting when its turn comes leaves the queue (`merge.withdrawn`),
+   its worker resumes with them, and it queues again when done.
+3. **Nothing else git-specific applies:** no integrator, no conflict markers, no reset. A collection that fails (for
+   example, a full disk) is `merge.failed`.
+4. **The result** is the output folder; `sous status` and the end of `sous run` name it.
 
 ## Recovery
 
@@ -634,8 +685,11 @@ and `cancel`.
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
-  integration/         git worktree of branch sous/<run-id>, where merges and check nodes run
-  worktrees/<node-id>/ git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
+  integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
+  worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
+  output/              folder mode: the results, where collected files land
+  work/<node-id>/      folder mode: a work, check or splitter node's own folder, with links workspace and results
+  .collect-<uuid>      folder mode: a file being collected, briefly, before it is renamed into output/
   splits/<lead-id>.json the splitter's proposal for a lead
   trace.atif.json      written by sous export atif
 ```
@@ -663,6 +717,7 @@ strip types from files under `node_modules`, so `npm pack`/`npm publish` first c
 | **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
 | **v6** (done) | Worker messages: `send` to a sibling or the lead and `receive` within a turn, through sous's MCP server or `sous send`/`receive`; workers load no other MCP server and little of the person's own setup | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
 | **v7** (in progress) | `sous ui`: a local viewer for live and finished runs (#59); then steering (#60), replay and comparison (#61) | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
+| **v8** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -727,6 +782,13 @@ showed Codex calling the MCP `send` tool and Pi (with `--no-mcp`) running the br
 findings: `app` first read the person's global Comitia skill, since harnesses still load the person's own
 instructions and skills; and it read `events.jsonl` to learn its messages before its turn ended, since a worker
 receives messages only between turns.
+
+v8 (folder mode) was verified on 2026-10-11 with a real run in a directory outside any git repository (lead on
+`ollama-cloud/deepseek-v4.1-flash`, workers on Pi): the lead listed and read the two input files before it spawned two
+parallel summary children, a third child that needed them, and a check; each child's file was collected into the output
+folder and named in its outcome, the check passed there, the lead read the results before completing, and the exported
+ATIF file passed the test checker. A run with no `git` on `PATH`, a renamed clash, and collecting again on resume are
+covered by fake-harness tests only.
 
 The Droid adapter was verified on 2026-10-12 with Factory Droid 0.210.0 on an Ollama Cloud custom model (`glm-5.3`):
 the live test started a session and resumed it twice by forking, remembering the codeword. A graph run had two Droid

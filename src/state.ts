@@ -1,7 +1,7 @@
 // Run state as a pure fold of the event log.
 import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, TurnResult, Usage } from './types.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, RunMode, TurnResult, Usage } from './types.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
  * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
@@ -53,7 +53,8 @@ export interface InboxMessage {
 export interface MergeState {
   /** Seq of its `merge.queued`: the queue order. */
   queued: number
-  branch: string
+  /** Git mode only. */
+  branch?: string
   /** Set once the merge went to the integrator. */
   conflict?: { seq: number; reason: string; files: string[]; onto: string }
 }
@@ -83,10 +84,16 @@ export interface NodeState {
   inbox: InboxMessage[]
   summary?: string
   reason?: string
+  /** Work nodes: the files their merge (or collection) brought into the results, and (folder mode) the files kept under
+   * a new name, by original path. */
+  files?: string[]
+  renamed?: Record<string, string>
   /** Seq of the event that completed or failed the node. */
   endSeq?: number
   /** Who cancelled the node or an ancestor, when it ended that way. */
   cancelledBy?: string
+  /** Leads: check children that had failed when the lead completed (see `failedChecks`). */
+  failedChecks?: string[]
   /** Leads: notes recorded for the subtree. */
   notes: string[]
   /** Leads: request IDs delivered, in order. */
@@ -113,6 +120,7 @@ export interface RunState {
   /** The person approves each proposed split before its lead receives it. */
   approveSplits: boolean
   workspace: string
+  mode: RunMode
   graph?: GraphFile
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
@@ -188,9 +196,22 @@ export function childrenOf(state: RunState, id: string | undefined): NodeState[]
   return [...state.nodes.values()].filter((n) => n.spec.parent === id)
 }
 
+/** The lead's check children that failed (not cancelled) with no check child added after them that passed: a lead may
+ * complete over them, and its completion says so. */
+export function failedChecks(state: RunState, lead: string): string[] {
+  const checks = childrenOf(state, lead).filter((c) => c.spec.kind === 'check')
+  return checks.filter((c, i) => c.status === 'failed' && !c.cancelledBy && !checks.slice(i + 1).some((l) => l.status === 'completed'))
+    .map((c) => c.spec.id)
+}
+
+/** A node's completion summary, naming the failed checks a lead completed over. */
+export function completedText(n: NodeState): string {
+  return n.failedChecks?.length ? `completed with failed checks: ${n.failedChecks.join(', ')}. ${n.summary}` : n.summary ?? ''
+}
+
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
-    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(), sent: new Map(),
+    goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', mode: 'git', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(), sent: new Map(),
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
@@ -234,7 +255,7 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
+        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
         state.agents = { agent, agents: registry(agents), models }
         state.definitions = { agent, agents: registry(agents), models }
         break
@@ -327,7 +348,11 @@ export function fold(events: readonly Event[]): RunState {
         }
         else if (call.tool === 'note') lead.notes.push(call.text)
         else if (call.tool === 'cancel') cancel(call.node, e.node, e.seq)
-        else if (call.tool === 'complete') finish(lead, 'completed', call.summary, e.seq)
+        else if (call.tool === 'complete') {
+          const failed = failedChecks(state, e.node)
+          if (failed.length && !isFinal(lead)) lead.failedChecks = failed
+          finish(lead, 'completed', call.summary, e.seq)
+        }
         else if (call.tool === 'fail') finish(lead, 'failed', call.reason, e.seq)
         else if (call.tool === 'escalate') lead.escalated = true
         break
@@ -366,6 +391,7 @@ export function fold(events: readonly Event[]): RunState {
       // A work node completes, or fails, with its merge.
       case 'merge.done': {
         const node = state.nodes.get(e.node)
+        if (node && !isFinal(node)) Object.assign(node, { files: e.files, renamed: e.renamed })
         finish(node, 'completed', node?.turns.findLast((t) => t.result)?.result?.summary ?? 'merged', e.seq)
         break
       }

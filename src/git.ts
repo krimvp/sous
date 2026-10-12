@@ -37,6 +37,12 @@ function git(cwd: string, args: string[]): string {
   return r.stdout.trim()
 }
 
+/** Whether `git` runs and `dir` is inside a git work tree: then a run there uses git mode, otherwise folder mode. */
+export function inWorkTree(dir: string): boolean {
+  const r = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, encoding: 'utf8' })
+  return !r.error && r.status === 0 && r.stdout.trim() === 'true'
+}
+
 /** The workspace must be a git repository with at least one commit. Excludes `.sous/` from git. */
 export function ensureRepo(workspace: string): void {
   if (run(workspace, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']).status !== 0) {
@@ -112,6 +118,11 @@ export function merge(integrationPath: string, branch: string, message: string):
   if (files.length > 0) return { ok: false, files }
   if (mergeInProgress(integrationPath)) abortMerge(integrationPath)
   throw new Error(`git merge --no-ff ${branch} failed in ${integrationPath}: ${r.stderr || r.stdout.trim()}`)
+}
+
+/** Files `branch` changed since it left the integration branch, which was at `onto` or before it. */
+export function changedFiles(integrationPath: string, onto: string, branch: string): string[] {
+  return git(integrationPath, ['diff', '--name-only', '-z', `${onto}...${branch}`]).split('\0').filter(Boolean)
 }
 
 export function mergeInProgress(path: string): boolean {

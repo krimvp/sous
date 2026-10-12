@@ -217,7 +217,7 @@ function runDetail(runDir: string) {
     status,
     summary: state.summary,
     reason: state.reason,
-    branch: state.integration?.branch,
+    result: state.mode === 'folder' ? join(runDir, 'output') : state.integration?.branch,
     now: new Date().toISOString(),
     questions: openQuestions(state),
     nodes: view.nodes.map((n) => {

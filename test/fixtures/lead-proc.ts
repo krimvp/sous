@@ -16,7 +16,7 @@ const [runDir, phase] = process.argv.slice(2)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 if (phase === 'models') {
-  const runner = createLeadRunner({ runDir, host: { act: () => '', settled: () => {} } })
+  const runner = createLeadRunner({ runDir, host: { act: () => '', read: () => '', settled: () => {} } })
   const errors: string[] = []
   for (const model of ['nope/x', 'ollama-cloud/deepseek-v4.1-flash']) {
     await runner.deliver(`lead-${errors.length}`, 'hi', { requestId: 'r', mode: 'queue', model })
@@ -45,6 +45,7 @@ const host: LeadHost = {
     if (phase === 'crash' && callId === 'call-b') process.kill(process.pid, 'SIGKILL')
     return `${call.tool} ok`
   },
+  read: () => '',
   settled(node, turn) {
     appendFileSync(join(runDir, 'settled.jsonl'), JSON.stringify({ phase, node, turn }) + '\n', { flush: true })
     reported++

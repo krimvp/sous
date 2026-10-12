@@ -144,3 +144,14 @@ test('sous ui prints an address that serves the page', async (t) => {
   assert.equal(page.status, 200)
   assert.match(await page.text(), /<title>sous<\/title>/)
 })
+
+test('sous ui names the output folder as a folder-mode run\'s result', async (t) => {
+  const { ws, server, get } = await ui()
+  t.after(() => server.close())
+  const log = join(ws, '.sous', 'runs', RUN, 'events.jsonl')
+  const lines = readFileSync(log, 'utf8').split('\n')
+  lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), mode: 'folder' })
+  writeFileSync(log, lines.join('\n'))
+  const run = await (await get('/api/run', { run: RUN })).json()
+  assert.equal(run.result, join(ws, '.sous', 'runs', RUN, 'output'))
+})

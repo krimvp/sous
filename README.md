@@ -15,7 +15,9 @@ moving, delivers messages between levels, and recovers after a crash.
 
 Status: v4 works: give `sous run` a goal and a lead agent splits it into workers and checks, answers their
 questions, and asks you when it cannot. Workers run in parallel in their own git worktrees and their work is
-merged into one result branch, with conflicts resolved by an integrator agent. Leads may define new agents on the
+merged into one result branch, with conflicts resolved by an integrator agent; outside a git repository the
+workers' files are collected into an output folder instead. Leads may look at files before they split, and may
+define new agents on the
 runtimes and models you allow. If the run stops or crashes, `sous resume` continues it without repeating
 finished turns. `gate` nodes wait for your approval. A splitter agent can propose how every lead splits its
 task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Read [docs/design.md](docs/design.md).
@@ -54,11 +56,17 @@ Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
-The workspace must be a git repository with at least one commit. Each work node runs in its own git worktree,
-in parallel with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one
-merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
+In a git repository (it needs at least one commit), each work node runs in its own git worktree, in parallel
+with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
 (Codex, else Claude, else Pi, else Droid; or a graph agent named `integrator`) that resolves it in the integration worktree.
 Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
+
+Anywhere else, or without git, sous uses folder mode on its own; good for research and summaries of many
+documents. Each worker and check runs in a folder of its own where `workspace/` (your files) and `results/` (the
+results so far) are links, the same names the lead reads by. Workers write their files at the top of their folder,
+and these are collected into `.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
+first as `<name>.<node>.<ext>` (or `<name>.<node>-2.<ext>`, …); nothing in the results is replaced. Your files are only read; `sous status` names the output folder. A lead may
+complete over a failed check, and then `sous run` and `sous status` say "completed with failed checks: …".
 
 Or give it a fixed graph file:
 
@@ -100,7 +108,7 @@ the `model` a lead sets on a child that names its agent. A goal run takes the sa
 A run may hand splitting to a **splitter**: define an agent named `splitter` on `claude`, `codex`, `pi` or `droid`, with your
 splitting strategy as its `instructions`, e.g. `"splitter": { "runs": "claude", "model": "opus", "instructions":
 "One part per module, tests first." }`. Before each lead (sub-leads included) gets its brief, the splitter reads the
-code merged so far in a throwaway worktree and proposes the lead's children; the lead receives the proposal and
+code merged so far in a throwaway worktree (in folder mode, the inputs and results through its own folder's links) and proposes the lead's children; the lead receives the proposal and
 spawns it, adjusts it or ignores it. With `run --approve-splits`, each proposal waits for you: `sous approve <lead>`
 or `sous answer <lead> "<changes>"`. A subtree can have its own splitter: give a lead `"roles": { "splitter":
 "<agent>" }` in a graph file (a lead may do the same for a child lead, naming an agent you defined); its sub-leads

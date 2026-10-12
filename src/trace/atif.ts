@@ -161,13 +161,15 @@ function nodeTrajectory(runId: string, node: NodeView): object {
     } else if (e.type === 'worktree.created') {
       add({ source: 'system', timestamp: e.at, message: `Worktree created: branch ${e.branch} from ${e.base}`, extra: { path: e.path } })
     } else if (e.type === 'merge.queued') {
-      add({ source: 'system', timestamp: e.at, message: `Merge queued: branch ${e.branch}` })
+      add({ source: 'system', timestamp: e.at, message: e.branch ? `Merge queued: branch ${e.branch}` : 'Queued to add its files to the results' })
     } else if (e.type === 'merge.withdrawn') {
       add({ source: 'system', timestamp: e.at, message: 'Merge withdrawn: messages arrived before the merge, so the worker resumes with them' })
     } else if (e.type === 'merge.conflict') {
       add({ source: 'system', timestamp: e.at, message: `Merge conflict, sent to the integrator: ${e.reason}`, extra: { files: e.files, onto: e.onto } })
     } else if (e.type === 'merge.done') {
-      add({ source: 'system', timestamp: e.at, message: e.by === 'nothing' ? 'Nothing to merge: the branch has no changes' : `Merged by ${e.by} at ${e.commit}`, extra: { commit: e.commit, by: e.by } })
+      const message = e.by === 'nothing' ? 'Nothing to merge: no file changed'
+        : e.commit ? `Merged by ${e.by} at ${e.commit}` : `${e.files?.length ?? 0} files added to the results`
+      add({ source: 'system', timestamp: e.at, message, extra: { commit: e.commit, by: e.by, files: e.files, renamed: e.renamed } })
     } else if (e.type === 'merge.failed') {
       add({ source: 'system', timestamp: e.at, message: `Merge failed: ${e.reason}` })
     } else if (e.type === 'split.requested') {
@@ -203,6 +205,16 @@ function nodeTrajectory(runId: string, node: NodeView): object {
             extra: e.ok ? undefined : { ok: false },
           }],
         },
+      })
+    } else if (e.type === 'lead.read') {
+      // What a lead looked at; the text it read is not recorded.
+      const args = { ...(e.path !== undefined ? { path: e.path } : {}), ...(e.offset ? { offset: e.offset } : {}) }
+      add({
+        source: 'agent',
+        timestamp: e.at,
+        message: '',
+        tool_calls: [{ tool_call_id: e.callId, function_name: e.tool, arguments: args }],
+        observation: { results: [{ source_call_id: e.callId, content: e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`, extra: { bytes: e.bytes } }] },
       })
     } else if (e.type === 'lead.turn') {
       add({
