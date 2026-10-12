@@ -63,6 +63,12 @@ async function handle(req: Request): Promise<unknown> {
     case 'tools/call': {
       const { name, arguments: args } = req.params ?? {}
       if (name !== 'send' && name !== 'receive') throw Object.assign(new Error(`unknown tool ${name}`), { code: -32602 })
+      // An argument the tool does not take is refused, so the model corrects the call instead of trusting an empty answer.
+      const takes = name === 'send' ? ['to', 'body'] : ['wait_seconds']
+      const unknown = Object.keys(args ?? {}).filter((k) => !takes.includes(k))
+      if (unknown.length) {
+        return { content: [{ type: 'text', text: `not done: ${name} takes ${takes.join(' and ')}, not ${unknown.join(', ')}` }], isError: true }
+      }
       const r = name === 'send'
         ? workerSend(runDir!, node!, String(args?.to ?? ''), String(args?.body ?? ''))
         : await workerReceive(runDir!, node!, Number(turn), Number(args?.wait_seconds ?? 0) || 0)

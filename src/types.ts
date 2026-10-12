@@ -1,7 +1,9 @@
 // Shared contracts between the supervisor, the worker adapters and the trace exporters.
 // See docs/design.md. Changing a type here changes a boundary: update every side in the same change.
 
-export type HarnessName = 'claude' | 'codex' | 'pi' | 'droid'
+/** Every CLI harness sous has an adapter for. Each must pass the conformance suite (test/conformance*.test.ts). */
+export const HARNESSES = ['claude', 'codex', 'pi', 'droid'] as const
+export type HarnessName = (typeof HARNESSES)[number]
 
 export type NodeKind = 'work' | 'check' | 'lead' | 'review' | 'gate'
 
@@ -43,13 +45,9 @@ export interface AgentSpec {
 }
 
 /** Agents that exist without being defined. */
-export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = {
-  claude: { runs: 'claude' },
-  codex: { runs: 'codex' },
-  pi: { runs: 'pi' },
-  droid: { runs: 'droid' },
-  lead: { runs: 'lead' },
-}
+export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = Object.fromEntries(
+  [...HARNESSES, 'lead' as const].map((runs) => [runs, { runs }]),
+)
 
 /** When nothing names an agent, the first available one in these lists is used. A graph that defines an
  * agent named `integrator` overrides the integrator choice. */

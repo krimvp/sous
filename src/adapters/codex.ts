@@ -2,8 +2,8 @@
 // `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
 import { jsonLines, sessionFromOutput, sousServer, spawnTurn, toTurnResult } from './common.ts'
@@ -38,12 +38,51 @@ function configuredServers(): string[] {
   return configured
 }
 
-/** Config overrides that disable every MCP server the user configured, and Codex's apps and plugins (which bring tools
+/** The MCP servers the project's own `.codex/config.toml` defines, and whether each has a URL. Codex reads its configuration
+ * once before it records its trust in the project (its first `exec` there does), without the project's file, and once
+ * after, with it; `codex mcp list` may have run before. So each is replaced by a whole disabled server, valid on its own. */
+function projectServers(cwd: string): Map<string, boolean> {
+  const file = join(cwd, '.codex', 'config.toml')
+  let toml: string
+  try {
+    toml = readFileSync(file, 'utf8')
+  } catch {
+    return new Map()
+  }
+  const servers = new Map<string, boolean>()
+  const add = (name: string, url: boolean) => servers.set(name, (servers.get(name) ?? false) || url)
+  const KEY = String.raw`(?:"([^"]*)"|([A-Za-z0-9_-]+))`
+  // Where each line is: in a server's table, in the [mcp_servers] table, in another table, or at the top.
+  let at: { server: string } | 'servers' | 'other' | 'top' = 'top'
+  for (const raw of toml.split(/\r?\n/)) {
+    const line = raw.trim()
+    const header = line.match(/^\[\s*([^\]]+?)\s*\]/)
+    if (header) {
+      const server = header[1]!.match(new RegExp(String.raw`^mcp_servers\s*\.\s*${KEY}`))
+      at = server ? { server: server[1] ?? server[2]! } : header[1] === 'mcp_servers' ? 'servers' : 'other'
+      if (typeof at === 'object') add(at.server, false)
+    } else if (typeof at === 'object') {
+      if (/^url\s*=/.test(line)) add(at.server, true)
+    } else if (at === 'servers' || at === 'top') {
+      const entry = line.match(new RegExp(String.raw`^${at === 'top' ? String.raw`mcp_servers\s*\.\s*` : ''}${KEY}\s*(\.\s*url\s*=|[.=])`))
+      if (entry) add(entry[1] ?? entry[2]!, entry[3]!.includes('url') || /[{,]\s*url\s*=/.test(line))
+    }
+  }
+  for (const name of servers.keys()) {
+    if (/^[A-Za-z0-9_-]+$/.test(name)) continue
+    console.error(`sous: cannot disable Codex's MCP server ${JSON.stringify(name)} of ${file}; Codex workers may load it`)
+    servers.delete(name)
+  }
+  return servers
+}
+
+/** Config overrides that disable every MCP server the user or the project configured, and Codex's apps and plugins (which bring tools
  * of their own), and add sous's server for a worker of the tree: Codex merges `-c mcp_servers=…` into its
  * configuration rather than replacing it. A server whose name has a dot cannot be named in an override. */
 function mcpConfig(spec: TurnSpec): string[] {
   const q = (value: string) => JSON.stringify(value) // a TOML basic string
   const server = sousServer(spec)
+  const project = projectServers(spec.cwd)
   const env = server && Object.entries(server.env).map(([k, v]) => `${k}=${q(v)}`).join(',')
   return [
     // The person's rules, hooks and skills stay out too; their global AGENTS.md cannot be left out without moving
@@ -51,7 +90,9 @@ function mcpConfig(spec: TurnSpec): string[] {
     '--ignore-rules', '-c', 'features.hooks=false', '-c', 'skills.include_instructions=false',
     '-c', 'features.apps=false', '-c', 'features.plugins=false',
     // A server of the person's named sous is replaced by sous's own, or disabled when the node gets none.
-    ...configuredServers().filter((name) => !(server && name === 'sous')).flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]),
+    ...configuredServers().filter((name) => !project.has(name) && !(server && name === 'sous')).flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]),
+    ...[...project].filter(([name]) => !(server && name === 'sous')).flatMap(([name, url]) =>
+      ['-c', `mcp_servers.${name}={${url ? 'url="http://127.0.0.1:9/"' : 'command="false",args=[]'},enabled=false}`]),
     // receive may wait up to a minute.
     ...(server ? ['-c', `mcp_servers.sous={command=${q(server.command)},args=[${server.args.map(q).join(',')}],env={${env}},tool_timeout_sec=90}`] : []),
   ]

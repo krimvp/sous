@@ -89,7 +89,7 @@ function turnAlive(t: TurnState): boolean {
 }
 
 /** SIGTERM the group, SIGKILL it after the grace, and resolve once it is gone (or shortly after SIGKILL). */
-async function stopGroup(pid: number, graceMs: number): Promise<void> {
+export async function stopGroup(pid: number, graceMs: number): Promise<void> {
   interrupt(pid, 'SIGTERM')
   let deadline = Date.now() + graceMs
   let killed = false

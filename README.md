@@ -101,7 +101,8 @@ inherit it.
 
 ```bash
 npm install          # the lead runner's Pi packages and the type checker
-npm run check        # type check and tests; SOUS_LIVE=1 adds real Claude, Codex, Pi, Droid and lead runs
+npm run check        # type check and tests (SOUS_LIVE=1 adds a real lead run)
+npm run certify      # live harness certification, costs money: SOUS_HARNESS=droid npm run certify
 ```
 
 ## For agents

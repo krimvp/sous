@@ -152,20 +152,6 @@ test('droid: a final message that is the bare JSON object is the result', () => 
   assert.deepEqual(turn.result, { status: 'done', summary: 'noted' })
 })
 
-const END_MARKERS = { claude: 'result', codex: 'turn.completed', pi: 'agent_end', droid: 'completion' } as const
-
-for (const [harness, marker] of Object.entries(END_MARKERS) as [HarnessName, string][]) {
-  test(`${harness}: a stream cut before its end marker has no result and keeps earlier items`, () => {
-    const adapter = getAdapter(harness)
-    const raw = fixture(harness)
-    const turn = adapter.parse(truncated(raw, marker))
-    assert.equal(turn.ended, false)
-    assert.equal(turn.result, undefined)
-    assert.ok(turn.items.some((item) => item.kind === 'tool_result'))
-    assert.equal(turn.sessionId, adapter.parse(raw).sessionId)
-  })
-}
-
 test('codex: a failed turn ends without a result, even after an assistant JSON message', () => {
   const raw = fixture('codex').replace(/^.*"type":"turn\.completed".*$/m,
     JSON.stringify({ type: 'turn.failed', error: { message: 'interrupted' } }))
