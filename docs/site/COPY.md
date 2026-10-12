@@ -84,7 +84,7 @@ Node 22.19+, git, and one harness logged in: Claude Code, Codex, Pi or Droid. Le
 
 *"harness" links to docs/harnesses.md on GitHub.*
 
-- `npm install -g @krimvp/sous`: Install the CLI (coming to npm).
+- `npm install -g @krimvp/sous`: Install the CLI.
 - `sous run "goal"`: Start a run inside your git repository.
 - `sous status`: See the tree and what waits for you.
 
@@ -110,9 +110,11 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
-- `@krimvp/sous`: SKILL.md; package.json is still `"private": true` (hence "coming to npm").
+- `@krimvp/sous`: package.json `name`; published to npm as 0.1.0.
 
 ## Changelog
+
+**v4.1 → v4.2:** the install card drops "(coming to npm)": `@krimvp/sous` is on npm.
 
 **v4 → v4.1:** Get started names Droid and links "harness" to docs/harnesses.md; the footer links it too.
 

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessName, ParsedTurn } from '../src/types.ts'
 import { exportAtif, toAtif } from '../src/trace/atif.ts'
-import { loadRun } from '../src/trace/run.ts'
+import { loadRun, SOUS_VERSION } from '../src/trace/run.ts'
 import { checkAtif } from './atif-checker.ts'
 
 // The fixture run: `impl` (Claude) starts, fails its acceptance check, is resumed and completes; `verify` is a
@@ -172,7 +172,7 @@ test('spawned nodes nest under their lead and are referenced from the spawn step
 
 test('a lead trajectory has its deliveries, tool calls and answers in event order', () => {
   const lead = leadSub('lead')
-  assert.deepEqual(lead.agent, { name: 'sous-lead', version: '0.0.0', model_name: 'ollama-cloud/deepseek-v4.1-flash' })
+  assert.deepEqual(lead.agent, { name: 'sous-lead', version: SOUS_VERSION, model_name: 'ollama-cloud/deepseek-v4.1-flash' })
   assert.deepEqual(lead.steps.map((s: Obj) => [s.source, s.tool_calls?.[0].function_name ?? s.message, s.extra?.request_id, s.extra?.mode]), [
     ['user', 'Your brief: Add greet() with user docs', 'lead:brief', 'queue'],
     ['agent', 'spawn', undefined, undefined],

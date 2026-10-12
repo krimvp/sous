@@ -7,8 +7,8 @@ moving, delivers messages between levels, and recovers after a crash.
 
 - **Local only.** One supervisor process per run, state in `.sous/runs/<id>/` as plain files. Runs from
   before the rename, under `.murm/`, are not read.
-- **Few dependencies.** Node 22.19 or later runs the TypeScript sources directly; only the lead runner
-  depends on Pi's durable runtime.
+- **Few dependencies.** Node 22.19 or later; only the lead runner depends on Pi's durable runtime. A checkout runs
+  the TypeScript sources directly; the npm package is the same code compiled to JavaScript.
 - **Any worker.** Workers sit behind a small adapter interface and run in turns: a message waits in an
   inbox until the next turn, or interrupts the current one.
 - **Portable traces.** Runs export to ATIF trajectories and to Langfuse over OTLP.
@@ -21,12 +21,16 @@ finished turns. `gate` nodes wait for your approval. A splitter agent can propos
 task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Read [docs/design.md](docs/design.md).
 
 ```bash
-node src/cli.ts run "Add greeting.txt containing hello, with a check that verifies it"
-node src/cli.ts run --max-depth 4 "…"     # let leads nest 4 deep instead of 3
-node src/cli.ts answer lead "Use Grace."   # from another terminal: answer a question the run printed
-node src/cli.ts cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
-node src/cli.ts approve <gate>             # from another terminal: approve a gate (or a proposed split) the run printed
-node src/cli.ts resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
+npm install -g @krimvp/sous    # Node 22.19+; from a checkout, `node src/cli.ts` works the same as `sous`
+```
+
+```bash
+sous run "Add greeting.txt containing hello, with a check that verifies it"
+sous run --max-depth 4 "…"     # let leads nest 4 deep instead of 3
+sous answer lead "Use Grace."   # from another terminal: answer a question the run printed
+sous cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
+sous approve <gate>             # from another terminal: approve a gate (or a proposed split) the run printed
+sous resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
 
 While they work, workers may tell a sibling or their lead what the others must know (an interface they settled, a file
@@ -70,11 +74,11 @@ Or give it a fixed graph file:
 ```
 
 ```bash
-node src/cli.ts run graph.json        # runs in the current directory; state in .sous/runs/<id>/
-node src/cli.ts status                # latest run as a tree
-node src/cli.ts export atif           # writes .sous/runs/<id>/trace.atif.json
-node src/cli.ts export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
-node src/cli.ts ui                    # a local page with every run, live or finished (--port <n>)
+sous run graph.json        # runs in the current directory; state in .sous/runs/<id>/
+sous status                # latest run as a tree
+sous export atif           # writes .sous/runs/<id>/trace.atif.json
+sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+sous ui                    # a local page with every run, live or finished (--port <n>)
 ```
 
 `sous ui` prints a `127.0.0.1` address with a random token and serves one page: the workspace's runs, each run's tree
@@ -91,7 +95,7 @@ A lead may define a new agent for a child, `{ "name": "hr", "runs": "pi", "instr
 children may name, but only on a runtime the run lists `models` for, with one of those models (default: the
 first): `"models": { "claude": ["haiku"], "pi": ["ollama-cloud/glm-5.2"] }` in a graph file. The same lists bound
 the `model` a lead sets on a child that names its agent. A goal run takes the same
-`agent`, `agents` and `models` from a file: `node src/cli.ts run --agents agents.json "…"`.
+`agent`, `agents` and `models` from a file: `sous run --agents agents.json "…"`.
 
 A run may hand splitting to a **splitter**: define an agent named `splitter` on `claude`, `codex`, `pi` or `droid`, with your
 splitting strategy as its `instructions`, e.g. `"splitter": { "runs": "claude", "model": "opus", "instructions":
@@ -106,6 +110,7 @@ inherit it.
 npm install          # the lead runner's Pi packages and the type checker
 npm run check        # type check and tests (SOUS_LIVE=1 adds a real lead run)
 npm run certify      # live harness certification, costs money: SOUS_HARNESS=droid npm run certify
+npm pack             # builds dist/ (prepack) and the tarball npm publish would upload; check it before publishing
 ```
 
 ## For agents

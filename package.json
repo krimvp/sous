@@ -1,12 +1,43 @@
 {
-  "name": "sous",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Local, dependency-free orchestration of agent trees: leads plan, workers do, code keeps it moving.",
+  "name": "@krimvp/sous",
+  "version": "0.1.0",
+  "description": "Runs a goal to completion on your machine with a tree of AI agents: leads plan, workers do, code keeps it moving.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krimvp/sous.git"
+  },
+  "homepage": "https://krimvp.github.io/sous/",
+  "bugs": {
+    "url": "https://github.com/krimvp/sous/issues"
+  },
+  "keywords": [
+    "agents",
+    "orchestration",
+    "claude-code",
+    "codex",
+    "pi",
+    "droid",
+    "cli"
+  ],
   "type": "module",
-  "engines": { "node": ">=22.19" },
-  "bin": { "sous": "src/cli.ts" },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "bin": {
+    "sous": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/ui.html','dist/ui.html')\"",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
     "check": "npm run typecheck && npm test",
