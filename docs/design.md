@@ -510,7 +510,8 @@ Recovery: worktrees, branches and queue state survive a crash. `integration.crea
 are appended only when the branch was newly created; on resume the existing worktree is used. On `sous
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
-usual; queued merges continue in order.
+usual; queued merges continue in order. A merge of a node cancelled before the stop that is still on the integration
+branch (the stop came before its reset) is dropped from it, once, on resume.
 
 ### Folder mode
 

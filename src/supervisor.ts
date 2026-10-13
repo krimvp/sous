@@ -983,6 +983,16 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       for (const t of n.turns) if (!t.ended) await closeTurn(n.spec, t)
     }
     const state = current()
+    // A node cancelled while its merge ran, when the supervisor stopped before it reset the integration branch: its merge
+    // (clean, or committed by the integrator) is still on the branch, and nothing merged after it. Reset it now, once:
+    // after the reset its branch is no longer part of the integration branch.
+    for (const n of state.nodes.values()) {
+      const m = n.merge
+      if (folder || !isFinal(n) || !m?.branch || log.events.some((e) => (e.type === 'merge.done' || e.type === 'merge.failed') && e.node === n.spec.id)) continue
+      const { path } = integrationTree()
+      const onto = mergedOnto(path, m.branch) ?? (m.conflict && !hasChanges(path, m.branch) ? m.conflict.onto : undefined)
+      if (onto) resetTo(path, onto)
+    }
     for (const n of state.nodes.values()) {
       // A worker's question recorded as its result but not yet sent to its parent.
       const last = n.turns.at(-1)

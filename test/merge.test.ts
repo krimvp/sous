@@ -266,7 +266,7 @@ test('a cancel of the integrator is refused, naming the node it merges, and the 
   const resolve = `while ls ${join(runDir, 'commands')}/*.json >/dev/null 2>&1; do sleep 0.05; done; printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`
   const { outcome, events, state } = await runGraph([
     work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
   ], {
     workspace,
     agents: integrator([{ sh: resolve, result: done('kept both lines') }]),
@@ -321,6 +321,36 @@ test('sous resume aborts a merge left in progress without an integrator request 
   assert.equal(mergeInProgress(integration), false)
   assert.match(resumed.output(), /^result: branch sous\/r1$/m)
 })
+
+for (const integrated of [false, true]) {
+  test(`sous resume drops the merge of a node cancelled while ${integrated ? 'the integrator fixed it' : 'its clean merge was checked'}`, async () => {
+    const workspace = gitWorkspace('sous-merge-')
+    const runDir = join(workspace, '.sous', 'runs', 'r1')
+    // Node w was cancelled while its merge ran, and the supervisor stopped before it reset the integration branch.
+    const created = createIntegration(workspace, 'r1', runDir)
+    const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+    writeFileSync(join(tree.path, 'w.txt'), 'w\n')
+    git(tree.path, 'add', 'w.txt')
+    git(tree.path, 'commit', '-q', '-m', 'w')
+    const integration = join(runDir, 'integration')
+    git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge w', tree.branch)
+    if (integrated) git(integration, 'commit', '-q', '--allow-empty', '-m', 'fix by the integrator')
+    mkdirSync(join(runDir, 'commands'), { recursive: true })
+    const log = openLog(runDir)
+    log.append({ type: 'run.created', goal: 'g', workspace })
+    log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+    log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude', command: 'true' }, by: 'graph' })
+    log.append({ type: 'merge.queued', node: 'w', branch: tree.branch })
+    if (integrated) log.append({ type: 'merge.conflict', node: 'w', reason: 'check failed after the merge (exit 1)', files: [], onto: created.base! })
+    log.append({ type: 'node.cancelled', node: 'w', by: 'person' })
+    log.close()
+    const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+    assert.equal(await resumed.exit, 1, resumed.output())
+    assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.base)
+    assert.equal(existsSync(join(integration, 'w.txt')), false)
+    assert.ok(!readEvents(runDir).some((e) => e.type === 'merge.done'))
+  })
+}
 
 test('a merge whose integration worktree cannot be checked out again fails the node, not the supervisor', async () => {
   const workspace = gitWorkspace('sous-merge-')
