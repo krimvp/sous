@@ -20,7 +20,10 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
   const err = openSync(spec.errFile, 'w')
   let child
   try {
-    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...process.env, ...spec.env } })
+    // A worker's identity comes from its own turn alone: an outer run's SOUS_* (sous running inside a sous worker) never
+    // reaches it, also when the turn has none of its own (a standing node).
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SOUS_')))
+    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...env, ...spec.env } })
   } finally {
     // The child holds its own copies of the descriptors.
     closeSync(out)

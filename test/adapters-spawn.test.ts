@@ -62,6 +62,29 @@ test('the prompt arrives on stdin and output reaches outFile after the starting 
   await until(() => readFileSync(spec.errFile, 'utf8') === 'oops\n')
 })
 
+test("a turn's SOUS_* identity is its own: an outer run's never reaches it, also when it has none", async () => {
+  const cwd = tempDir()
+  const spec = (turn: number, env?: Record<string, string>) =>
+    ({ nodeId: 'n', turn, cwd, prompt: '', outFile: join(cwd, `${turn}.out`), errFile: join(cwd, `${turn}.err`), ...(env ? { env } : {}) })
+  // sous running inside a worker of another run: that worker's identity is in the supervisor's environment.
+  const outer = { SOUS_RUN_DIR: '/outer/run', SOUS_NODE: 'outer', SOUS_TURN: '3', SOUS_OTHER: 'x' }
+  const saved = { ...process.env }
+  Object.assign(process.env, outer, { NOT_SOUS: 'kept' })
+  try {
+    const standing = spawnTurn('sh', ['-c', 'env'], spec(1))
+    const worker = spawnTurn('sh', ['-c', 'env'], spec(2, { SOUS_RUN_DIR: '/inner/run', SOUS_NODE: 'a', SOUS_TURN: '1' }))
+    await Promise.all([standing.exit, worker.exit])
+  } finally {
+    for (const key of [...Object.keys(outer), 'NOT_SOUS']) {
+      if (key in saved) process.env[key] = saved[key]
+      else delete process.env[key]
+    }
+  }
+  const env = (turn: number) => readFileSync(join(cwd, `${turn}.out`), 'utf8').split('\n').filter((l) => /^(SOUS_|NOT_SOUS=)/.test(l)).sort()
+  assert.deepEqual(env(1), ['NOT_SOUS=kept'])
+  assert.deepEqual(env(2), ['NOT_SOUS=kept', 'SOUS_NODE=a', 'SOUS_RUN_DIR=/inner/run', 'SOUS_TURN=1'])
+})
+
 test('workers load no MCP server but sous\'s and none of the person\'s own instructions; the project\'s stay', async () => {
   const bin = tempDir()
   const rec = join(bin, 'rec.jsonl')

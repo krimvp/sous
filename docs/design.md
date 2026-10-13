@@ -189,7 +189,9 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
   a `message` with `sent: true`. It stays the only writer.
 - **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`
-  (`TurnSpec.env`), which both ways read. This is attribution, not authentication: workers run as the person.
+  (`TurnSpec.env`), which both ways read; no other `SOUS_*` variable of the supervisor's environment reaches a turn, so
+  a standing node, which gets none, does not take on the identity of an outer run's worker when sous runs inside one.
+  This is attribution, not authentication: workers run as the person.
 - **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
@@ -226,8 +228,9 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
   A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
-  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait).
-  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
+  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait),
+  or one of the wrong type (an object `body` is not sent as text). If Codex's servers cannot be listed, sous says so on
+  stderr and Codex workers may load them; a server whose name has
   a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
   shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
   determined one from reaching another service; that needs sandboxed workers.
