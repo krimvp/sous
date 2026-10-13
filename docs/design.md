@@ -497,7 +497,10 @@ For non-code work and machines without git. Nothing runs git.
 ## Recovery
 
 The supervisor, not any lead, owns recovery. `sous resume [run-id]` (latest run by default) continues a run
-whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
+whose supervisor stopped, whether it was stopped with Ctrl-C, killed, or ended by an error of its own. Ctrl-C
+stops every running turn and check and waits for them (a second Ctrl-C kills what still runs); an unexpected
+error does the same before the supervisor exits with it. Either way `sous run` and `sous resume` end with the
+`sous resume` hint whenever the run is not over.
 
 1. **Intent before effect.** `turn.started {node, turn, pid, startTime}` is appended immediately after
    spawning (`startTime` is field 22 of `/proc/<pid>/stat`); `turn.session` once a session ID is known;

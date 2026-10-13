@@ -1,6 +1,6 @@
 // Merging through real git repositories: node worktrees, the merge queue, the integrator, and resume mid-merge.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -273,6 +273,31 @@ test('sous resume aborts a merge left in progress without an integrator request 
   assert.equal(git(integration, 'log', '-1', '--format=%s'), 'sous: merge w')
   assert.equal(mergeInProgress(integration), false)
   assert.match(resumed.output(), /^result: branch sous\/r1$/m)
+})
+
+test('a merge whose integration worktree cannot be checked out again fails the node, not the supervisor', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+  git(tree.path, 'commit', '-q', '--allow-empty', '-m', 'w')
+  // The integration worktree is gone and something else sits at its path, so it cannot be added again on resume.
+  git(workspace, 'worktree', 'remove', '--force', created.path)
+  mkdirSync(created.path)
+  writeFileSync(join(created.path, 'in-the-way.txt'), 'x\n')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'merge.queued', node: 'w', branch: tree.branch })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.status, 'failed')
+  assert.match(state.nodes.get('w')!.reason!, /^merge failed: supervisor error: git worktree add \S+ sous\/r1 failed in /)
+  assert.doesNotMatch(resumed.output(), /continue with: sous resume/)
 })
 
 test('a workspace that is not a git repository fails the run with a clear reason', async () => {

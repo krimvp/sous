@@ -250,6 +250,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       void terminate(pid)
     }
   }
+  /** Ctrl-C (or SIGTERM) stops the run; a second one while it stops kills every group still being stopped. */
+  const onSignal = () => {
+    if (!stopping) return stop()
+    for (const pid of new Set([...groups.keys(), ...terminations.keys()])) interrupt(pid, 'SIGKILL')
+  }
 
   const complete = (node: string, summary: string) => void log.append({ type: 'node.completed', node, summary })
   const fail = (node: string, reason: string) => void log.append({ type: 'node.failed', node, reason })
@@ -688,9 +693,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (folder) return collectFiles(n)
     const { conflict } = n.merge!
     const branch = n.merge!.branch!
-    const { path } = integrationTree()
     let onto = conflict?.onto
     try {
+      const { path } = integrationTree()
       if (conflict) return await integrate(spec, conflict.onto)
       // A clean tree at its head: a merge a stopped supervisor left in progress never reached the integrator, so it
       // starts again, and what the last check run here left behind (changed or new files) would refuse this merge.
@@ -959,8 +964,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const splitting = new Map<string, Promise<void>>()
   const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...splitting.values()]
 
-  process.on('SIGINT', stop)
-  process.on('SIGTERM', stop)
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
   try {
     if (opts.resume) await recover()
     for (;;) {
@@ -1067,8 +1072,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       await Promise.race([...tasks(), woken, sleep(POLL_MS)])
     }
   } finally {
-    process.off('SIGINT', stop)
-    process.off('SIGTERM', stop)
+    process.off('SIGINT', onSignal)
+    process.off('SIGTERM', onSignal)
+    // An error above leaves turns and checks running: stop them all, and let the turns record their end, before the
+    // log closes. The run stays resumable.
+    stop()
+    while (tasks().length) await Promise.allSettled(tasks())
+    await Promise.allSettled(terminations.values())
     closed = true // the run is over: later tool calls and turns of a closing runner are not recorded
     try {
       await runner?.close()

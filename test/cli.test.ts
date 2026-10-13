@@ -117,6 +117,55 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   assert.match(run.output(), /continue with: sous resume /)
 })
 
+test('a second SIGINT while stopping kills a group that ignores SIGTERM at once', async () => {
+  const { workspace, graph, sessions } = setup([{ spawnSleeper: 'ignore-term', sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
+  const run = sous(['run', graph], workspace, sessions)
+  let grandchild: number | undefined
+  for (let i = 0; i < 100 && grandchild === undefined; i++) {
+    await sleep(100)
+    const file = existsSync(sessions) && readdirSync(sessions).find((f) => f.endsWith('.grandchild'))
+    if (file) grandchild = Number(readFileSync(join(sessions, file), 'utf8'))
+  }
+  assert.ok(grandchild, 'the worker started its grandchild')
+  run.child.kill('SIGINT')
+  await sleep(300)
+  const started = Date.now()
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  assert.ok(Date.now() - started < 3000, 'the second SIGINT did not wait for the 5 s grace')
+  assert.throws(() => process.kill(grandchild!, 0), /ESRCH/)
+  assert.match(run.output(), /continue with: sous resume /)
+})
+
+test('an error inside the supervisor stops its workers and prints the resume hint; sous resume then finishes the run', async () => {
+  const { workspace, graph, sessions } = setup([
+    { sleepMs: 60_000, result: { status: 'done', summary: 'late' } },
+    { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello after resume' } },
+  ])
+  const run = sous(['run', graph], workspace, sessions)
+  const started = await waitFor(workspace, (e) => e.type === 'turn.started' && e.node === 'write')
+  const pid = started.type === 'turn.started' ? started.pid : 0
+  // Once the worker has its prompt (its session file exists), the person removes the run's commands directory: the
+  // main loop's next poll of it throws.
+  const session = await waitFor(workspace, (e) => e.type === 'turn.session' && e.node === 'write')
+  const file = join(sessions, `${session.type === 'turn.session' ? session.sessionId : ''}.json`)
+  for (let i = 0; i < 200 && !existsSync(file); i++) await sleep(25)
+  rmSync(join(runDirOf(workspace)!, 'commands'), { recursive: true })
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(run.output(), /^sous: ENOENT: no such file or directory, scandir .*commands/m)
+  assert.match(run.output(), /^stopped; continue with: sous resume /m)
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the worker was stopped')
+  const events = readEvents(runDirOf(workspace)!)
+  assert.deepEqual(events.map((e) => e.type).slice(-2), ['turn.interrupted', 'turn.ended'])
+  assert.equal(existsSync(join(runDirOf(workspace)!, 'lock')), false)
+
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exit, 0, resumed.output())
+  const state = fold(readEvents(runDirOf(workspace)!))
+  assert.equal(state.status, 'completed')
+  assert.deepEqual(state.nodes.get('write')!.turns.map((t) => [t.recovery ?? false, t.result?.summary]), [[false, undefined], [true, 'wrote hello after resume']])
+})
+
 test('sous cancel from another terminal cancels a subtree, stops its worker and cancels its lead', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const sessions = join(workspace, 'sessions')
