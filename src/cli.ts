@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSyn
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
@@ -117,11 +117,15 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
- * agent definitions of `agentsFile`, if given. */
+ * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word, not a URL, that ends in
+ * `.json` or has a path separator) but names no file is refused, not taken for a goal. */
 async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
   const { maxDepth, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
+  if (!isGraph && !/\s/.test(arg) && !arg.includes('://') && (arg.endsWith('.json') || /[\\/]/.test(arg))) {
+    throw new Error(`${existsSync(arg) ? 'not a file' : 'no such file'}: ${arg}; if it is a goal, write it as a sentence`)
+  }
   if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
   const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
@@ -129,6 +133,10 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   const splitters = defines(graph, SPLITTER) || graph.nodes.some((n) => n.roles?.splitter) || Object.values(graph.agents ?? {}).some((a) => a.runs !== 'lead')
   if (approveSplits && !splitters) throw new Error('--approve-splits needs a splitter: define an agent named splitter, or agents leads may give the splitter role')
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
+  // Refused before the run exists, as no process starts and nothing is spent on a graph that cannot run.
+  const unavailable = await agents(graph, deps)
+  const unusable = unusableNodeAgents(graph, unavailable)
+  if (unusable.length) throw new Error(unusable.join('\n'))
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.sous', 'runs', id)
   mkdirSync(runDir, { recursive: true })
@@ -136,7 +144,6 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), ...(definitions ? { agents: resolve(agentsFile!) } : {}), createdAt }, null, 2) + '\n')
   console.log(`run ${id} (${runDir})`)
 
-  const unavailable = await agents(graph, deps)
   // Decided once: a resumed run keeps the mode it was created with.
   const mode = inWorkTree(workspace) ? 'git' : 'folder'
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)

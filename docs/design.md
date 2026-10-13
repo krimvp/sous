@@ -240,7 +240,8 @@ events in `src/types.ts`.
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
-Agents). A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
+Agents). A single word that ends in `.json` or holds a path separator but names no file is refused as a likely
+mistyped file name, not run as a goal. A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
 waits for the lead's proposed split and carries it (see Splitting).
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
@@ -374,8 +375,12 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
-  first available of `claude`, `codex`, `pi`, `droid`. Naming an unavailable agent fails the node with a clear reason.
-  Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
+  first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
+  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
+  graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
+  available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
+  agent a lead's child names later fails that node with a clear reason. Each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
