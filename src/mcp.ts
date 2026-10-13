@@ -47,6 +47,9 @@ const RECEIVE_TOOL = {
 
 type Request = { jsonrpc: '2.0'; id?: number | string; method: string; params?: Record<string, any> }
 
+/** A tool call refused before it does anything, so the model corrects it. */
+const refused = (why: string) => ({ content: [{ type: 'text', text: `not done: ${why}` }], isError: true })
+
 /** MCP protocol versions this server speaks, the latest first. */
 const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 
@@ -68,12 +71,15 @@ async function handle(req: Request): Promise<unknown> {
       // An argument the tool does not take is refused, so the model corrects the call instead of trusting an empty answer.
       const takes = Object.keys((name === 'send' ? SEND_SCHEMA : RECEIVE_TOOL.inputSchema).properties)
       const unknown = Object.keys(args ?? {}).filter((k) => !takes.includes(k))
-      if (unknown.length) {
-        return { content: [{ type: 'text', text: `not done: ${name} takes ${takes.join(' and ')}, not ${unknown.join(', ')}` }], isError: true }
+      if (unknown.length) return refused(`${name} takes ${takes.join(' and ')}, not ${unknown.join(', ')}`)
+      // Nor is an argument of the wrong type turned into one: an object body would be sent as "[object Object]".
+      if (name === 'send' && (typeof args?.to !== 'string' || typeof args?.body !== 'string')) return refused('send takes to and body as text')
+      if (name === 'receive' && args?.wait_seconds !== undefined && typeof args.wait_seconds !== 'number') {
+        return refused('receive takes wait_seconds as a number')
       }
       const r = name === 'send'
-        ? workerSend(runDir!, node!, String(args?.to ?? ''), String(args?.body ?? ''))
-        : await workerReceive(runDir!, node!, Number(turn), Number(args?.wait_seconds ?? 0) || 0)
+        ? workerSend(runDir!, node!, args!.to, args!.body)
+        : await workerReceive(runDir!, node!, Number(turn), args?.wait_seconds ?? 0)
       return { content: [{ type: 'text', text: r.text }], isError: !r.ok }
     }
     default:

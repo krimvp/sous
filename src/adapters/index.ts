@@ -4,6 +4,8 @@ import { codex } from './codex.ts'
 import { droid } from './droid.ts'
 import { pi } from './pi.ts'
 
+export { listCodexServers } from './codex.ts'
+
 const adapters: Record<HarnessName, WorkerAdapter> = { claude, codex, pi, droid }
 
 export function getAdapter(name: HarnessName): WorkerAdapter {

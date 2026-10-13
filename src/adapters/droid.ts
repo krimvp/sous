@@ -7,7 +7,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, lastJsonFence, RESULT_INSTRUCTION, sessionFromOutput, sousServer, spawnTurn, toTurnResult } from './common.ts'
+import { jsonLines, num, RESULT_INSTRUCTION, resultFromText, sessionFromOutput, sousServer, spawnTurn, str } from './common.ts'
 import type { Json } from './common.ts'
 
 function readJson(file: string): Json | undefined {
@@ -119,10 +119,11 @@ export const droid: WorkerAdapter = {
         // Reasoning before a call is its own step, ahead of the call.
         if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning, at })
         reasoning = undefined
-        turn.items.push({ kind: 'tool_call', id: event.id, name: event.toolName, arguments: event.parameters, at })
+        // A call without an ID cannot be paired with its result; it is left out.
+        if (typeof event.id === 'string') turn.items.push({ kind: 'tool_call', id: event.id, name: str(event.toolName), arguments: event.parameters, at })
       } else if (event.type === 'tool_result') {
-        const content = event.isError ? String(event.error?.message ?? event.value ?? '') : String(event.value ?? '')
-        turn.items.push({ kind: 'tool_result', callId: event.id, content, isError: event.isError === true, at })
+        const content = str(event.isError ? event.error?.message ?? event.value : event.value)
+        turn.items.push({ kind: 'tool_result', callId: str(event.id), content, isError: event.isError === true, at })
       } else if (event.type === 'error') {
         // An exec that ends early says why in an assistant message, then again as an error.
         if (event.message === last) continue
@@ -136,8 +137,7 @@ export const droid: WorkerAdapter = {
       // taken from it. User messages are the prompt Droid echoes back; the supervisor already has it.
     }
     if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning })
-    // Models sometimes answer with the bare object instead of a fence.
-    if (turn.ended && last) turn.result = toTurnResult(lastJsonFence(last) ?? last.trim())
+    if (turn.ended && last) turn.result = resultFromText(last)
     return turn
   },
 }
@@ -145,7 +145,7 @@ export const droid: WorkerAdapter = {
 /** Droid's `input_tokens` excludes cache reads (and, assumed, writes, never seen nonzero); the Usage convention includes
  * them. Its `factory_credits` are not a price. */
 function usageOf(usage: Json): Usage {
-  const read = usage.cache_read_input_tokens ?? 0
-  const write = usage.cache_creation_input_tokens ?? 0
-  return { inputTokens: (usage.input_tokens ?? 0) + read + write, outputTokens: usage.output_tokens ?? 0, cachedTokens: read, cacheWriteTokens: write }
+  const read = num(usage.cache_read_input_tokens)
+  const write = num(usage.cache_creation_input_tokens)
+  return { inputTokens: num(usage.input_tokens) + read + write, outputTokens: num(usage.output_tokens), cachedTokens: read, cacheWriteTokens: write }
 }

@@ -181,3 +181,66 @@ test('pi: an agent_end that will retry is not the end; the result comes from the
   assert.deepEqual(finished.result, adapter.parse(recorded).result)
   assert.ok(finished.items.some((item) => item.kind === 'message' && item.role === 'system' && item.text === '429 rate limited'))
 })
+
+const lines = (events: object[]) => events.map((event) => JSON.stringify(event)).join('\n')
+
+/** A Pi turn whose one assistant message says `text` (with `usage`), then ends. */
+const piTurn = (text: string, usage?: object) => lines([
+  { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text }], ...(usage ? { usage } : {}) } },
+  { type: 'agent_end' },
+])
+
+test('pi and droid: the result is the last fence that holds one, in any case, with or without a newline, else the bare object', () => {
+  const result = '{"status": "done", "summary": "wrote it"}'
+  const texts = [
+    `Done.\n\n\`\`\`JSON\n${result}\n\`\`\``,
+    `Done. \`\`\`json${result}\`\`\``,
+    `Done.\r\n\r\n\`\`\`json  \r\n${result}\r\n\`\`\``,
+    // The prompt's own wording, repeated in prose before the fence, is not a fence.
+    `Done; here is my result in a \`\`\`json fenced block:\n\n\`\`\`json\n${result}\n\`\`\``,
+    // An example after the result is not the result.
+    `Done.\n\n\`\`\`json\n${result}\n\`\`\`\n\nOther agents can read it like this:\n\`\`\`json\n{"file": "a.txt"}\n\`\`\``,
+    result,
+  ]
+  for (const text of texts) {
+    assert.deepEqual(getAdapter('pi').parse(piTurn(text)).result, { status: 'done', summary: 'wrote it' }, `pi: ${text}`)
+    assert.deepEqual(getAdapter('droid').parse(lines([{ type: 'completion', finalText: text }])).result, { status: 'done', summary: 'wrote it' }, `droid: ${text}`)
+  }
+  assert.equal(getAdapter('pi').parse(piTurn('Done, see above.')).result, undefined)
+})
+
+test('usage counts that are not numbers count as 0, and tool results are text', () => {
+  const codex = getAdapter('codex').parse(lines([{ type: 'turn.completed', usage: { input_tokens: '12', output_tokens: 3, cached_input_tokens: null } }]))
+  assert.deepEqual(codex.usage, { inputTokens: 0, outputTokens: 3, cachedTokens: 0 })
+
+  const pi = getAdapter('pi').parse(`${piTurn('a', { input: '3', output: 2 })}\n${piTurn('b', { input: 4, output: 'x', cacheRead: 1 })}`)
+  assert.deepEqual(pi.usage, { inputTokens: 5, outputTokens: 2, cachedTokens: 1, cacheWriteTokens: 0 })
+
+  const claude = getAdapter('claude').parse(lines([{ type: 'result', usage: { input_tokens: '8', output_tokens: 5, cache_read_input_tokens: {} } }]))
+  assert.deepEqual(claude.usage, { inputTokens: 0, outputTokens: 5, cachedTokens: 0, cacheWriteTokens: 0 })
+
+  const droid = getAdapter('droid').parse(lines([
+    { type: 'tool_call', id: 'c1', toolName: 'Read', parameters: {} },
+    { type: 'tool_result', id: 'c1', value: { a: 1 } },
+    { type: 'tool_call', id: 'c2', toolName: 'Read', parameters: {} },
+    { type: 'tool_result', id: 'c2', isError: true, error: { message: ['denied'] } },
+    { type: 'completion', usage: { input_tokens: '9', output_tokens: 1 } },
+  ]))
+  assert.deepEqual(droid.items.flatMap((item) => (item.kind === 'tool_result' ? [item.content] : [])), ['{"a":1}', '["denied"]'])
+  assert.deepEqual(droid.usage, { inputTokens: 0, outputTokens: 1, cachedTokens: 0, cacheWriteTokens: 0 })
+})
+
+test('a tool call without a string ID is left out, so no call has an undefined ID', () => {
+  const claude = getAdapter('claude').parse(lines([{ type: 'assistant', message: { id: 'm1', content: [
+    { type: 'tool_use', name: 'Read', input: {} },
+    { type: 'tool_use', id: 7, name: 'Read', input: {} },
+    { type: 'tool_use', id: 'toolu_1', name: 'Read', input: {} },
+  ] } }]))
+  assert.deepEqual(claude.items.map((item) => item.kind === 'tool_call' && item.id), ['toolu_1'])
+  const pi = getAdapter('pi').parse(lines([{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall', name: 'read', arguments: {} }] } }]))
+  assert.deepEqual(pi.items, [])
+  const droid = getAdapter('droid').parse(lines([{ type: 'tool_call', toolName: 'Read', parameters: {} }]))
+  assert.deepEqual(droid.items, [])
+  const codex = getAdapter('codex').parse(lines([{ type: 'item.completed', item: { type: 'command_execution', command: 'ls', aggregated_output: '' } }]))
+  assert.deepEqual(codex.items, [])
+})
