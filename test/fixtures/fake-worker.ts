@@ -7,6 +7,8 @@ import { basename } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 export interface FakeStep {
+  /** A shell command polled in the working directory before the step does anything; the step goes on once it exits 0. */
+  waitFor?: string
   /** Files to write, relative to the working directory. */
   write?: Record<string, string>
   /** A shell command to run in the working directory after writing. */
@@ -31,6 +33,10 @@ writeFileSync(sessionFile, JSON.stringify(session))
 
 const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
+for (let i = 0; step.waitFor && spawnSync('sh', ['-c', step.waitFor], { stdio: 'ignore' }).status !== 0; i++) {
+  if (i > 1500) throw new Error(`waited 30 s for: ${step.waitFor}`) // a broken run fails instead of hanging
+  await sleep(20)
+}
 for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)
 if (step.sh) spawnSync('sh', ['-c', step.sh], { stdio: 'ignore' })
 if (step.spawnSleeper) {
