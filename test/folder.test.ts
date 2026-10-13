@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { openLog, readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { toAtif } from '../src/trace/atif.ts'
@@ -20,13 +21,13 @@ import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakeBin, runDirOf, sous, waitFor } from './fixtures/sous-proc.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
 
+const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
+
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[], needs?: string[]) =>
   ({ id, kind: 'work' as const, brief: `Do ${id}.\n${fakePlan(steps)}`, ...(needs ? { needs } : {}) })
 /** A PATH with a claude stand-in and the tools checks use, but no git: nothing in folder mode may run git. */
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
-/** This checkout's path, which prompts carry (in the sous command, and in the tests' plan lines): it may name a worktree. */
-const HERE = new URL('..', import.meta.url).pathname
 const NO_GIT = fakeBin(['claude'], ['sh', 'grep', 'mkdir', 'sleep'])
 const plainDir = (prefix: string) => mkdtempSync(join(tmpdir(), prefix))
 /** Every file under `dir`, relative, sorted. */
@@ -90,7 +91,8 @@ test('folder mode without git: a splitter and the lead look first, workers and c
   const splitterNode = state.nodes.get('splitter')!
   const splitterPrompt = JSON.parse(readFileSync(join(sessions, `${splitterNode.turns[0].sessionId}.json`), 'utf8')).prompts[0]
   assert.match(splitterPrompt, new RegExp(`Your folder ${join(runDir, 'work', 'splitter')} has workspace/ and results/`))
-  assert.doesNotMatch(splitterPrompt.replaceAll(HERE, ''), /worktree|commit/)
+  // The prompts name sous's own path, which may contain these words wherever the repository is checked out.
+  assert.doesNotMatch(splitterPrompt.replaceAll(REPO, ''), /worktree|commit/)
   assert.match(told('lead:brief'), /The run's splitter proposed this split of your task: two parts and a check/)
   assert.deepEqual(events.flatMap((e) => (e.type === 'message' && e.sent ? [[e.from, e.to, e.body]] : [])), [['a', 'lead', 'summary.md is written']])
   assert.match(told('lead:brief'), /workspace\/ holds the inputs, results\/ the files your children produced so far\. These names mean the same\sfor your tools, work children and checks/)
@@ -100,7 +102,7 @@ test('folder mode without git: a splitter and the lead look first, workers and c
   const prompt = JSON.parse(readFileSync(join(sessions, `${a.turns[0].sessionId}.json`), 'utf8')).prompts[0]
   assert.match(prompt, new RegExp(`You work in your own folder, ${join(runDir, 'work', 'a')}\\. It has two read-only links: workspace/ holds the inputs \\(${workspace}\\)\nand results/ the results of earlier tasks so far \\(${output}\\)\\.`))
   assert.match(prompt, /Write your own output files at the top of your folder, not inside workspace\/ or results\//)
-  assert.doesNotMatch(prompt.replaceAll(HERE, ''), /worktree/)
+  assert.doesNotMatch(prompt.replaceAll(REPO, ''), /worktree/)
 
   // What the lead looked at is recorded, without the text.
   const [listing, read] = results(fakeLeadRecords(runDir))
