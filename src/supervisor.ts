@@ -18,7 +18,7 @@ import {
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
-import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets } from './send.ts'
+import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets, withoutIdentity } from './send.ts'
 import { ancestors, awaitsSplitApproval, callKey, childrenOf, completedText, failedChecks, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
@@ -453,7 +453,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
    * (or, held open by a process that escaped the group, until the grace is over). */
   const runCommand = (node: string, command: string, cwd: string) =>
     new Promise<{ exitCode: number | null; output: string }>((resolve) => {
-      const child = spawn('sh', ['-c', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn('sh', ['-c', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: withoutIdentity() })
       let tail = Buffer.alloc(0)
       const keep = (chunk: Buffer) => {
         tail = Buffer.concat([tail, chunk])

@@ -97,7 +97,6 @@ export interface TurnResult {
   status: 'done' | 'blocked' | 'needs_input'
   summary: string
   question?: string
-  note_for_parent?: string
 }
 
 /** JSON Schema of TurnResult, passed to harnesses that support structured output. */
@@ -109,7 +108,6 @@ export const TURN_RESULT_SCHEMA = {
     status: { type: 'string', enum: ['done', 'blocked', 'needs_input'] },
     summary: { type: 'string' },
     question: { type: 'string' },
-    note_for_parent: { type: 'string' },
   },
 } as const
 

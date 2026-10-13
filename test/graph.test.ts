@@ -79,3 +79,22 @@ test('a gate needs a brief for the person and takes no command or agent', () => 
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate' }] }), /node ok: gate nodes need a brief/)
   assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate', brief: 'b', command: 'true' }] }), /node ok: gates have no command/)
 })
+
+test('check and gate nodes take no model, as lead children do', () => {
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 't', kind: 'check', command: 'true', model: 'm' }] }), /node t: check nodes have no model/)
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ id: 'ok', kind: 'gate', brief: 'Ship it?', model: 'm' }] }), /node ok: gate nodes have no model/)
+})
+
+test('ids and agent names are described in words, and an agent name must be a valid id', () => {
+  const rule = /letters, digits, _ and - \(and \. after the first character\)/
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [work('a b')] }), (err: Error) => rule.test(err.message) && !err.message.includes('^['))
+  for (const name of ['', 'my agent', '.hidden', 'a/b']) {
+    assert.throws(() => validateGraph({ goal: 'g', agents: { [name]: { runs: 'claude' } }, nodes: [work('a')] }),
+      (err: Error) => err.message.startsWith(`graph: agent name ${JSON.stringify(name)} must be `) && rule.test(err.message) && !err.message.includes('^['), name)
+  }
+  assert.ok(validateGraph({ goal: 'g', agents: { 'my-agent_2': { runs: 'claude' }, 'v1.2': { runs: 'pi' } }, nodes: [work('a')] }))
+})
+
+test('a needs entry that is not a node id is named', () => {
+  assert.throws(() => validateGraph({ goal: 'g', nodes: [{ ...work('a'), needs: ['b', 3] }, work('b')] }), /node a: needs must be an array of node ids, not 3/)
+})

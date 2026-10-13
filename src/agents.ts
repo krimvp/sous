@@ -134,16 +134,37 @@ export function childAgents(defs: Defs, unavailable: Unavailable) {
   return { work: names(false), lead: names(true), defaultWork: defaultWorker(defs, unavailable), runs, models: defs?.models ?? {} }
 }
 
+/** What stops the agents of `graph`'s nodes from running, one line per node, so that a run is refused before it starts:
+ * whatever `agentFor` cannot resolve for a node with the run's availability. Only what is known up front: the children
+ * a lead will spawn are decided at runtime. */
+export function unusableNodeAgents(graph: Definitions & { nodes: NodeSpec[] }, unavailable: Unavailable): string[] {
+  const problems: string[] = []
+  for (const node of graph.nodes) {
+    if (node.kind === 'check' || node.kind === 'gate') continue
+    try {
+      agentFor(graph, node, unavailable)
+    } catch (err) {
+      const fix = (err as { fix?: string }).fix
+      problems.push(`node ${node.id}: ${(err as Error).message}${fix ? `: ${fix}` : ''}`)
+    }
+  }
+  return problems
+}
+
 /** The agent that does `node`: the one it names, else the default for its kind. Throws a reason the node fails with
- * when that agent is unknown, cannot do this kind of node, or is not available with the node's model. */
+ * when that agent is unknown, cannot do this kind of node, or is not available with the node's model; when what is
+ * missing can be fixed, the error's `fix` says how. */
 export function agentFor(defs: Defs, node: Pick<NodeSpec, 'kind' | 'agent' | 'model'>, unavailable: Unavailable): Agent {
   const name = node.agent ?? (node.kind === 'lead' ? 'lead' : defaultWorker(defs, unavailable))
-  if (name === undefined) throw new Error(`no worker agent is available (not found: ${unavailable.commands.join(', ')})`)
+  if (name === undefined) throw Object.assign(new Error(`no worker agent is available (not found: ${unavailable.commands.join(', ')})`), { fix: 'install one or name an agent' })
   const spec = agentSpec(defs, name)
   if (!spec) throw new Error(`unknown agent ${name}`)
   if ((spec.runs === 'lead') !== (node.kind === 'lead')) throw new Error(`agent ${name} runs ${spec.runs} and cannot do a ${node.kind} node`)
   const model = node.model ?? spec.model
   const why = whyUnavailable(spec.runs, model, unavailable)
-  if (why) throw new Error(`agent ${name} is not available (${why})`)
+  if (why) {
+    const fix = spec.runs === 'lead' ? 'log in with Pi (run pi) or set OLLAMA_API_KEY, or change the agent' : `install ${spec.runs} or change the agent`
+    throw Object.assign(new Error(`agent ${name} is not available (${why})`), { fix })
+  }
   return { name, runs: spec.runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }
 }
