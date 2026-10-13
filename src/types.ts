@@ -323,6 +323,10 @@ export type EventBody =
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
+  /** The supervisor did not apply command file `command` (`sous answer`, `approve` or `cancel`): it was no valid command,
+   * named no node of the run, or no longer applied when read (the node finished, a gate was not waiting), or never does
+   * (an answer to a check or a gate, a cancel of a standing node). `reason` names the command and why. */
+  | { type: 'command.refused'; command: string; reason: string }
   /** `sous resume` took over a run whose supervisor had stopped. */
   | { type: 'run.resumed' }
   /** The run's integration branch and worktree, created before the first work or check node starts. */

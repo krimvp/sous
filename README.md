@@ -33,6 +33,7 @@ sous run --max-depth 4 "…"     # let leads nest 4 deep instead of 3
 sous answer lead "Use Grace."   # from another terminal: answer a question the run printed
 sous cancel <node>              # from another terminal: stop a node and its subtree, or reject a gate
 sous approve <gate>             # from another terminal: approve a gate (or a proposed split) the run printed
+                                # (these three go to the running run; with several running, add its id)
 sous resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
 

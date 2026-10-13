@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createIntegration, createNodeWorktree, mergeInProgress } from '../src/git.ts'
-import { openLog, readEvents } from '../src/log.ts'
+import { openLog, readEvents, writeCommand } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
@@ -319,6 +319,42 @@ test('an integrator that is blocked fails the node, its lead is told, and the in
   assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
 })
 
+test('a cancel of the integrator is refused, naming the node it merges, and the integrator finishes that merge', async () => {
+  const workspace = gitWorkspace('sous-merge-', { 'f.txt': 'base\n' })
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  // The integrator resolves once the supervisor has taken the cancel, which removes its command file.
+  const resolve = `while ls ${join(runDir, 'commands')}/*.json >/dev/null 2>&1; do sleep 0.05; done; printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`
+  const { outcome, events, state } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    workspace,
+    agents: integrator([{ sh: resolve, result: done('kept both lines') }]),
+    onEvent: (e) => {
+      if (e.type === 'node.added' && e.node.id === INTEGRATOR) writeCommand(runDir, { type: 'cancel', node: INTEGRATOR })
+    },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(events.flatMap((e) => (e.type === 'command.refused' ? [e.reason] : [])),
+    ['sous cancel integrator: integrator serves the whole run and is not cancelled; to stop its work, cancel the node it works for (b)'])
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
+})
+
+test('a node cancelled while its check runs after a clean merge is not merged: the merge leaves the integration branch', async () => {
+  // In the integration worktree the check hands the supervisor a cancel of its node, as another process may, then ends
+  // cleanly when it is stopped. In the node's own worktree it passes.
+  const cancel = `printf '{"type":"cancel","node":"w"}' > ../commands/w.tmp && mv ../commands/w.tmp ../commands/w.json`
+  const command = `case "$(pwd)" in */integration) ${cancel}; trap 'exit 0' TERM; while :; do sleep 0.05; done;; esac`
+  const { workspace, integration, outcome, events, state } = await runGraph([work('w', [{ write: { 'w.txt': 'w\n' }, result: done('w') }], { command })])
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('w')!.reason, 'cancelled by person')
+  assert.deepEqual(events.filter((e) => e.type.startsWith('merge.')).map((e) => e.type), ['merge.queued'])
+  const created = events.find((e) => e.type === 'integration.created')!
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.type === 'integration.created' && created.base)
+  assert.equal(existsSync(join(integration, 'w.txt')), false)
+})
+
 test('sous resume aborts a merge left in progress without an integrator request and merges again', async () => {
   const workspace = gitWorkspace('sous-merge-')
   const runDir = join(workspace, '.sous', 'runs', 'r1')
@@ -344,6 +380,74 @@ test('sous resume aborts a merge left in progress without an integrator request 
   assert.equal(git(integration, 'log', '-1', '--format=%s'), 'sous: merge w')
   assert.equal(mergeInProgress(integration), false)
   assert.match(resumed.output(), /^result: branch sous\/r1$/m)
+})
+
+for (const integrated of [false, true]) {
+  test(`sous resume drops the merge of a node cancelled while ${integrated ? 'the integrator fixed it' : 'its clean merge was checked'}`, async () => {
+    const workspace = gitWorkspace('sous-merge-')
+    const runDir = join(workspace, '.sous', 'runs', 'r1')
+    // Node w was cancelled while its merge ran, and the supervisor stopped before it reset the integration branch.
+    const created = createIntegration(workspace, 'r1', runDir)
+    const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+    writeFileSync(join(tree.path, 'w.txt'), 'w\n')
+    git(tree.path, 'add', 'w.txt')
+    git(tree.path, 'commit', '-q', '-m', 'w')
+    const integration = join(runDir, 'integration')
+    git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge w', tree.branch)
+    if (integrated) git(integration, 'commit', '-q', '--allow-empty', '-m', 'fix by the integrator')
+    mkdirSync(join(runDir, 'commands'), { recursive: true })
+    const log = openLog(runDir)
+    log.append({ type: 'run.created', goal: 'g', workspace })
+    log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+    log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude', command: 'true' }, by: 'graph' })
+    log.append({ type: 'merge.queued', node: 'w', branch: tree.branch })
+    if (integrated) log.append({ type: 'merge.conflict', node: 'w', reason: 'check failed after the merge (exit 1)', files: [], onto: created.base! })
+    log.append({ type: 'node.cancelled', node: 'w', by: 'person' })
+    log.close()
+    const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+    assert.equal(await resumed.exit, 1, resumed.output())
+    assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.base)
+    assert.equal(git(integration, 'symbolic-ref', '--short', 'HEAD'), 'sous/r1', 'the reset keeps the run branch checked out')
+    assert.equal(existsSync(join(integration, 'w.txt')), false)
+    assert.ok(!readEvents(runDir).some((e) => e.type === 'merge.done'))
+  })
+}
+
+test('sous resume keeps a merge done after a cancelled merge was undone, though it carries the cancelled commits', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  const integration = join(runDir, 'integration')
+  const commit = (path: string, file: string) => {
+    writeFileSync(join(path, file), `${file}\n`)
+    git(path, 'add', file)
+    git(path, 'commit', '-q', '-m', file)
+  }
+  // c's merge went to the integrator; d's worktree was cut while c's merge was on the branch; c was cancelled and its
+  // merge undone; then d merged, bringing c's commits along.
+  const c = createNodeWorktree(workspace, 'r1', runDir, 'c', created.base!)
+  commit(c.path, 'c.txt')
+  git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge c', c.branch)
+  const d = createNodeWorktree(workspace, 'r1', runDir, 'd', git(integration, 'rev-parse', 'HEAD'))
+  commit(d.path, 'd.txt')
+  git(integration, 'reset', '-q', '--hard', created.base!)
+  git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge d', d.branch)
+  const merged = git(integration, 'rev-parse', 'HEAD')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  for (const id of ['c', 'd']) log.append({ type: 'node.added', node: { id, kind: 'work', brief: id, agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'merge.queued', node: 'c', branch: c.branch })
+  log.append({ type: 'merge.conflict', node: 'c', reason: 'check failed after the merge (exit 1)', files: [], onto: created.base! })
+  log.append({ type: 'node.cancelled', node: 'c', by: 'person' })
+  log.append({ type: 'merge.queued', node: 'd', branch: d.branch })
+  log.append({ type: 'merge.done', node: 'd', commit: merged, by: 'supervisor', files: ['c.txt', 'd.txt'] })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), merged)
+  assert.equal(existsSync(join(integration, 'd.txt')), true)
 })
 
 test('a merge whose integration worktree cannot be checked out again fails the node, not the supervisor', async () => {

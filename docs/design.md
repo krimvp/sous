@@ -317,7 +317,15 @@ runner cannot report (its storage, the host's log) reaches the host the same way
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
 `<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event
 (`sous approve` also releases a lead whose proposed split waits for the person; see Splitting).
-The supervisor stays the only writer of the log.
+The supervisor stays the only writer of the log. Each command takes an optional run id after its arguments; without
+one it goes to the workspace's one running run (its lock held by a live supervisor), not the newest run, and with
+several running it is refused with their ids. The commands sous prints for the person name the run when the workspace
+has more than one. A command that does not apply is refused by the CLI, and checked again when the supervisor reads it,
+as the run may have moved on or another process may have written the file: one that is not valid, names no node or a
+finished one, approves a gate not yet waiting or a node that is neither a gate nor a lead with a proposed split,
+answers a check or a gate, or cancels a standing node (the integrator or a splitter, which the run would lose for good:
+cancel the node it works for instead) is recorded as `command.refused` with the command's file name and the reason,
+printed by `sous run` and listed by `sous status`.
 
 **Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
 no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `sous run` prints
@@ -504,7 +512,9 @@ first work or check node starts. The workspace is the repository's top level eve
    passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
    is reset to where the merge started, the node fails and its parent is told. The integrator never completes,
-   does not count toward the run's completion, and shows in `sous status` (`idle` between requests).
+   does not count toward the run's completion, and shows in `sous status` (`idle` between requests). A node
+   cancelled while its merge runs (a clean merge's check, or the integrator's work) gets no `merge.done`: the
+   integration branch is reset to where its merge started.
 5. **Completion.** A work node completes only on `merge.done` (and fails on `merge.failed`). `check` nodes run
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
@@ -518,7 +528,8 @@ Recovery: worktrees, branches and queue state survive a crash. `integration.crea
 are appended only when the branch was newly created; on resume the existing worktree is used, whatever it has checked out (a node's then fails at its branch check, and an integration worktree not on `sous/<run>` fails the run). On `sous
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
-usual; queued merges continue in order.
+usual; queued merges continue in order. A merge of a node cancelled before the stop that is still on the integration
+branch (the stop came before its reset) is dropped from it, once, on resume.
 
 ### Folder mode
 

@@ -40,6 +40,13 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   10 minutes is reported once as `turn.stalled`, a warning that changes nothing (#100).
 - Git-mode workers are told their worktree's branch and that sous commits for them; a worker that leaves its branch
   fails its node instead of having its work committed where it is never merged (#101).
+- `sous answer`, `approve` and `cancel` take an optional run id (`sous answer <node> "text" [run-id]`); without one
+  they go to the run that is running, not the newest run, and with several running they ask for the id (#94).
+- A person command the run does not apply (the node finished, a gate not waiting yet, an answer to a check) is recorded
+  as `command.refused`, printed by `sous run` and listed by `sous status`, instead of being dropped silently (#95).
+- `sous cancel` of the integrator or a splitter is refused with the node to cancel instead, so conflict resolution
+  keeps working; a node cancelled while its merge runs is no longer merged, also when the run stopped before the
+  merge was undone (#96).
 
 ## 0.1.1 (2026-10-12)
 
