@@ -248,6 +248,20 @@ test('an integrator that is blocked fails the node, its lead is told, and the in
   assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
 })
 
+test('a node cancelled while its check runs after a clean merge is not merged: the merge leaves the integration branch', async () => {
+  // In the integration worktree the check hands the supervisor a cancel of its node, as another process may, then ends
+  // cleanly when it is stopped. In the node's own worktree it passes.
+  const cancel = `printf '{"type":"cancel","node":"w"}' > ../commands/w.tmp && mv ../commands/w.tmp ../commands/w.json`
+  const command = `case "$(pwd)" in */integration) ${cancel}; trap 'exit 0' TERM; while :; do sleep 0.05; done;; esac`
+  const { workspace, integration, outcome, events, state } = await runGraph([work('w', [{ write: { 'w.txt': 'w\n' }, result: done('w') }], { command })])
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('w')!.reason, 'cancelled by person')
+  assert.deepEqual(events.filter((e) => e.type.startsWith('merge.')).map((e) => e.type), ['merge.queued'])
+  const created = events.find((e) => e.type === 'integration.created')!
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.type === 'integration.created' && created.base)
+  assert.equal(existsSync(join(integration, 'w.txt')), false)
+})
+
 test('sous resume aborts a merge left in progress without an integrator request and merges again', async () => {
   const workspace = gitWorkspace('sous-merge-')
   const runDir = join(workspace, '.sous', 'runs', 'r1')

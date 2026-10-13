@@ -724,6 +724,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (spec.command) {
         const c = await check(spec.id, spec.command, path)
         if (stopping) return
+        // Cancelled meanwhile: its merge leaves the integration branch, as when the integrator works on it.
+        if (isFinal(nodeNow(spec.id))) return resetTo(path, onto)
         resetTo(path, commit) // what the check left behind is not part of the merge
         if (c.exitCode !== 0) {
           log.append({ type: 'merge.conflict', node: spec.id, reason: `check failed after the merge (exit ${c.exitCode})`, files: [], onto })

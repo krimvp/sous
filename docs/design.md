@@ -464,7 +464,9 @@ first work or check node starts.
    passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
    is reset to where the merge started, the node fails and its parent is told. The integrator never completes,
-   does not count toward the run's completion, and shows in `sous status` (`idle` between requests).
+   does not count toward the run's completion, and shows in `sous status` (`idle` between requests). A node
+   cancelled while its merge runs (a clean merge's check, or the integrator's work) gets no `merge.done`: the
+   integration branch is reset to where its merge started.
 5. **Completion.** A work node completes only on `merge.done` (and fails on `merge.failed`). `check` nodes run
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
