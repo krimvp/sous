@@ -33,8 +33,13 @@ writeFileSync(sessionFile, JSON.stringify(session))
 
 const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
-for (let i = 0; step.waitFor && spawnSync('sh', ['-c', step.waitFor], { stdio: 'ignore' }).status !== 0; i++) {
-  if (i > 1500) throw new Error(`waited 30 s for: ${step.waitFor}`) // a broken run fails instead of hanging
+const waitUntil = Date.now() + 30_000
+while (step.waitFor && spawnSync('sh', ['-c', step.waitFor], { stdio: 'ignore' }).status !== 0) {
+  if (Date.now() > waitUntil) {
+    // A broken run fails (no result; the turn's err file says why) instead of hanging.
+    console.error(`fake worker gave up after 30 s waiting for: ${step.waitFor}`)
+    process.exit(1)
+  }
   await sleep(20)
 }
 for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)

@@ -433,14 +433,16 @@ test('an interrupt send stops a running worker and resumes it with the message',
   ], (e, host) => {
     if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) outFile = e.outFile // <workspace>/run/nodes/w/turn-1.jsonl
     if (e.type !== 'turn.session' || e.node !== 'w' || e.turn !== 1) return
-    // Interrupt only once the worker has saved its session, which holds the plan (then it sleeps inside it);
-    // stopped earlier, the resumed turn would find no plan and end without a result.
-    const session = join(outFile, '../../../../sessions', `${e.sessionId}.json`)
+    // Interrupt only once the worker has printed its session line, which it does after saving the session (the plan);
+    // stopped earlier, the resumed turn would find no plan and end without a result. Gives up after 10 s.
+    const deadline = Date.now() + 10_000
     const poll = setInterval(() => {
-      if (!existsSync(session)) return
+      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"session"')
+      if (!printed && Date.now() < deadline) return
       clearInterval(poll)
-      host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
+      if (printed) host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
     }, 10)
+    poll.unref()
   })
   assert.equal(outcome, 'completed')
   assert.ok(Date.now() - started < 20_000)

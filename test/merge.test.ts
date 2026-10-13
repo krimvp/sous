@@ -1,6 +1,6 @@
 // Merging through real git repositories: node worktrees, the merge queue, the integrator, and resume mid-merge.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -55,12 +55,14 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
 const mergeDone = (events: Event[], node: string) => events.flatMap((e) => (e.type === 'merge.done' && e.node === node ? [e] : []))[0]
 const show = (cwd: string, path: string) => git(cwd, 'show', `sous/r1:${path}`)
 
-test('two work nodes run in parallel in their own worktrees, both merge, and a check that needs both sees both', async () => {
-  // Each worker waits until the other is running, so the turns overlap however slowly they start.
+test('two work nodes run in parallel in their own worktrees, both merge, and a check that needs both sees both', async (t) => {
+  // Each worker waits until the other is running, so the turns overlap however slowly they start. The wait is
+  // bounded (10 s), so turns that never overlap fail the test below instead of hanging it.
   const rendezvous = mkdtempSync(join(tmpdir(), 'sous-rendezvous-'))
+  t.after(() => rmSync(rendezvous, { recursive: true, force: true }))
   const slow = (file: string, other: string): FakeStep[] => [{
     write: { [file]: `${file}\n` },
-    sh: `touch '${join(rendezvous, file)}'; until [ -e '${join(rendezvous, other)}' ]; do sleep 0.02; done`,
+    sh: `touch '${join(rendezvous, file)}'; i=0; until [ -e '${join(rendezvous, other)}' ] || [ $i -ge 500 ]; do sleep 0.02; i=$((i+1)); done`,
     result: done(`wrote ${file}`),
   }]
   const { workspace, runDir, integration, outcome, events, state, prompts } = await runGraph([
