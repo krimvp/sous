@@ -117,7 +117,10 @@ as its log grows, and lists what waits for you with the command that answers it.
 An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi`, `droid` or `lead`, with an optional
 `model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`,
 `droid` and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
-worktree (see the design's harness facts).
+worktree (see the design's harness facts), as you. So a worker, or anything it runs, can also write the run's command
+files, where `sous answer`, `approve` and `cancel` put yours: an approval of a gate or a split, an answer or a cancel can
+be forged. Until workers are sandboxed ([#43](https://github.com/krimvp/sous/issues/43)), a gate protects only as far
+as you trust the agents you run.
 
 A lead may define a new agent for a child, `{ "name": "hr", "runs": "pi", "instructions": "…" }`, which later
 children may name, but only on a runtime the run lists `models` for, with one of those models (default: the
@@ -135,7 +138,7 @@ or `sous answer <lead> "<changes>"`. A subtree can have its own splitter: give a
 inherit it.
 
 ```bash
-npm install          # the lead runner's Pi packages and the type checker
+npm install          # the lead runner's Pi packages, the type checker, and the pre-push hook (scripts/pr-check.sh)
 npm run check        # type check and tests (SOUS_LIVE=1 adds a real lead run)
 npm run test:quick   # the pure, fast test files only (about 2 s); not a substitute for check
 npm run certify      # live harness certification, costs money: SOUS_HARNESS=droid npm run certify

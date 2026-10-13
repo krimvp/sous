@@ -23,6 +23,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 - A Pi login with under five minutes left does not count as a lead credential (pi-ai would refresh it, which sous
   cannot); a run from before the lead model was recorded resumes on the fixed default it started on; the README says
   how to install Pi and what its login covers (#126).
+- The skill tells a first run what it needs: a lead credential of its own, that workers see `HEAD` only, the cap of 4
+  workers at a time, and where a failed turn's stderr is (#112). README, the skill and the design say that workers,
+  which run as the person, can forge the person's commands, an approval, an answer or a cancel, until they are
+  sandboxed (#106).
 - CLI: `-h`/`--help`/`help` (also `sous <command> --help`) print the usage and `--version`/`-v` the version; a command line
   sous cannot parse prints one `sous: ...` line before the usage and exits 2; `sous runs` lists the workspace's runs;
   `sous status` shows the first line of a multi-line goal; `sous export otlp` names the URL and cause of a failed post;
