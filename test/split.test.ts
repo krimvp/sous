@@ -268,7 +268,7 @@ test('an invalid proposal goes back to the splitter once with the reason; the co
     { write: propose('lead', [{ id: 'a', kind: 'work', brief: 'a' }]), result: done('second try') },
   ]))
   assert.equal(outcome, 'completed')
-  assert.match(prompts(SPLITTER)[1], /^Message from supervisor:\nYour proposal for lead lead is not valid: child a: needs may name only earlier siblings\n\nWrite a corrected proposal to \S+\/splits\/lead\.json, then report done again\./)
+  assert.match(prompts(SPLITTER)[1], /^Message from supervisor:\nYour proposal for lead lead is not valid: child a: needs may name only earlier siblings, not later\n\nWrite a corrected proposal to \S+\/splits\/lead\.json, then report done again\./)
   assert.deepEqual(splitEvents(events).map((e) => [e.type, e.type === 'split.proposed' ? e.summary : undefined]), [
     ['split.requested', undefined], ['split.proposed', 'second try'],
   ])
