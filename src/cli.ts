@@ -14,7 +14,7 @@ import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.t
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
-import { runSupervisor } from './supervisor.ts'
+import { commandRefusal, runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
@@ -266,6 +266,7 @@ function printEvent(e: Event): void {
     case 'lead.read': text = `${e.node} ${e.tool} ${e.path ?? '.'}${e.offset ? ` from ${e.offset}` : ''}: ${e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`}`; break
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
+    case 'command.refused': text = e.reason; break
     case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
@@ -306,7 +307,8 @@ async function exportRun(format: 'atif' | 'otlp', workspace: string, deps: CliDe
 
 function status(workspace: string, runId?: string): number {
   const { id, runDir } = findRun(workspace, runId)
-  const state = fold(readEvents(runDir))
+  const events = readEvents(runDir)
+  const state = fold(events)
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
   console.log(`run ${id} ${live}: ${state.goal}`)
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
@@ -321,6 +323,9 @@ function status(workspace: string, runId?: string): number {
   }
   for (const n of children(undefined)) print(n, 1)
   printPending(state)
+  const refused = events.flatMap((e) => (e.type === 'command.refused' ? [e] : [])).slice(-3)
+  if (refused.length) console.log('commands not applied (latest last):')
+  for (const e of refused) console.log(`  ${e.at.slice(11, 19)} ${oneLine(e.reason)}`)
   if (live === 'stopped') console.log(`continue it with: sous resume ${id}`)
   return 0
 }
@@ -342,17 +347,10 @@ function printPending(state: RunState): void {
 }
 
 /** Hand a person's answer, approval or cancel to the run's supervisor through a command file. */
-function sendCommand(workspace: string, cmd: Exclude<PersonCommand, { type: 'send' }>): number {
+function sendCommand(workspace: string, cmd: Exclude<PersonCommand, { type: 'send' | 'receive' }>): number {
   const { id, runDir } = findRun(workspace)
-  const node = fold(readEvents(runDir)).nodes.get(cmd.node)
-  if (!node) throw new Error(`run ${id} has no node ${cmd.node}`)
-  if (isFinal(node)) throw new Error(`node ${cmd.node} is already ${node.status}`)
-  const gate = node.spec.kind === 'gate'
-  if (cmd.type === 'answer' && gate) throw new Error(`node ${cmd.node} is a gate: approve it with sous approve, or reject it with sous cancel`)
-  if (cmd.type === 'approve' && !gate && !awaitsSplitApproval(node)) {
-    throw new Error(node.spec.kind === 'lead' ? `lead ${cmd.node} has no proposed split waiting for approval` : `node ${cmd.node} is not a gate or a lead`)
-  }
-  if (cmd.type === 'approve' && gate && node.status !== 'waiting') throw new Error(`gate ${cmd.node} is not waiting for approval yet`)
+  const why = commandRefusal(fold(readEvents(runDir)), cmd)
+  if (why) throw new Error(`run ${id}: ${why}`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
   writeCommand(runDir, cmd)
   console.log(`${cmd.type} for ${cmd.node} sent to run ${id}`)

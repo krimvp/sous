@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { mock, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { main } from '../src/cli.ts'
-import { readEvents } from '../src/log.ts'
+import { readEvents, writeCommand } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
@@ -269,6 +269,33 @@ test('sous answer delivers to a lead that asked the person, and sous status list
   assert.deepEqual(message.type === 'message' && [message.from, message.to, message.body], ['person', 'lead', 'Postgres.'])
   const last = events.findLast((e) => e.type === 'lead.delivered')!
   assert.deepEqual(last.type === 'lead.delivered' && [last.requestId, last.text], [`evt-${message.seq}`, 'Message from person:\nPostgres.'])
+})
+
+test('sous answer refuses a check up front; a command the supervisor refuses is printed by the run and listed by sous status', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({ goal: 'ship', nodes: [
+    { id: 'ship', kind: 'gate', brief: 'Ship it?' },
+    { id: 'c', kind: 'check', command: 'true', needs: ['ship'] },
+  ] }))
+  const run = sous(['run', graph], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'message' && e.from === 'ship')
+  const runDir = runDirOf(workspace)!
+  const answer = sous(['answer', 'c', 'Is it fine?'], workspace, sessions)
+  assert.equal(await answer.exit, 1)
+  assert.equal(answer.output(), `sous: run ${basename(runDir)}: node c is a check, which reads no messages\n`)
+  // A command that no longer applies when the supervisor reads it, or that another process wrote.
+  writeCommand(runDir, { type: 'cancel', node: 'nope' })
+  const refused = await waitFor(workspace, (e) => e.type === 'command.refused')
+  const status = sous(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), new RegExp(`\ncommands not applied \\(latest last\\):\n  ${refused.at.slice(11, 19)} sous cancel nope: no node nope\n$`))
+
+  const approve = sous(['approve', 'ship'], workspace, sessions)
+  assert.equal(await approve.exit, 0, approve.output())
+  assert.equal(await run.exit, 0, run.output())
+  assert.match(run.output(), /command\.refused +sous cancel nope: no node nope\n/)
 })
 
 test('sous run --agents gives a goal run its agents and models, recorded in run.created; with a graph file it is an error', async () => {

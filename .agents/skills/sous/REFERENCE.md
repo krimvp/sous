@@ -15,7 +15,9 @@ sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers le
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
-`run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
+`run-id` defaults to the latest run. A command the run cannot apply is refused: up front, or as `command.refused` when
+it no longer applies by the time the run reads it (shown by the run and `sous status`). The integrator and splitters
+are not cancelled: cancel the node they work for. `--workspace` defaults to the current directory. An argument to `run` that
 names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
@@ -79,5 +81,5 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 
 `turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done` (with `files`; in folder mode a collection)/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
-`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
+`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `command.refused` (a person command not applied), `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
 `run.completed`/`run.failed`.

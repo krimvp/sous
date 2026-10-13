@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createIntegration, createNodeWorktree, mergeInProgress } from '../src/git.ts'
-import { openLog, readEvents } from '../src/log.ts'
+import { openLog, readEvents, writeCommand } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
@@ -245,6 +245,28 @@ test('an integrator that is blocked fails the node, its lead is told, and the in
   assert.ok(told.includes('Child b failed: merge failed: the integrator is blocked: Which line wins?'), told.join('\n'))
   assert.equal(mergeInProgress(integration), false)
   assert.equal(readFileSync(join(integration, 'f.txt'), 'utf8'), 'a\n')
+  assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
+})
+
+test('a cancel of the integrator is refused, naming the node it merges, and the integrator finishes that merge', async () => {
+  const workspace = gitWorkspace('sous-merge-', { 'f.txt': 'base\n' })
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  // The integrator resolves once the supervisor has taken the cancel, which removes its command file.
+  const resolve = `while ls ${join(runDir, 'commands')}/*.json >/dev/null 2>&1; do sleep 0.05; done; printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`
+  const { outcome, events, state } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    workspace,
+    agents: integrator([{ sh: resolve, result: done('kept both lines') }]),
+    onEvent: (e) => {
+      if (e.type === 'node.added' && e.node.id === INTEGRATOR) writeCommand(runDir, { type: 'cancel', node: INTEGRATOR })
+    },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(events.flatMap((e) => (e.type === 'command.refused' ? [e.reason] : [])),
+    ['sous cancel integrator: integrator serves the whole run and is not cancelled; to stop its work, cancel the node it works for (b)'])
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
   assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
 })
 

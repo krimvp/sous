@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { openLog, readEvents } from '../src/log.ts'
@@ -563,4 +563,50 @@ test('a lead that answers an earlier delivery while a later one waits is not idl
   })
   assert.equal(outcome, 'completed')
   assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child'])
+})
+
+test('a person command that does not apply is recorded as refused, with the command and why, and changes nothing', async () => {
+  const workspace = gitWorkspace('sous-ws-')
+  const runDir = join(workspace, 'run')
+  const commands = join(runDir, 'commands')
+  mkdirSync(commands, { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'test goal', workspace })
+  for (const node of [
+    { id: 'ship', kind: 'gate', brief: 'Ship?' },
+    { id: 'c', kind: 'check', command: 'true', needs: ['ship'] },
+    { id: 'later', kind: 'gate', brief: 'Later?', needs: ['c'] },
+  ] satisfies NodeSpec[]) log.append({ type: 'node.added', node, by: 'graph' })
+  log.close()
+  // Named in the order the supervisor reads them; each gate's request brings the next ones.
+  const write = (name: string, cmd: object | string) => writeFileSync(join(commands, `${name}.json`), typeof cmd === 'string' ? cmd : JSON.stringify(cmd))
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => fakeAdapter(join(workspace, 'sessions')), onEvent: (e) => {
+    if (e.type === 'message' && e.from === 'ship') {
+      write('1', '{"type": "answer", ')
+      write('2', { type: 'answer', node: 'c', text: 'Is it fine?' })
+      write('3', { type: 'answer', node: 'ship', text: 'yes' })
+      write('4', { type: 'approve', node: 'later' })
+      write('5', { type: 'cancel', node: 'nope' })
+      write('6', { type: 'approve', node: 'c' })
+      write('7', { type: 'approve', node: 'ship' })
+    }
+    if (e.type === 'message' && e.from === 'later') {
+      write('8', { type: 'approve', node: 'ship' })
+      write('9', { type: 'approve', node: 'later' })
+    }
+  } })
+  assert.equal(outcome, 'completed')
+  const events = readEvents(runDir)
+  assert.deepEqual(events.flatMap((e) => (e.type === 'command.refused' ? [[e.command, e.reason]] : [])), [
+    ['1.json', '1.json is not a valid command'],
+    ['2.json', 'sous answer c: node c is a check, which reads no messages'],
+    ['3.json', 'sous answer ship: node ship is a gate: approve it with sous approve, or reject it with sous cancel'],
+    ['4.json', 'sous approve later: gate later is not waiting for approval yet'],
+    ['5.json', 'sous cancel nope: no node nope'],
+    ['6.json', 'sous approve c: node c is not a gate or a lead'],
+    ['8.json', 'sous approve ship: node ship is already completed'],
+  ])
+  assert.ok(!events.some((e) => e.type === 'message' && e.from === 'person'))
+  assert.deepEqual(['ship', 'later'].map((id) => fold(events).nodes.get(id)!.summary), ['approved by person', 'approved by person'])
+  assert.deepEqual(readdirSync(commands), [])
 })

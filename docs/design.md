@@ -295,7 +295,12 @@ report (its storage, the host's log) reaches the host the same way, as `unanswer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
 `<runDir>/commands/`; the supervisor turns it into a `message` from `person` or a `node.cancelled` event
 (`sous approve` also releases a lead whose proposed split waits for the person; see Splitting).
-The supervisor stays the only writer of the log.
+The supervisor stays the only writer of the log. A command that does not apply is refused by the CLI, and checked
+again when the supervisor reads it, as the run may have moved on or another process may have written the file: one
+that is not valid, names no node or a finished one, approves a gate not yet waiting or a node that is neither a gate
+nor a lead with a proposed split, answers a check or a gate, or cancels a standing node (the integrator or a splitter,
+which the run would lose for good: cancel the node it works for instead) is recorded as `command.refused` with the
+command's file name and the reason, printed by `sous run` and listed by `sous status`.
 
 **Gates.** A `gate` node (in a graph file, or a lead's child) has a `brief` saying what the person approves and
 no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `sous run` prints
