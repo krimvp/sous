@@ -96,9 +96,8 @@ function ensureWorktree(workspace: string, branch: string, path: string, start: 
     throw new Error(`git check-ref-format: ${branch} is not a valid branch name`)
   }
   git(workspace, ['worktree', 'prune'])
-  const entry = git(workspace, ['worktree', 'list', '--porcelain']).split('\n\n')
-    .map((block) => block.split('\n'))
-    .find((lines) => lines.includes(`branch refs/heads/${branch}`))
+  const trees = git(workspace, ['worktree', 'list', '--porcelain']).split('\n\n').map((block) => block.split('\n'))
+  const entry = trees.find((lines) => lines.includes(`branch refs/heads/${branch}`))
   if (entry) {
     const at = entry[0].slice('worktree '.length)
     if (!existsSync(path) || realpathSync(at) !== realpathSync(path)) {
@@ -106,6 +105,13 @@ function ensureWorktree(workspace: string, branch: string, path: string, start: 
     }
     return { branch, path }
   }
+  // The worktree is there, but its worker left the branch (another branch, a detached HEAD): it is still this one, and
+  // the caller checks what it has checked out.
+  const own = (lines: string[]) => {
+    const at = lines[0].slice('worktree '.length)
+    return existsSync(at) && realpathSync(at) === realpathSync(path)
+  }
+  if (existsSync(path) && trees.some(own)) return { branch, path }
   if (run(workspace, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]).status === 0) {
     git(workspace, ['worktree', 'add', path, branch])
     return { branch, path }

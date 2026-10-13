@@ -859,7 +859,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
           : recorded ? recoveryPrompt(ig.inbox) : inboxPrompt(ig.inbox)
         const t = await runTurn(ig.spec, agent, ig.turns.length + 1, prompt, path, sessionId, !!recorded)
         if (stopping) return
-        if (t.exited?.quiet) return mergeFailed(id, `the integrator's ${exitedText(ig.turns.length + 1, t.exited)}`, onto)
+        // A node cancelled meanwhile is handled at the top of the loop.
+        if (t.exited?.quiet && !isFinal(nodeNow(id))) return mergeFailed(id, `the integrator's ${exitedText(ig.turns.length + 1, t.exited)}`, onto)
         result = t.result
         if (nodeNow(INTEGRATOR).inbox.length) continue // messages that arrived meanwhile come first
       }
@@ -980,9 +981,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
           splitFor.delete(node)
         }
         if (stopping) return
+        if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
         if (t.exited?.quiet) return failed(`the splitter's ${exitedText(sp.turns.length + 1, t.exited)}`)
         result = t.result
-        if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
         if (nodeNow(node).inbox.length) continue // messages that arrived meanwhile come first
       }
       if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)

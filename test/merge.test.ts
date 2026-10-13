@@ -100,6 +100,31 @@ test('a worker that switches its worktree to another branch fails its node, and 
   assert.equal(existsSync(join(integration, 'stray.txt')), false)
 })
 
+test('sous resume of a done worker that left its branch fails the node with that reason', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  // Node w reported done after switching its worktree to another branch; the supervisor stopped before committing.
+  const created = createIntegration(workspace, 'r1', runDir)
+  const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+  git(tree.path, 'switch', '-q', '-c', 'other')
+  writeFileSync(join(tree.path, 'w.txt'), 'w\n')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'worktree.created', node: 'w', branch: tree.branch, path: tree.path, base: created.base! })
+  const out = join(runDir, 'nodes', 'w', 'turn-1.jsonl')
+  log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', agent: 'claude', pid: 1, outFile: out, errFile: `${out}.err` })
+  log.append({ type: 'turn.ended', node: 'w', turn: 1, exitCode: 0, signal: null, result: done('wrote w.txt') })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  assert.equal(fold(readEvents(runDir)).nodes.get('w')!.reason,
+    `the worker left branch sous/r1.w: its worktree ${tree.path} is on branch other, so its work is not committed or merged`)
+  assert.equal(git(tree.path, 'status', '--porcelain'), '?? w.txt', 'sous committed nothing')
+})
+
 test('a node with no changes merges by nothing', async () => {
   const { outcome, events, state } = await runGraph([work('noop', [{ result: done('nothing to change') }])])
   assert.equal(outcome, 'completed')
