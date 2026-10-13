@@ -835,7 +835,14 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       log.append({ type: 'merge.done', node: spec.id, commit, by: 'supervisor', files: changedFiles(path, onto, branch) })
     } catch (err) {
-      if (stopping || isFinal(nodeNow(spec.id))) return
+      if (stopping) return
+      if (isFinal(nodeNow(spec.id))) {
+        // Cancelled meanwhile: what of its merge reached the integration branch leaves it, as on the paths above.
+        try {
+          if (onto) resetTo(integrationTree().path, onto)
+        } catch {}
+        return
+      }
       try {
         mergeFailed(spec.id, `supervisor error: ${(err as Error).message}`, onto)
       } catch {
