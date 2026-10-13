@@ -30,7 +30,8 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 - A person command the run does not apply (the node finished, a gate not waiting yet, an answer to a check) is recorded
   as `command.refused`, printed by `sous run` and listed by `sous status`, instead of being dropped silently (#95).
 - `sous cancel` of the integrator or a splitter is refused with the node to cancel instead, so conflict resolution
-  keeps working; a node cancelled while its clean merge is checked is no longer merged (#96).
+  keeps working; a node cancelled while its merge runs is no longer merged, also when the run stopped before the
+  merge was undone (#96).
 
 ## 0.1.1 (2026-10-12)
 
