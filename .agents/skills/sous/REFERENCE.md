@@ -16,7 +16,8 @@ sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
-names an existing file is a graph file; anything else is a goal. `--agents` is for goal runs only.
+names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
+path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
 `sous answer <lead> "<changes>"`.
 

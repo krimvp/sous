@@ -134,6 +134,25 @@ export function childAgents(defs: Defs, unavailable: Unavailable) {
   return { work: names(false), lead: names(true), defaultWork: defaultWorker(defs, unavailable), runs, models: defs?.models ?? {} }
 }
 
+/** What stops the agents of `graph`'s nodes from running, by node, so that a run is refused before it starts: a node
+ * whose named agent, or whose default worker agent when it names none, is not available. A lead node that names no agent
+ * is not checked: its agent is `lead`, whose credential is the lead runner's to report. */
+export function unusableNodeAgents(graph: Pick<Definitions, 'agent' | 'agents'> & { nodes: NodeSpec[] }, unavailable: Unavailable): string[] {
+  const problems: string[] = []
+  for (const node of graph.nodes) {
+    if (node.kind === 'check' || node.kind === 'gate' || (node.kind === 'lead' && node.agent === undefined)) continue
+    const name = node.agent ?? defaultWorker(graph, unavailable)
+    if (name === undefined) {
+      problems.push(`node ${node.id} names no agent and no worker agent is available (not found: ${unavailable.commands.join(', ')}): install one or name an agent`)
+      continue
+    }
+    const spec = agentSpec(graph, name)
+    const why = spec && whyUnavailable(spec.runs, node.model ?? spec.model, unavailable)
+    if (why) problems.push(`node ${node.id} ${node.agent === undefined ? 'uses the default agent' : 'names'} ${name}, which is not available (${why}): ${spec.runs === 'lead' ? 'log in with Pi' : 'install it'} or change the agent`)
+  }
+  return problems
+}
+
 /** The agent that does `node`: the one it names, else the default for its kind. Throws a reason the node fails with
  * when that agent is unknown, cannot do this kind of node, or is not available with the node's model. */
 export function agentFor(defs: Defs, node: Pick<NodeSpec, 'kind' | 'agent' | 'model'>, unavailable: Unavailable): Agent {
