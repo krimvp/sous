@@ -240,7 +240,9 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })
     assert.equal((await call(6, 'ping')).result && 'still serving', 'still serving')
   } finally {
-    server.kill()
+    // Closing stdin ends it as a harness does; a killed process writes no coverage.
+    server.stdin.end()
+    await once(server, 'exit')
   }
 })
 

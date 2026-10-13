@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -154,4 +154,47 @@ test('sous ui names the output folder as a folder-mode run\'s result', async (t)
   writeFileSync(log, lines.join('\n'))
   const run = await (await get('/api/run', { run: RUN })).json()
   assert.equal(run.result, join(ws, '.sous', 'runs', RUN, 'output'))
+})
+
+test('sous ui shows what waits for the person (a question, a gate, a split) and the merge spans', async (t) => {
+  const ws = mkdtempSync(join(tmpdir(), 'sous-ui-'))
+  const runDir = join(ws, '.sous', 'runs', RUN)
+  mkdirSync(runDir, { recursive: true })
+  const at = (s: number) => `2026-10-11T11:00:${String(s).padStart(2, '0')}.000Z`
+  const log: object[] = [
+    { type: 'run.created', goal: 'Waiting on a person', workspace: '/tmp/demo' },
+    { type: 'node.added', node: { id: 'asker', kind: 'work', brief: 'Pick a fruit.' }, by: 'person' },
+    { type: 'message', from: 'asker', to: 'person', body: 'Which fruit?', mode: 'queue' },
+    { type: 'node.added', node: { id: 'ship', kind: 'gate', brief: 'Ship it?' }, by: 'person' },
+    { type: 'message', from: 'ship', to: 'person', body: 'Approve: Ship it?', mode: 'queue' },
+    { type: 'node.added', node: { id: 'big', kind: 'lead', brief: 'Build the thing.', agent: 'splitter' }, by: 'person' },
+    { type: 'split.requested', node: 'big', agent: 'splitter' },
+    { type: 'split.proposed', node: 'big', parts: [{ id: 'a', kind: 'work', brief: 'Part a.' }], summary: 'One part.' },
+    { type: 'message', from: 'big', to: 'person', body: 'Approve this split?', mode: 'queue' },
+    // Three merges: one done, one failed, one still queued.
+    ...['m-done', 'm-failed', 'm-queued'].flatMap((id) => [{ type: 'node.added', node: { id, kind: 'work', brief: id }, by: 'person' }, { type: 'merge.queued', node: id, branch: `sous/${id}` }]),
+    { type: 'merge.done', node: 'm-done', commit: 'abc123', by: 'supervisor', files: ['a.txt'] },
+    { type: 'merge.failed', node: 'm-failed', reason: 'the check failed after the merge' },
+  ].map((e, i) => ({ seq: i + 1, at: at(i), ...e }))
+  writeFileSync(join(runDir, 'events.jsonl'), log.map((e) => JSON.stringify(e) + '\n').join(''))
+  const server = await startUi(ws, (): ParsedTurn => ({ items: [], ended: false }))
+  t.after(() => server.close())
+  const url = new URL(server.url)
+  const get = (path: string, params: Record<string, string>) => fetch(`${url.origin}${path}?${new URLSearchParams({ ...params, token: url.searchParams.get('token')! })}`)
+
+  const { runs } = await (await get('/api/runs', {})).json()
+  assert.deepEqual(runs.map((r: any) => [r.status, r.waiting]), [['stopped', 3]])
+  const run = await (await get('/api/run', { run: RUN })).json()
+  assert.deepEqual(run.questions, [
+    { from: 'asker', body: 'Which fruit?', kind: 'question' },
+    { from: 'ship', body: 'Approve: Ship it?', kind: 'gate' },
+    { from: 'big', body: 'Approve this split?', kind: 'split' },
+  ])
+  const node = (id: string) => run.nodes.find((n: any) => n.id === id)
+  const merge = (id: string) => node(id).spans.map((s: any) => [s.kind, s.outcome ?? null, s.end ?? null])
+  assert.deepEqual(merge('m-done'), [['merge', 'done', at(15)]])
+  assert.deepEqual(merge('m-failed'), [['merge', 'failed', at(16)]])
+  assert.deepEqual(merge('m-queued'), [['merge', null, null]], 'a merge in the queue is still going')
+  assert.deepEqual([node('m-done').status, node('m-done').merged, node('m-failed').status, node('m-failed').outcome, node('m-queued').status],
+    ['completed', true, 'failed', 'merge failed: the check failed after the merge', 'merging'])
 })
