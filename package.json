@@ -37,7 +37,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "prepare": "[ -d .githooks ] && git config core.hooksPath .githooks || true",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",

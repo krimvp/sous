@@ -105,7 +105,7 @@ test('droid: parses a recorded stream-json turn', () => {
   const turn = getAdapter('droid').parse(fixture('droid'))
   assert.equal(turn.sessionId, 'b31ef143-a1e1-47ab-8090-8112d2b1a6a0')
   assert.equal(turn.ended, true)
-  assert.deepEqual(turn.result, { status: 'done', summary: 'Read note.txt; it names mango as the fruit.', note_for_parent: '' })
+  assert.deepEqual(turn.result, { status: 'done', summary: 'Read note.txt; it names mango as the fruit.' })
   assert.deepEqual(turn.usage, { inputTokens: 13692, outputTokens: 69, cachedTokens: 6720, cacheWriteTokens: 0 })
   assert.match((readCall(turn, 'Read').arguments as { file_path: string }).file_path, /\/note\.txt$/)
   assertPaired(turn)

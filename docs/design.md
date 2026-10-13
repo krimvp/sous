@@ -579,7 +579,7 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
 stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
 tree, since the facts they established are written down here and `npm run certify` supersedes the second; they remain
-in the git history from before this note.
+on the branch `archive/site-notes-and-spikes` (at 0.1.1).
 
 The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with
 SIGKILL, then resumes the session and asks for a codeword given before the stop. All six combinations

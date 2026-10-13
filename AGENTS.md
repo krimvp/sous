@@ -17,7 +17,7 @@ Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries
 - **Done means:** `scripts/pr-check.sh` passes (`npm run check` and `npm pack --dry-run`; `npm install` installs it as the
   pre-push hook, since GitHub Actions is not available), the changed path was run for real when practical, and the PR
   fills in [the template](.github/PULL_REQUEST_TEMPLATE.md): issues closed, what changed, the head SHA pr-check passed
-  on, what was verified and what was not.
+  on, what was verified and what was not. Setting `core.hooksPath` replaces any personal hooks in `.git/hooks`.
 - **Review:** every code PR gets one independent review of its exact head by an agent that did not write it, posted as a
   GitHub review on the PR (not only a "review fixes" commit), with its link and the SHA it reviewed in the PR body.
 - **Releases and dependencies:** user-visible changes go under "Unreleased" in [CHANGELOG.md](CHANGELOG.md); a release PR
