@@ -51,7 +51,7 @@ engine can be tested without a lead.
 |---|---|---|
 | `lead` | an LLM with orchestration tools and read-only file tools | splits its node into children, reacts to events, completes itself |
 | `work` | a worker adapter (Claude, Codex, Pi, Droid, custom) | does the work (code, research, writing, analysis) in a git worktree or its own folder |
-| `check` | a shell command | deterministic gate; exit code 0 passes |
+| `check` | a shell command | deterministic gate; exit code 0 passes. It ends when the command exits: what it left running (a server, a watcher) is stopped |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
 | `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
 

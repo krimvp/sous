@@ -436,7 +436,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   // ---- Workers and checks ---------------------------------------------------------------------
 
-  /** Run a shell command in its own process group; returns its exit code and the tail of its output. */
+  /** Run a shell command in its own process group; returns its exit code and the tail of its output. The command's
+   * exit ends the check: what it left running in its group is stopped, and the pipes are read until they close
+   * (or, held open by a process that escaped the group, until the grace is over). */
   const runCommand = (node: string, command: string, cwd: string) =>
     new Promise<{ exitCode: number | null; output: string }>((resolve) => {
       const child = spawn('sh', ['-c', command], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -448,11 +450,22 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       child.stdout.on('data', keep)
       child.stderr.on('data', keep)
       if (child.pid) groups.set(child.pid, { node })
+      const closed = new Promise<void>((done) => child.on('close', () => done()))
+      let finished = false
       const finish = async (exitCode: number | null) => {
-        let output = tail.toString('utf8')
+        if (finished) return
+        finished = true
         if (child.pid) {
           groups.delete(child.pid)
           await terminate(child.pid) // background processes the command left behind
+        }
+        let grace: NodeJS.Timeout | undefined
+        await Promise.race([closed, new Promise<void>((done) => (grace = setTimeout(done, graceMs)))])
+        clearTimeout(grace)
+        child.stdout.destroy()
+        child.stderr.destroy()
+        let output = tail.toString('utf8')
+        if (child.pid) {
           const why = interruptedChecks.get(child.pid)
           interruptedChecks.delete(child.pid)
           if (why) output += `${output && !output.endsWith('\n') ? '\n' : ''}interrupted: ${why}\n`
@@ -463,7 +476,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         keep(Buffer.from(String(err)))
         finish(null)
       })
-      child.on('close', (code) => finish(code))
+      child.on('exit', (code) => finish(code))
     })
 
   const check = async (node: string, command: string, cwd: string) => {

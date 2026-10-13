@@ -157,6 +157,16 @@ test('processes a worker leaves behind are stopped before its turn counts as end
   assert.throws(() => process.kill(grandchildOf(sessions), 0), /ESRCH/)
 })
 
+test('a check that leaves a background process behind ends when its command exits, and the leftover is stopped', async () => {
+  const started = Date.now()
+  const { outcome, state } = await runGraph([{ id: 'c', kind: 'check', command: 'sleep 20 & echo $!; echo check passed' }])
+  assert.equal(outcome, 'completed')
+  assert.ok(Date.now() - started < 10_000, 'the check ended when its command exited, not when the sleep did')
+  const [pid, text] = state.nodes.get('c')!.checks[0].output.split('\n')
+  assert.equal(text, 'check passed')
+  assert.throws(() => process.kill(Number(pid), 0), /ESRCH/)
+})
+
 test('a group that ignores SIGTERM is killed before the supervisor finishes', async () => {
   const { outcome, sessions } = await runGraph([work('stubborn', [{ spawnSleeper: 'ignore-term', result: done('ok'), lingerMs: 60_000 }])], 200)
   assert.equal(outcome, 'completed')
