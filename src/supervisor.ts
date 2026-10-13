@@ -70,6 +70,29 @@ export type PersonCommand =
   | { type: 'send'; from: string; to: string; text: string }
   | { type: 'receive'; node: string; turn: number; upTo: number }
 
+/** Why a person's answer, approval or cancel does not apply to the run as it is, if it does not: `sous answer`,
+ * `approve` and `cancel` check it before they write the command file, and the supervisor again when it reads it, as the
+ * run may have moved on since (or the file came from elsewhere). A standing node (the integrator, a splitter) is not
+ * cancelled: the run would lose it for good. Cancelling the node it works for stops that work. */
+export function commandRefusal(state: RunState, cmd: Exclude<PersonCommand, { type: 'send' | 'receive' }>): string | undefined {
+  const node = typeof cmd.node === 'string' ? state.nodes.get(cmd.node) : undefined
+  if (!node) return `no node ${cmd.node}`
+  const { id, kind, standing } = node.spec
+  if (isFinal(node)) return `node ${id} is already ${node.status}`
+  if (cmd.type === 'answer') {
+    if (kind === 'gate') return `node ${id} is a gate: approve it with sous approve, or reject it with sous cancel`
+    if (kind === 'check') return `node ${id} is a check, which reads no messages`
+    if (typeof cmd.text !== 'string' || !cmd.text.trim()) return 'the answer is empty'
+  } else if (cmd.type === 'approve') {
+    if (kind === 'gate' && node.status !== 'waiting') return `gate ${id} is not waiting for approval yet`
+    if (kind !== 'gate' && !awaitsSplitApproval(node)) return kind === 'lead' ? `lead ${id} has no proposed split waiting for approval` : `node ${id} is not a gate or a lead`
+  } else if (standing) {
+    const serving = [...state.nodes.values()].filter((n) => !isFinal(n) &&
+      (id === INTEGRATOR ? n.merge?.conflict : n.split?.status === 'requested' && roleNode(SPLITTER, n.split.agent) === id)).map((n) => n.spec.id)
+    return `${id} serves the whole run and is not cancelled; to stop its work, cancel the node it works for${serving.length ? ` (${serving.join(', ')})` : ''}`
+  }
+}
+
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 function interrupt(pid: number, signal: NodeJS.Signals): void {
   try {
@@ -480,18 +503,20 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       return
     }
-    if (cmd?.type !== 'answer' && cmd?.type !== 'approve' && cmd?.type !== 'cancel') return
-    const node = typeof cmd?.node === 'string' ? current().nodes.get(cmd.node) : undefined
-    if (!node || isFinal(node)) return
-    const gate = node.spec.kind === 'gate'
-    if (cmd!.type === 'answer' && !gate && typeof cmd!.text === 'string' && cmd!.text.trim()) {
-      log.append({ type: 'message', from: PERSON, to: cmd!.node, body: cmd!.text, mode: 'queue', command })
-    } else if (cmd!.type === 'approve' && gate && node.status === 'waiting') {
-      log.append({ type: 'node.completed', node: cmd!.node, summary: 'approved by person', command })
-    } else if (cmd!.type === 'approve' && awaitsSplitApproval(node)) {
-      log.append({ type: 'message', from: PERSON, to: cmd!.node, body: SPLIT_APPROVED, mode: 'queue', command })
-    } else if (cmd!.type === 'cancel') {
-      log.append({ type: 'node.cancelled', node: cmd!.node, by: PERSON, command })
+    // A command that does not apply is recorded, so the person sees it was not delivered.
+    if (cmd?.type !== 'answer' && cmd?.type !== 'approve' && cmd?.type !== 'cancel') {
+      return void log.append({ type: 'command.refused', command, reason: `${command} is not a valid command` })
+    }
+    const why = commandRefusal(current(), cmd)
+    if (why) return void log.append({ type: 'command.refused', command, reason: `sous ${cmd.type} ${cmd.node}: ${why}` })
+    if (cmd.type === 'answer') {
+      log.append({ type: 'message', from: PERSON, to: cmd.node, body: cmd.text, mode: 'queue', command })
+    } else if (cmd.type === 'approve' && current().nodes.get(cmd.node)!.spec.kind === 'gate') {
+      log.append({ type: 'node.completed', node: cmd.node, summary: 'approved by person', command })
+    } else if (cmd.type === 'approve') {
+      log.append({ type: 'message', from: PERSON, to: cmd.node, body: SPLIT_APPROVED, mode: 'queue', command })
+    } else {
+      log.append({ type: 'node.cancelled', node: cmd.node, by: PERSON, command })
     }
   }
 
@@ -800,6 +825,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (spec.command) {
         const c = await check(spec.id, spec.command, path)
         if (stopping) return
+        // Cancelled meanwhile: its merge leaves the integration branch, as when the integrator works on it.
+        if (isFinal(nodeNow(spec.id))) return resetTo(path, onto)
         resetTo(path, commit) // what the check left behind is not part of the merge
         if (c.exitCode !== 0) {
           log.append({ type: 'merge.conflict', node: spec.id, reason: `check failed after the merge (exit ${c.exitCode})`, files: [], onto })
@@ -1028,6 +1055,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       for (const t of n.turns) if (!t.ended) await closeTurn(n.spec, t)
     }
     const state = current()
+    // A node cancelled while its merge ran, when the supervisor stopped before it reset the integration branch: its merge
+    // (clean, or committed by the integrator) is still on the branch, and nothing merged after it. Reset it now, once:
+    // after the reset its branch is no longer part of the integration branch. A merge done after it ended means its
+    // merge was reset then; that later merge may carry its commits (a worktree cut while they were on the branch).
+    for (const n of state.nodes.values()) {
+      const m = n.merge
+      if (folder || !isFinal(n) || !m?.branch || log.events.some((e) => (e.type === 'merge.done' || e.type === 'merge.failed') && e.node === n.spec.id)) continue
+      if (log.events.some((e) => e.type === 'merge.done' && e.seq > n.endSeq!)) continue
+      const { path } = integrationTree()
+      const onto = mergedOnto(path, m.branch) ?? (m.conflict && !hasChanges(path, m.branch) ? m.conflict.onto : undefined)
+      if (onto) resetTo(path, onto)
+    }
     for (const n of state.nodes.values()) {
       // A worker's question recorded as its result but not yet sent to its parent.
       const last = n.turns.at(-1)

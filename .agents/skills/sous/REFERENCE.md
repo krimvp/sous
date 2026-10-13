@@ -7,9 +7,9 @@ sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-sp
 sous resume [run-id] [--workspace <dir>]
 sous status [run-id] [--workspace <dir>]
 sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
-sous answer <node> "text" [--workspace <dir>]
-sous approve <node> [--workspace <dir>]
-sous cancel <node> [--workspace <dir>]
+sous answer <node> "text" [run-id] [--workspace <dir>]
+sous approve <node> [run-id] [--workspace <dir>]
+sous cancel <node> [run-id] [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
 sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
@@ -18,7 +18,10 @@ sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers le
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
-`run-id` defaults to the latest run. `--workspace` defaults to the current directory, or when that is inside a git
+`run-id` defaults to the latest run; for `answer`, `approve` and `cancel`, to the one run that is running (with several
+running, name one). A command the run cannot apply is refused: up front, or as `command.refused` when it no longer
+applies by the time the run reads it (shown by the run and `sous status`). The integrator and splitters are not
+cancelled: cancel the node they work for. `--workspace` defaults to the current directory, or when that is inside a git
 repository to the repository's top level (`sous run` and `sous doctor` say so); a `--workspace` you give is used exactly as given. A
 command line sous cannot parse (unknown command or option, wrong number of arguments, a bad `--port` or `--max-depth`)
 prints `sous: <what is wrong>` and the usage on stderr and exits 2; a refusal after that (a mistyped graph file, an empty
@@ -89,5 +92,5 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 
 `turn.started`/`turn.ended` (worker turns; an `error` names the turn's `.err` file and ends with its stderr), `turn.stalled` (no output for 10 minutes; the turn goes on), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done` (with `files`; in folder mode a collection)/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
-`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
+`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `command.refused` (a person command not applied), `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
 `run.completed`/`run.failed`.
