@@ -71,8 +71,16 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
   function watch(lead: Lead, submission: Submission, requestId: string) {
     if (lead.watching.has(requestId)) return
     lead.watching.add(requestId)
-    submission.wait(ctx).then((settled) => report(lead, settled, requestId)).catch((err) => {
-      if (!closing) console.error(`sous: lead ${lead.node}: reporting ${requestId} failed: ${err?.stack ?? err}`)
+    submission.wait(ctx).then((settled) => report(lead, settled, requestId)).catch(async (err) => {
+      // A report that fails (the storage, the host's log) would leave the delivery unsettled for the host forever: it
+      // hears the failure instead, and retries or fails the lead.
+      if (closing || lead.cancelled || lead.reported.has(requestId)) return
+      try {
+        host.settled(lead.node, { requestId, status: 'unanswered', text: `reporting the answer failed: ${err?.message ?? err}`, model: modelName(lead.model!) })
+        await recorded(lead, requestId)
+      } catch (again) {
+        console.error(`sous: lead ${lead.node}: reporting ${requestId} failed: ${(again as Error)?.stack ?? again}`)
+      }
     })
   }
 
@@ -81,9 +89,13 @@ export function openLeadRunner(opts: { runDir: string; host: LeadHost; models: M
     const { text, usage } = await describe(lead, settled)
     if (lead.cancelled || closing) return
     host.settled(lead.node, { requestId, status: settled.status, text, model: modelName(lead.model!), usage })
+    await recorded(lead, requestId)
+    if (settled.status === 'unanswered') await wake(lead)
+  }
+
+  async function recorded(lead: Lead, requestId: string) {
     lead.reported.add(requestId)
     await lead.harness.commit(async (tx) => { (await tx.doc(LeadDoc)).reported.push(requestId) }, ctx)
-    if (settled.status === 'unanswered') await wake(lead)
   }
 
   // A failed run leaves the deliveries queued behind it in the inbox until the next submission places them, so they

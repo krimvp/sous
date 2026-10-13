@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
-  abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, head, merge, mergeInProgress,
+  abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, head, merge, mergeInProgress, uncommitted,
 } from '../src/git.ts'
 
 // No user identity anywhere: sous's commits must carry their own.
@@ -90,6 +90,21 @@ test('commitAll commits untracked files as sous, honours .gitignore, and reports
   assert.deepEqual(sh(node.path, 'show', '--name-only', '--format=', 'HEAD').split('\n'), ['new.txt'])
   assert.equal(existsSync(join(node.path, 'debug.log')), true)
   assert.equal(commitAll(node.path, 'again'), false)
+})
+
+test('uncommitted names changed, added and renamed paths as they are, and leaves ignored files out', () => {
+  const { workspace, runDir } = repo()
+  ensureRepo(workspace)
+  const node = createNodeWorktree(workspace, 'r1', runDir, 'n', head(workspace))
+  assert.deepEqual(uncommitted(node.path), [])
+  writeFileSync(join(node.path, 'c.txt'), 'c\n')
+  sh(node.path, 'add', 'c.txt')
+  sh(node.path, '-c', 'user.name=P', '-c', 'user.email=p@example.com', 'commit', '-q', '-m', 'c')
+  sh(node.path, 'mv', 'c.txt', 'd.txt')
+  writeFileSync(join(node.path, 'a.txt'), 'changed\n')
+  writeFileSync(join(node.path, 'new file.txt'), 'x\n')
+  writeFileSync(join(node.path, 'debug.log'), 'noise\n')
+  assert.deepEqual(uncommitted(node.path), ['a.txt', 'd.txt', 'new file.txt'])
 })
 
 test('a clean merge returns its commit; a branch without commits has no changes', () => {

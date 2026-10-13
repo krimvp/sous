@@ -16,7 +16,7 @@ import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { runSupervisor } from './supervisor.ts'
-import type { PersonCommand, SupervisorOptions } from './supervisor.ts'
+import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
 import { startUi } from './ui.ts'
@@ -162,11 +162,14 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
-  const outcome = await runSupervisor({
-    workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
-  })
-  printResult(runDir)
-  if (outcome === 'interrupted') console.log(`stopped; continue with: sous resume ${id}`)
+  let outcome: SupervisorOutcome | undefined
+  try {
+    outcome = await runSupervisor({
+      workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
+    })
+  } finally {
+    printEnd(id, runDir)
+  }
   return outcome === 'completed' ? 0 : 1
 }
 
@@ -180,19 +183,29 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel)
   printPending(state)
   const printEvent = printer(events)
-  const outcome = await runSupervisor({
-    workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
-    resume: true, unavailable,
-  })
-  printResult(runDir)
-  if (outcome === 'interrupted') console.log(`stopped; continue with: sous resume ${id}`)
+  let outcome: SupervisorOutcome | undefined
+  try {
+    outcome = await runSupervisor({
+      workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
+      resume: true, unavailable,
+    })
+  } finally {
+    printEnd(id, runDir)
+  }
   return outcome === 'completed' ? 0 : 1
 }
 
-/** Where the run's results are: the branch that holds its merged work, once it has one, or its output folder. */
-function printResult(runDir: string): void {
-  const result = resultOf(fold(readEvents(runDir)), runDir)
-  if (result) console.log(`result: ${result}`)
+/** After the supervisor: where the run's results are (the branch that holds its merged work, once it has one, or its
+ * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. Nothing
+ * when another supervisor holds the run (this one never ran it), and never an error over the supervisor's own. */
+function printEnd(id: string, runDir: string): void {
+  try {
+    if (lockHolder(runDir) !== undefined) return
+    const state = fold(readEvents(runDir))
+    const result = resultOf(state, runDir)
+    if (result) console.log(`result: ${result}`)
+    if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+  } catch {}
 }
 
 function resultOf(state: RunState, runDir: string): string | undefined {

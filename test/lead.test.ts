@@ -183,6 +183,23 @@ test('a delivery queued behind a failed run still runs and settles', async () =>
   ])
 })
 
+test('a settlement whose report to the host fails is reported again as unanswered, with the error', async () => {
+  const { faux, models, model } = fauxModels()
+  faux.setResponses([fauxAssistantMessage([fauxText('Hello.')])])
+  const { host, settled } = fakeHost()
+  // The host cannot record the first report (its log could not be written).
+  let reports = 0
+  const flaky: LeadHost = { ...host, settled(node, turn) {
+    if (reports++ === 0) throw new Error('disk full')
+    host.settled(node, turn)
+  } }
+  const runner = openLeadRunner({ runDir: tempRunDir(), host: flaky, models })
+  await runner.deliver('lead', 'Goal: say hello.', { requestId: 'lead:brief', mode: 'queue', model })
+  await until(() => settled.length === 1)
+  await runner.close()
+  assert.deepEqual(settled.map((s) => [s.turn.requestId, s.turn.status, s.turn.text]), [['lead:brief', 'unanswered', 'reporting the answer failed: disk full']])
+})
+
 test('cancel stops a running lead and later deliveries are ignored', async () => {
   const { faux, models, model } = fauxModels()
   let started!: () => void
