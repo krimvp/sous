@@ -133,6 +133,12 @@ export function abortMerge(path: string): void {
   git(path, ['merge', '--abort'])
 }
 
+/** The branch the worktree has checked out, or undefined for a detached HEAD. */
+export function currentBranch(path: string): string | undefined {
+  const r = run(path, ['symbolic-ref', '-q', '--short', 'HEAD'])
+  return r.status === 0 ? r.stdout.trim() : undefined
+}
+
 export function head(path: string): string {
   return git(path, ['rev-parse', 'HEAD'])
 }

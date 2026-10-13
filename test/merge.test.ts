@@ -63,7 +63,10 @@ test('two work nodes run in parallel in their own worktrees, both merge, and a c
   assert.equal(outcome, 'completed')
   const span = (node: string) => ['turn.started', 'turn.ended'].map((type) => events.find((e) => e.type === type && 'node' in e && e.node === node)!.seq)
   assert.ok(span('a')[0] < span('b')[1] && span('b')[0] < span('a')[1], 'the two turns overlap')
-  assert.match(prompts('a')[0], new RegExp(`Work in the directory ${join(runDir, 'worktrees', 'a')}\\.`))
+  assert.ok(prompts('a')[0].includes([
+    `Work in the directory ${join(runDir, 'worktrees', 'a')}, a git worktree on branch sous/r1.a; sous commits your changes there when you finish.`,
+    'Do not switch branches, commit elsewhere, stash, reset or push. Do only this task.',
+  ].join('\n')))
   assert.deepEqual(['a', 'b'].map((n) => mergeDone(events, n)?.by), ['supervisor', 'supervisor'])
   assert.equal(state.nodes.get('both')!.checks[0].output, 'a.txt\nb.txt\n')
   assert.equal(show(workspace, 'b.txt'), 'b.txt')
@@ -72,6 +75,19 @@ test('two work nodes run in parallel in their own worktrees, both merge, and a c
   // A node completes with its merge: a check that needs it starts after merge.done.
   const doneB = mergeDone(events, 'b')!.seq
   assert.ok(events.find((e) => e.type === 'check.ended' && e.node === 'both')!.seq > doneB)
+})
+
+test('a worker that switches its worktree to another branch fails its node, and nothing of it is committed or merged', async () => {
+  const { integration, outcome, events, state, runDir } = await runGraph([
+    work('stray', [{ write: { 'stray.txt': 'stray\n' }, sh: 'git switch -q -c other', result: done('wrote stray.txt') }]),
+  ])
+  assert.equal(outcome, 'failed')
+  const tree = join(runDir, 'worktrees', 'stray')
+  assert.equal(state.nodes.get('stray')!.reason,
+    `the worker left branch sous/r1.stray: its worktree ${tree} is on branch other, so its work is not committed or merged`)
+  assert.ok(!events.some((e) => e.type === 'merge.queued'))
+  assert.equal(git(tree, 'status', '--porcelain'), '?? stray.txt', 'sous committed nothing')
+  assert.equal(existsSync(join(integration, 'stray.txt')), false)
 })
 
 test('a node with no changes merges by nothing', async () => {

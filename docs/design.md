@@ -442,9 +442,12 @@ first work or check node starts.
 2. **Node worktrees.** A work node gets branch `sous/<run>.<node>` (git cannot hold `sous/<run>/<node>` beside
    `sous/<run>`) and worktree `.sous/runs/<run>/worktrees/<node>/`, created from the integration branch's
    current commit when the node starts (`worktree.created`). Its worker runs there and its acceptance check
-   runs there. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
+   runs there. Its brief names the branch, says sous commits its changes, and tells it not to switch branches, commit
+   elsewhere, stash, reset or push. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
 3. **Merge queue.** When a work node is done and its acceptance check passed in its own worktree, the
-   supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
+   supervisor checks that the worktree is still on the node's branch (a worker that switched branches or detached
+   `HEAD` fails its node, and nothing is committed), commits any uncommitted changes there and queues the branch
+   (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
    again in the integration worktree; if it passes, `merge.done` by `supervisor`. The worktree is reset to its

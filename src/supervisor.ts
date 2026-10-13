@@ -13,7 +13,7 @@ import {
 import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
 import {
-  changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
+  changedFiles, commitAll, createIntegration, createNodeWorktree, currentBranch, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
   resetTo, withConflictMarkers,
 } from './git.ts'
 import { childError } from './graph.ts'
@@ -650,7 +650,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
     const folders = folder ? { workspace, output: resultsDir() } : undefined
     const contacts = spec.standing ? undefined : { ...sendTargets(state, spec.id), max: MAX_SENDS, maxWait: MAX_WAIT_SECONDS }
-    const brief = () => composeBrief(state.goal, spec, cwd, notesFor(state, spec.id), node.inbox, instructions, contacts, folders)
+    const brief = () => composeBrief(state.goal, spec, cwd, notesFor(state, spec.id), node.inbox, instructions, contacts, folders, branch)
     let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
     let recovery = false
     let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
@@ -714,6 +714,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         }
       }
       if (folder) return void log.append({ type: 'merge.queued', node: spec.id })
+      // The worker must leave its worktree on its branch: what is committed elsewhere would never be merged.
+      const on = currentBranch(cwd)
+      if (on !== branch) {
+        return fail(spec.id, `the worker left branch ${branch}: its worktree ${cwd} is on ${on ? `branch ${on}` : 'a detached HEAD'}, so its work is not committed or merged`)
+      }
       commitAll(cwd, `${spec.id}: ${t.result.summary}`)
       return void log.append({ type: 'merge.queued', node: spec.id, branch })
     }
