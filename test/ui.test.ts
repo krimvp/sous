@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { startUi } from '../src/ui.ts'
-import type { ParsedTurn } from '../src/types.ts'
+import type { Event, EventBody, ParsedTurn } from '../src/types.ts'
 import { sous } from './fixtures/sous-proc.ts'
 
 // The lead fixture (see trace-atif.test.ts): `lead` spawns `impl` (work, completes after one Claude turn) and `docs`
@@ -180,7 +180,7 @@ test('sous ui shows what waits for the person (a question, a gate, a split) and 
   const runDir = join(ws, '.sous', 'runs', RUN)
   mkdirSync(runDir, { recursive: true })
   const at = (s: number) => `2026-10-11T11:00:${String(s).padStart(2, '0')}.000Z`
-  const log: object[] = [
+  const bodies: EventBody[] = [
     { type: 'run.created', goal: 'Waiting on a person', workspace: '/tmp/demo' },
     { type: 'node.added', node: { id: 'asker', kind: 'work', brief: 'Pick a fruit.' }, by: 'person' },
     { type: 'message', from: 'asker', to: 'person', body: 'Which fruit?', mode: 'queue' },
@@ -191,10 +191,11 @@ test('sous ui shows what waits for the person (a question, a gate, a split) and 
     { type: 'split.proposed', node: 'big', parts: [{ id: 'a', kind: 'work', brief: 'Part a.' }], summary: 'One part.' },
     { type: 'message', from: 'big', to: 'person', body: 'Approve this split?', mode: 'queue' },
     // Three merges: one done, one failed, one still queued.
-    ...['m-done', 'm-failed', 'm-queued'].flatMap((id) => [{ type: 'node.added', node: { id, kind: 'work', brief: id }, by: 'person' }, { type: 'merge.queued', node: id, branch: `sous/${id}` }]),
+    ...['m-done', 'm-failed', 'm-queued'].flatMap((id): EventBody[] => [{ type: 'node.added', node: { id, kind: 'work', brief: id }, by: 'person' }, { type: 'merge.queued', node: id, branch: `sous/${id}` }]),
     { type: 'merge.done', node: 'm-done', commit: 'abc123', by: 'supervisor', files: ['a.txt'] },
     { type: 'merge.failed', node: 'm-failed', reason: 'the check failed after the merge' },
-  ].map((e, i) => ({ seq: i + 1, at: at(i), ...e }))
+  ]
+  const log: Event[] = bodies.map((e, i) => ({ seq: i + 1, at: at(i), ...e }))
   writeFileSync(join(runDir, 'events.jsonl'), log.map((e) => JSON.stringify(e) + '\n').join(''))
   const server = await startUi(ws, (): ParsedTurn => ({ items: [], ended: false }))
   t.after(() => server.close())

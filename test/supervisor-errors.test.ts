@@ -42,7 +42,7 @@ async function run(nodes: NodeSpec[], opts: { adapter?: (sessions: string) => Wo
 
 const of = <T extends Event['type']>(events: Event[], type: T) => events.filter((e): e is Extract<Event, { type: T }> => e.type === type)
 
-test('a lead runner that cannot take a delivery fails the lead and everything below it, and the run', async () => {
+test('a lead runner that cannot take a delivery fails the lead and everything below it, and the run', { timeout: 30_000 }, async () => {
   const lead: LeadRunner = {
     deliver: async () => { throw new Error('no provider reachable') },
     cancel: async () => {}, resume: async () => {}, close: async () => {},
@@ -59,7 +59,7 @@ test('a lead runner that cannot take a delivery fails the lead and everything be
   assert.equal(state.reason, 'failed nodes: boss')
 })
 
-test('a harness that is not installed fails its node with the command named, and the run', async () => {
+test('a harness that is not installed fails its node with the command named, and the run', { timeout: 30_000 }, async () => {
   const path = process.env.PATH
   process.env.PATH = fakeBin([], ['git']) // git, and no claude
   try {
@@ -75,7 +75,7 @@ test('a harness that is not installed fails its node with the command named, and
   }
 })
 
-test("a turn whose output file cannot be read ends with that error, and the node's missing result is reminded once", async () => {
+test("a turn whose output file cannot be read ends with that error, and the node's missing result is reminded once", { timeout: 30_000 }, async () => {
   // The worker ran, but its output is gone by the time the supervisor reads it.
   const vanishing = (sessions: string): WorkerAdapter => {
     const fake = fakeAdapter(sessions)
@@ -93,7 +93,7 @@ test("a turn whose output file cannot be read ends with that error, and the node
   assert.equal(state.nodes.get('w')!.reason, 'turn 2 ended without a structured result')
 })
 
-test("a merge that throws fails the node with merge.failed, and the node's dependents fail with it", async () => {
+test("a merge that throws fails the node with merge.failed, and the node's dependents fail with it", { timeout: 30_000 }, async () => {
   // The node's branch and worktree disappear as it joins the merge queue.
   const worktrees = new Map<string, { path: string; branch: string }>()
   const { outcome, state, events } = await run([work('w'), work('after', { needs: ['w'] })], {
@@ -116,7 +116,7 @@ test("a merge that throws fails the node with merge.failed, and the node's depen
   assert.equal(of(events, 'merge.done').length, 0)
 })
 
-test('a graph whose nodes wait for each other forever fails the run with run.failed: no node can start', async () => {
+test('a graph whose nodes wait for each other forever fails the run with run.failed: no node can start', { timeout: 30_000 }, async () => {
   // A cycle cannot be written as a graph file, but a log can hold one.
   const { outcome, state, events } = await run([work('a', { needs: ['b'] }), work('b', { needs: ['a'] })], { adapter: fakeAdapter })
   assert.equal(outcome, 'failed')
