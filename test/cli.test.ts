@@ -314,6 +314,35 @@ test('a resumed run keeps the lead model chosen when it was created, for leads r
   assert.equal(fold(readEvents(runDir)).summary, 'all done')
 })
 
+test('a run from before the lead model was recorded resumes on the fixed default, not on whatever has a credential now', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const goal = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'escalate', question: 'Go on?' }] }, { calls: [{ tool: 'complete', summary: 'done' }] }])}`
+  const run = sous(['run', goal], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  // An older log: run.created without leadModel.
+  const runDir = runDirOf(workspace)!
+  const lines = readFileSync(join(runDir, 'events.jsonl'), 'utf8').trimEnd().split('\n')
+  const { leadModel, ...created } = JSON.parse(lines[0])
+  assert.equal(leadModel, 'ollama-cloud/deepseek-v4.1-flash')
+  writeFileSync(join(runDir, 'events.jsonl'), [JSON.stringify(created), ...lines.slice(1)].join('\n') + '\n')
+
+  // Resumed when only OpenAI has a credential: the lead stays on the default it started on, and so cannot run.
+  process.env.FAKE_LEAD_CREDENTIALS = 'openai'
+  const resumed = sous(['resume'], workspace, sessions)
+  delete process.env.FAKE_LEAD_CREDENTIALS
+  try {
+    for (let i = 0; i < 200 && !/^agents: /m.test(resumed.output()); i++) await sleep(50)
+    assert.match(resumed.output(), /^agents: .*; not available: lead \(no credential for ollama-cloud\)$/m)
+  } finally {
+    resumed.child.kill('SIGINT') // a run that picked a fresh default would wait for an answer instead of failing
+    await resumed.exit
+  }
+  assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.reason, 'agent lead is not available (no credential for ollama-cloud)')
+})
+
 test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')

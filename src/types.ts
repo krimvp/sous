@@ -262,7 +262,7 @@ export const DEFAULT_MAX_LEAD_DEPTH = 3
  * `credential` is what a person does to give sous one (every message about a lead that cannot run says so).
  * Credentials are read as `src/lead/providers.ts` says: the environment variable named here, or the Pi login. */
 export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: string }[] = [
-  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY or log in with Pi (run pi)' },
+  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY' },
   { id: 'anthropic', model: 'claude-haiku-5-5', credential: 'set ANTHROPIC_API_KEY or log in with Pi (run pi)' },
   { id: 'openai', model: 'gpt-6-luna', credential: 'set OPENAI_API_KEY or log in with Pi (run pi)' },
   { id: 'openai-codex', model: 'gpt-5.5', credential: 'log in with Pi (run pi) using ChatGPT' },
