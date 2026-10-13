@@ -1,6 +1,6 @@
 // Merging through real git repositories: node worktrees, the merge queue, the integrator, and resume mid-merge.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -27,6 +27,8 @@ const work = (id: string, steps: FakeStep[], extra: Partial<NodeSpec> = {}): Nod
   ({ id, kind: 'work', agent: 'claude', brief: `Do ${id}.\n${fakePlan(steps)}`, ...extra })
 /** A graph-defined integrator that plays `steps`: its standing instructions come first in its prompt. */
 const integrator = (steps: FakeStep[]): GraphFile['agents'] => ({ integrator: { runs: 'codex', instructions: fakePlan(steps) } })
+/** A worker step waits for this until node a is merged into the integration branch, so its edit comes second. */
+const AFTER_A = "git log --format=%s sous/r1 | grep -qx 'sous: merge a'"
 const COMMIT = 'git -c user.name=I -c user.email=i@example.com commit -q --no-edit'
 
 /** Runs `nodes` in a git workspace whose first commit holds `files`. */
@@ -53,11 +55,19 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
 const mergeDone = (events: Event[], node: string) => events.flatMap((e) => (e.type === 'merge.done' && e.node === node ? [e] : []))[0]
 const show = (cwd: string, path: string) => git(cwd, 'show', `sous/r1:${path}`)
 
-test('two work nodes run in parallel in their own worktrees, both merge, and a check that needs both sees both', async () => {
-  const slow = (file: string): FakeStep[] => [{ sleepMs: 300, write: { [file]: `${file}\n` }, result: done(`wrote ${file}`) }]
+test('two work nodes run in parallel in their own worktrees, both merge, and a check that needs both sees both', async (t) => {
+  // Each worker waits until the other is running, so the turns overlap however slowly they start. The wait is
+  // bounded (10 s), so turns that never overlap fail the test below instead of hanging it.
+  const rendezvous = mkdtempSync(join(tmpdir(), 'sous-rendezvous-'))
+  t.after(() => rmSync(rendezvous, { recursive: true, force: true }))
+  const slow = (file: string, other: string): FakeStep[] => [{
+    write: { [file]: `${file}\n` },
+    sh: `touch '${join(rendezvous, file)}'; i=0; until [ -e '${join(rendezvous, other)}' ] || [ $i -ge 500 ]; do sleep 0.02; i=$((i+1)); done`,
+    result: done(`wrote ${file}`),
+  }]
   const { workspace, runDir, integration, outcome, events, state, prompts } = await runGraph([
-    work('a', slow('a.txt')),
-    work('b', slow('b.txt')),
+    work('a', slow('a.txt', 'b.txt')),
+    work('b', slow('b.txt', 'a.txt')),
     { id: 'both', kind: 'check', command: 'cat a.txt b.txt', needs: ['a', 'b'] },
   ])
   assert.equal(outcome, 'completed')
@@ -84,7 +94,7 @@ test('a node with no changes merges by nothing', async () => {
 test('two nodes editing the same line conflict; the integrator resolves the merge in the integration worktree', async () => {
   const { workspace, runDir, integration, outcome, events, state, prompts } = await runGraph([
     work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }], { command: 'grep -q b f.txt' }),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }], { command: 'grep -q b f.txt' }),
   ], {
     files: { 'f.txt': 'base\n' },
     agents: integrator([{ sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`, result: done('kept both lines') }]),
@@ -122,7 +132,7 @@ test('conflict markers committed by the integrator fail verification, at any mar
   for (const attributes of [{}, ...[10, 3, -1].map((size) => ({ '.gitattributes': `f.txt conflict-marker-size=${size}\n` }))] as Record<string, string>[]) {
     const { integration, outcome, events, state, prompts } = await runGraph([
       work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-      work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+      work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
     ], {
       files: { 'f.txt': 'base\n', ...attributes },
       agents: integrator([
@@ -151,24 +161,23 @@ test("a check that dirties the integration worktree does not fail the next node'
   assert.equal(git(integration, 'status', '--porcelain'), '', 'the integration worktree is clean after the last merge')
 })
 
-test('an integrator that leaves new files uncommitted is sent back once, told which; its merge is done once they are committed', async () => {
-  // Both change the same line: whichever merges second conflicts and goes to the integrator.
+test('an integrator that leaves changes uncommitted is sent back once, told which paths; its merge is done once they are committed', async () => {
   const { workspace, integration, outcome, events, state, prompts } = await runGraph([
     work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ write: { 'f.txt': 'b\n' }, result: done('b') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
   ], {
-    files: { 'f.txt': 'base\n' },
+    files: { 'f.txt': 'base\n', 'g.txt': 'g\n' },
     agents: integrator([
-      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} && touch forgotten.txt && mkdir -p scratch && touch scratch/junk`, result: done('merged, with helper files') },
-      { sh: `git add forgotten.txt && rm -r scratch && ${COMMIT} -m 'add the helper'`, result: done('committed the helper') },
+      // The merge is committed, but a tracked file is changed and three files are left over, one with a space in its name.
+      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} && echo more >> g.txt && touch forgotten.txt 'new file.txt' && mkdir scratch && touch scratch/junk`, result: done('merged, with leftovers') },
+      { sh: `git checkout -- g.txt && git add forgotten.txt && rm -r 'new file.txt' scratch && ${COMMIT} -m 'add the helper'`, result: done('committed the helper') },
     ]),
   })
   assert.equal(outcome, 'completed')
-  const conflicted = events.find((e) => e.type === 'merge.conflict')!.node
   assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
-  assert.match(prompts(INTEGRATOR)[1], new RegExp(`Node ${conflicted} is not merged yet: uncommitted changes remain in forgotten\\.txt, scratch/: commit what belongs to the merge and delete the rest`))
-  assert.equal(mergeDone(events, conflicted)?.by, 'integrator')
-  assert.equal(git(workspace, 'ls-tree', '--name-only', 'sous/r1'), 'f.txt\nforgotten.txt')
+  assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: uncommitted changes remain in g\.txt, forgotten\.txt, new file\.txt, scratch\/: commit what belongs to the merge and delete the rest/)
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.equal(git(workspace, 'ls-tree', '--name-only', 'sous/r1'), 'f.txt\nforgotten.txt\ng.txt')
   assert.equal(git(integration, 'status', '--porcelain'), '')
 })
 
@@ -176,7 +185,7 @@ test('an integrator that aborts the merge does not get it accepted: after a retr
   const abort = { sh: 'git merge --abort', result: done('done, honestly') }
   const { integration, outcome, events, state } = await runGraph([
     work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
   ], { files: { 'f.txt': 'base\n' }, agents: integrator([abort, abort]) })
   assert.equal(outcome, 'failed')
   assert.equal(mergeDone(events, 'b'), undefined)
@@ -217,7 +226,7 @@ test('a check that fails after a clean merge goes to the integrator, which fixes
   const { workspace, outcome, events, state } = await runGraph([
     work('a', [{ write: { 'a.txt': 'a\n' }, result: done('a') }]),
     // Passes in b's own worktree, which has no a.txt; fails once a is merged.
-    work('b', [{ sleepMs: 300, write: { 'b.txt': 'b\n' }, result: done('b') }], { command: 'test ! -e a.txt || test -e fixed.txt' }),
+    work('b', [{ waitFor: AFTER_A, write: { 'b.txt': 'b\n' }, result: done('b') }], { command: 'test ! -e a.txt || test -e fixed.txt' }),
   ], { agents: integrator([{ sh: `touch fixed.txt && git add fixed.txt && ${COMMIT} -m fix`, result: done('fixed') }]) })
   assert.equal(outcome, 'completed')
   const conflict = events.flatMap((e) => (e.type === 'merge.conflict' ? [e] : []))
@@ -232,7 +241,7 @@ test('an integrator that is blocked fails the node, its lead is told, and the in
   const lead: NodeSpec = { id: 'lead', kind: 'lead', brief: `Lead.\n${fakeLeadPlan([
     { calls: [{ tool: 'spawn', children: [
       { id: 'a', kind: 'work', agent: 'claude', brief: `A.\n${fakePlan([{ write: { 'f.txt': 'a\n' }, result: done('a') }])}` },
-      { id: 'b', kind: 'work', agent: 'claude', brief: `B.\n${fakePlan([{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }])}` },
+      { id: 'b', kind: 'work', agent: 'claude', brief: `B.\n${fakePlan([{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }])}` },
     ] }] },
     {},
     { calls: [{ tool: 'complete', summary: 'a merged, b did not' }] },

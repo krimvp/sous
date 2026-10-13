@@ -257,8 +257,27 @@ export type CreateLeadRunner = (opts: { runDir: string; host: LeadHost }) => Lea
 /** How deep leads may nest (a top-level lead is depth 1) unless the run sets `--max-depth`. */
 export const DEFAULT_MAX_LEAD_DEPTH = 3
 
-/** Default lead model when neither the node nor the run sets one. */
-export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
+/** The lead providers sous knows, in the order a lead that names no model gets one: the first provider with a
+ * credential, on its default model here (current and inexpensive; an agent's or a node's `model` overrides it).
+ * `credential` is what a person does to give sous one (every message about a lead that cannot run says so).
+ * Credentials are read as `src/lead/providers.ts` says: the environment variable named here, or the Pi login. */
+export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: string }[] = [
+  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY or log in with Pi (run pi)' },
+  { id: 'anthropic', model: 'claude-haiku-5-5', credential: 'set ANTHROPIC_API_KEY or log in with Pi (run pi)' },
+  { id: 'openai', model: 'gpt-6-luna', credential: 'set OPENAI_API_KEY or log in with Pi (run pi)' },
+  { id: 'openai-codex', model: 'gpt-5.5', credential: 'log in with Pi (run pi) using ChatGPT' },
+]
+
+/** What gets a credential for some lead provider: the fix when none has one. */
+export const ANY_LEAD_CREDENTIAL_FIX = 'set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi (run pi)'
+
+/** The lead model when nothing names one and availability was not consulted: the first lead provider's. */
+export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].model}`
+
+/** What gets a credential for lead provider `provider`: its entry's, or, for a provider sous has no entry for, the
+ * Pi login that every provider may be logged in to. */
+export const leadCredentialFix = (provider: string) =>
+  LEAD_PROVIDERS.find((p) => p.id === provider)?.credential ?? 'log in with Pi (run pi)'
 
 // ---- Event log -------------------------------------------------------------------------------
 
@@ -266,8 +285,10 @@ export type EventBody =
   /** `maxDepth`: how deep leads may nest in this run (`sous run --max-depth`); absent means DEFAULT_MAX_LEAD_DEPTH.
    * `definitions`: a goal run's agents file (`sous run --agents`); a graph run's definitions are in its `graph`.
    * `approveSplits`: the person approves each split the splitter proposes before its lead receives it.
-   * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode }
+   * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`.
+   * `leadModel`: the model of lead agents that name none, chosen from the credentials present when the run was created
+   * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */

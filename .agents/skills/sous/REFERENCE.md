@@ -11,6 +11,7 @@ sous approve <node> [run-id] [--workspace <dir>]
 sous cancel <node> [run-id] [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
+sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
@@ -33,11 +34,14 @@ path separator, which is refused as a mistyped file name. `--agents` is for goal
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
-(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, `ollama-cloud/deepseek-v4.1-flash`).
+(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, the first lead provider with a credential, in the order
+`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`, `openai-codex/gpt-5.5`).
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
 Droid model IDs (`claude-sonnet-5`, or a custom model `custom:…`),
-and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `openai-codex/gpt-5.5`).
+and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`,
+`openai-codex/gpt-5.5`; a lead's provider needs its API key in the environment, `OLLAMA_API_KEY`, `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY`, or a Pi login).
 
 ## Nodes (graph files)
 

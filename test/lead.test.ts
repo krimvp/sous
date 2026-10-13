@@ -1,7 +1,7 @@
 // The lead runner on pi-ai's faux provider, with a fake LeadHost that records what the lead does.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -267,9 +267,53 @@ test('an unknown provider or a missing credential fails the delivery with a clea
   const res = spawnSync(process.execPath, [fixture, tempRunDir(), 'models'], { encoding: 'utf8', env })
   assert.equal(res.status, 0, res.stderr)
   assert.deepEqual(JSON.parse(res.stdout), [
-    'unknown lead provider "nope" in "nope/x" (known: ollama-cloud, openai-codex)',
-    `no credential for lead provider "ollama-cloud" in ${home}/.pi/agent/auth.json: log in with \`pi\``,
+    'unknown lead provider "nope" in "nope/x" (known: ollama-cloud, anthropic, openai, openai-codex)',
+    'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY or log in with Pi (run pi)',
   ])
+})
+
+test('an API key in the environment is a lead credential for anthropic and openai, the Pi login for any provider', () => {
+  const home = mkdtempSync(join(tmpdir(), 'sous-home-'))
+  const base: NodeJS.ProcessEnv = { ...process.env, HOME: home }
+  for (const name of ['OLLAMA_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'OPENAI_API_KEY']) delete base[name]
+  const probe = (env: NodeJS.ProcessEnv, refs: string[]) => {
+    const res = spawnSync(process.execPath, [fixture, tempRunDir(), 'credentials', ...refs], { encoding: 'utf8', env })
+    assert.equal(res.status, 0, res.stderr)
+    assert.doesNotMatch(res.stdout, /not-a-key/, 'no credential value is printed')
+    return JSON.parse(res.stdout)
+  }
+  // Keys that are not real: nothing here reaches a provider.
+  const keyed = probe({ ...base, ANTHROPIC_API_KEY: 'test-not-a-key', OPENAI_API_KEY: 'test-not-a-key' },
+    ['anthropic/claude-haiku-5-5', 'openai/gpt-6-luna', 'anthropic/nope', 'ollama-cloud/deepseek-v4.1-flash', 'openai-codex/gpt-5.5'])
+  assert.deepEqual(keyed, {
+    'anthropic/claude-haiku-5-5': { credential: 'ANTHROPIC_API_KEY', model: 'ok' },
+    'openai/gpt-6-luna': { credential: 'OPENAI_API_KEY', model: 'ok' },
+    'anthropic/nope': { credential: 'ANTHROPIC_API_KEY', model: 'unknown lead model "anthropic/nope"' },
+    'ollama-cloud/deepseek-v4.1-flash': { credential: null, model: 'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY or log in with Pi (run pi)' },
+    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": log in with Pi (run pi) using ChatGPT' },
+  })
+  mkdirSync(join(home, '.pi', 'agent'), { recursive: true })
+  writeFileSync(join(home, '.pi', 'agent', 'auth.json'), JSON.stringify({
+    anthropic: { type: 'api_key', key: 'stored-not-a-key' },
+    'openai-codex': { type: 'oauth', refresh: 'refresh-not-a-key', access: 'access-not-a-key', expires: Date.now() + 3_600_000 },
+  }))
+  const login = probe(base, ['anthropic/claude-haiku-5-5', 'openai-codex/gpt-5.5', 'openai/gpt-6-luna'])
+  assert.deepEqual(login, {
+    'anthropic/claude-haiku-5-5': { credential: 'Pi login', model: 'ok' },
+    'openai-codex/gpt-5.5': { credential: 'Pi login', model: 'ok' },
+    'openai/gpt-6-luna': { credential: null, model: 'no credential for lead provider "openai": set OPENAI_API_KEY or log in with Pi (run pi)' },
+  })
+  // An expired login (or one about to expire, which pi-ai would refresh and sous cannot) does not count, so a key in
+  // the environment is used instead of it.
+  writeFileSync(join(home, '.pi', 'agent', 'auth.json'), JSON.stringify({
+    anthropic: { type: 'oauth', refresh: 'refresh-not-a-key', access: 'access-not-a-key', expires: Date.now() - 1 },
+    'openai-codex': { type: 'oauth', refresh: 'refresh-not-a-key', access: 'access-not-a-key', expires: Date.now() + 60_000 },
+  }))
+  const expired = probe({ ...base, ANTHROPIC_API_KEY: 'test-not-a-key' }, ['anthropic/claude-haiku-5-5', 'openai-codex/gpt-5.5'])
+  assert.deepEqual(expired, {
+    'anthropic/claude-haiku-5-5': { credential: 'ANTHROPIC_API_KEY', model: 'ok' },
+    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": log in with Pi (run pi) using ChatGPT' },
+  })
 })
 
 test('after a SIGKILL inside a tool call, resume replays it with the same call ID and reports once', () => {
