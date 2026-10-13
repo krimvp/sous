@@ -58,7 +58,7 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
   // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\), droid \(droid not found\)$/m)
+  assert.match(run.output(), /^agents: codex, pi, lead \(ollama-cloud\/deepseek-v4.1-flash\); not available: claude \(claude not found\), droid \(droid not found\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
   assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
@@ -235,7 +235,7 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   ])}`
   const run = sous(['run', goal, '--agents', file], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead, hr$`, 'm'))
+  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead \\(ollama-cloud/deepseek-v4.1-flash\\), hr$`, 'm'))
   const runDir = runDirOf(workspace)!
   const events = readEvents(runDir)
   const created = events[0]
@@ -261,6 +261,27 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   assert.match(bad.output(), /sous: agents file: unknown field nodes/)
 })
 
+test('a lead that names no model gets the first lead provider with a credential, printed on the agents line', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const goal = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
+  const log = mock.method(console, 'log', () => {})
+  try {
+    const code = await main(['run', goal, '--workspace', workspace], {
+      getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner,
+      leadCredential: async (provider) => (provider === 'openai' ? 'OPENAI_API_KEY' : undefined),
+    })
+    assert.equal(code, 0)
+    const lines = log.mock.calls.map((c) => c.arguments.join(' '))
+    assert.ok(lines.some((line) => /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/.test(line)), lines.join('\n'))
+  } finally {
+    log.mock.restore()
+  }
+  const runDir = runDirOf(workspace)!
+  const delivered = fakeLeadRecords(runDir).find((r) => r.op === 'deliver')!
+  assert.equal(delivered.op === 'deliver' && delivered.model, 'openai/gpt-6-luna')
+  assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.summary, 'planned')
+})
+
 test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
@@ -282,7 +303,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no credential for ollama-cloud\): set OLLAMA_API_KEY or log in with Pi \(run pi\), or name another lead model \(--agents, or the node's model\)$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi \(run pi\), or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

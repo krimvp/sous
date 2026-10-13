@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSyn
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, defaultLeadModel, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
@@ -191,13 +191,17 @@ function resultOf(state: RunState, runDir: string): string | undefined {
   return state.integration && `branch ${state.integration.branch}`
 }
 
-/** Check which agents can run, once per run start, and print it. */
+/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on. */
 async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps): Promise<Unavailable> {
   const unavailable = await checkAgents(graph, deps.leadCredential)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
+  const label = (name: string) => {
+    const spec = agentSpec(graph, name)!
+    return spec.runs === 'lead' ? `${name} (${spec.model ?? defaultLeadModel(unavailable)})` : name
+  }
   const names = agentNames(graph)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
-  console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
   return unavailable
 }
 

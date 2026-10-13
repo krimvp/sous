@@ -20,7 +20,7 @@ test('the integrator pick skips an agent that runs lead, even a defined integrat
   assert.equal(integratorAgent({ agents: { integrator: { runs: 'lead' } } }, nothing), 'codex')
 })
 
-test('checkAgents finds the commands missing from PATH and the lead providers the graph names without a credential', async () => {
+test('checkAgents finds the commands missing from PATH and the lead providers, known or named by the graph, without a credential', async () => {
   const path = process.env.PATH
   process.env.PATH = fakeBin(['pi'])
   try {
@@ -29,7 +29,7 @@ test('checkAgents finds the commands missing from PATH and the lead providers th
       nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
     }
     const unavailable = await checkAgents(graph, async (provider) => (provider === 'ollama-cloud' ? 'OLLAMA_API_KEY' : undefined))
-    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['openai-codex', 'other'] })
+    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['anthropic', 'openai', 'openai-codex', 'other'] })
   } finally {
     process.env.PATH = path
   }

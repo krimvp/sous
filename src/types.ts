@@ -259,9 +259,10 @@ export type CreateLeadRunner = (opts: { runDir: string; host: LeadHost }) => Lea
 /** How deep leads may nest (a top-level lead is depth 1) unless the run sets `--max-depth`. */
 export const DEFAULT_MAX_LEAD_DEPTH = 3
 
-/** The lead providers sous knows: each one's default model (current and inexpensive; an agent's or a node's `model`
- * overrides it), and what a person does to give sous a credential for it (every message about a lead that cannot run
- * says so). Credentials are read as `src/lead/providers.ts` says: the environment variable named here, or the Pi login. */
+/** The lead providers sous knows, in the order a lead that names no model gets one: the first provider with a
+ * credential, on its default model here (current and inexpensive; an agent's or a node's `model` overrides it).
+ * `credential` is what a person does to give sous one (every message about a lead that cannot run says so).
+ * Credentials are read as `src/lead/providers.ts` says: the environment variable named here, or the Pi login. */
 export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: string }[] = [
   { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY or log in with Pi (run pi)' },
   { id: 'anthropic', model: 'claude-haiku-5-5', credential: 'set ANTHROPIC_API_KEY or log in with Pi (run pi)' },
@@ -269,7 +270,10 @@ export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: s
   { id: 'openai-codex', model: 'gpt-5.5', credential: 'log in with Pi (run pi) using ChatGPT' },
 ]
 
-/** Default lead model when neither the node nor the run sets one: the first lead provider's. */
+/** What gets a credential for some lead provider: the fix when none has one. */
+export const ANY_LEAD_CREDENTIAL_FIX = 'set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi (run pi)'
+
+/** The lead model when nothing names one and availability was not consulted: the first lead provider's. */
 export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].model}`
 
 /** What gets a credential for lead provider `provider`: its entry's, or, for a provider sous has no entry for, the

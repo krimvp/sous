@@ -21,7 +21,7 @@ import { openLog, procStartTime } from './log.ts'
 import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets } from './send.ts'
 import { ancestors, awaitsSplitApproval, callKey, childrenOf, completedText, failedChecks, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
-import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
+import { INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
 import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
 
 export interface SupervisorOptions {
@@ -334,7 +334,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   /** Hand a recorded delivery to the runner; a repeated requestId is ignored there. */
   const send = (lead: NodeState, agent: Agent, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
     const node = lead.spec.id
-    runner!.deliver(node, text, { requestId, mode, model: agent.model ?? DEFAULT_LEAD_MODEL }).catch((err) => {
+    runner!.deliver(node, text, { requestId, mode, model: agent.model }).catch((err) => {
       if (closed || isFinal(nodeNow(node))) return
       abandon(current(), node, `lead runner: ${(err as Error).message}`)
       wakeUp()

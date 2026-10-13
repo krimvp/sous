@@ -30,7 +30,8 @@ path separator, which is refused as a mistyped file name. `--agents` is for goal
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
-(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, `ollama-cloud/deepseek-v4.1-flash`).
+(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, the first lead provider with a credential, in the order
+`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`, `openai-codex/gpt-5.5`).
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
 Droid model IDs (`claude-sonnet-5`, or a custom model `custom:…`),

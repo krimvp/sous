@@ -55,8 +55,9 @@ Workers run on a harness: Claude Code, Codex, Pi or Factory Droid, each certifie
 Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, with `OLLAMA_API_KEY`), Anthropic
 (`anthropic/claude-haiku-5-5`, with `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, with `OPENAI_API_KEY`) or
 your ChatGPT subscription (`openai-codex/gpt-5.5`); any of them also through your Pi login (`~/.pi/agent/auth.json`;
-run `pi` once to log in or refresh). The default is `ollama-cloud/deepseek-v4.1-flash`; a run with no credential for
-its lead is refused with what to do. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
+run `pi` once to log in or refresh). A lead that names no model runs on the first of these, in that order, that has a
+credential; the run prints the choice on its `agents:` line, as `lead (anthropic/claude-haiku-5-5)`. A run with no
+credential for its lead is refused with what to do. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
 `{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. Their workers default to the first agent whose CLI is on your `PATH`: Claude
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
