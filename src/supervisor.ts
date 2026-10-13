@@ -1,7 +1,7 @@
 // The supervisor: the only writer of a run's state. Starts every process, runs leads through the lead
 // runner, routes messages and records every outcome.
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoices } from './agents.ts'
@@ -22,7 +22,7 @@ import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets } from './send.ts
 import { ancestors, awaitsSplitApproval, callKey, childrenOf, completedText, failedChecks, fold, isFinal, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
-import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, TurnResult, WorkerAdapter } from './types.ts'
+import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, ParsedTurn, TurnResult, WorkerAdapter } from './types.ts'
 
 export interface SupervisorOptions {
   workspace: string
@@ -47,6 +47,9 @@ const MAX_FIX_ROUNDS = 2
 const OUTPUT_TAIL = 4096
 const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
+/** How much of a failed turn's stderr goes into its error: the last non-empty lines, at most this many characters. */
+const STDERR_LINES = 5
+const STDERR_CHARS = 600
 /** Times a supervisor stop may cut a node's turn short before the node fails. */
 const MAX_RECOVERIES = 3
 /** How often `<runDir>/commands/` is checked for `sous answer`, `sous approve` and `sous cancel`. */
@@ -105,6 +108,34 @@ export async function stopGroup(pid: number, graceMs: number): Promise<void> {
     await sleep(20)
   }
 }
+
+/** The last non-empty lines of a turn's stderr file (only its last OUTPUT_TAIL bytes are read), or '' without any. */
+function stderrTail(file: string): string {
+  let text = ''
+  try {
+    const fd = openSync(file, 'r')
+    try {
+      const size = fstatSync(fd).size
+      const buf = Buffer.alloc(Math.min(size, OUTPUT_TAIL))
+      readSync(fd, buf, 0, buf.length, size - buf.length)
+      text = buf.toString('utf8')
+    } finally {
+      closeSync(fd)
+    }
+  } catch {}
+  const tail = text.split('\n').map((line) => line.trim()).filter(Boolean).slice(-STDERR_LINES).join('\n')
+  return tail.length > STDERR_CHARS ? `…${tail.slice(-STDERR_CHARS)}` : tail
+}
+
+/** A turn that exited non-zero, on its own, without its end-of-turn marker: its exit code and the end of its stderr.
+ * `quiet`: it produced no output (no message or tool call), so resuming it would fail the same way. */
+interface Exited {
+  code: number
+  stderr: string
+  quiet: boolean
+}
+
+const exitedText = (turn: number, e: Exited) => `turn ${turn} exited ${e.code} with no output; ${e.stderr}`
 
 const notesFor = (state: RunState, id: string) => ancestors(state, id).flatMap((a) => a.notes)
 
@@ -551,8 +582,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     let result: TurnResult | undefined
     let error: string | undefined
     let usage
+    let parsed: ParsedTurn | undefined
     try {
-      const parsed = adapter.parse(readFileSync(turnSpec.outFile, 'utf8'))
+      parsed = adapter.parse(readFileSync(turnSpec.outFile, 'utf8'))
       if (parsed.sessionId && !session) {
         session = parsed.sessionId
         log.append({ type: 'turn.session', node: spec.id, turn, sessionId: session })
@@ -564,8 +596,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     } catch (err) {
       error = `cannot read turn output: ${(err as Error).message}`
     }
+    // A harness that exits non-zero before its end-of-turn marker, on its own, says why on stderr (a logged-out CLI, a
+    // refused option); with no output at all, another turn would fail the same way.
+    let exited: Exited | undefined
+    const interrupted = nodeNow(spec.id).turns.find((t) => t.number === turn)?.interrupted
+    if (!parsed?.ended && exit.code && !interrupted) {
+      const tail = stderrTail(turnSpec.errFile)
+      const stderr = tail ? `stderr: ${tail} (${turnSpec.errFile})` : `nothing on stderr (${turnSpec.errFile})`
+      exited = { code: exit.code, stderr, quiet: !parsed?.items.length }
+      error = `${error}; ${stderr}`
+    }
     log.append({ type: 'turn.ended', node: spec.id, turn, exitCode: exit.code, signal: exit.signal, result, usage, error })
-    return { result, sessionId: session }
+    return { result, sessionId: session, exited }
   }
 
   /** A worker's question (its `needs_input` or `blocked` result) goes to its parent. */
@@ -611,7 +653,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     let reminded = false
     for (;;) {
       const turn = nodeNow(spec.id).turns.length + (recorded ? 0 : 1)
-      let t: { result?: TurnResult; sessionId?: string; check?: CheckState }
+      let t: { result?: TurnResult; sessionId?: string; check?: CheckState; exited?: Exited }
       if (recorded) t = recorded
       else if (typeof agent === 'string') return fail(spec.id, agent)
       else t = await runTurn(spec, agent, turn, prompt, cwd, sessionId, recovery)
@@ -621,6 +663,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       recovery = false
       if (stopping || isFinal(nodeNow(spec.id))) return
       sessionId = t.sessionId ?? sessionId
+      if (t.exited?.quiet) return fail(spec.id, exitedText(turn, t.exited))
       if (t.result && t.result.status !== 'done') ask(spec, t.result)
       let inbox = nodeNow(spec.id).inbox
       if (inbox.length || t.result?.status !== 'done') {
@@ -631,7 +674,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         }
       }
       if (!t.result) {
-        if (reminded) return fail(spec.id, `turn ${turn} ended without a structured result`)
+        if (reminded) return fail(spec.id, `turn ${turn} ended without a structured result${t.exited ? `; ${t.exited.stderr}` : ''}`)
         reminded = true
         prompt = resultReminder()
         continue
@@ -784,8 +827,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         const inbox: InboxMessage[] = ig.inbox.length ? ig.inbox : [{ seq: 0, from: SUPERVISOR, body: requestFor(state, id), mode: 'queue' }]
         const prompt = !sessionId ? integratorPrompt(state.goal, ig.spec, path, branch, inbox, agent.instructions)
           : recorded ? recoveryPrompt(ig.inbox) : inboxPrompt(ig.inbox)
-        result = (await runTurn(ig.spec, agent, ig.turns.length + 1, prompt, path, sessionId, !!recorded)).result
+        const t = await runTurn(ig.spec, agent, ig.turns.length + 1, prompt, path, sessionId, !!recorded)
         if (stopping) return
+        if (t.exited?.quiet) return mergeFailed(id, `the integrator's ${exitedText(ig.turns.length + 1, t.exited)}`, onto)
+        result = t.result
         if (nodeNow(INTEGRATOR).inbox.length) continue // messages that arrived meanwhile come first
       }
       if (result && result.status !== 'done') {
@@ -896,12 +941,15 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, runs.instructions, state.mode)
           : recorded ? recoveryPrompt(inbox) : inboxPrompt(inbox)
         splitFor.set(node, id)
+        let t
         try {
-          result = (await runTurn(sp.spec, runs, sp.turns.length + 1, prompt, cwd, sessionId, !!recorded)).result
+          t = await runTurn(sp.spec, runs, sp.turns.length + 1, prompt, cwd, sessionId, !!recorded)
         } finally {
           splitFor.delete(node)
         }
         if (stopping) return
+        if (t.exited?.quiet) return failed(`the splitter's ${exitedText(sp.turns.length + 1, t.exited)}`)
+        result = t.result
         if (isFinal(nodeNow(id))) return failed(`${id} finished before its split`)
         if (nodeNow(node).inbox.length) continue // messages that arrived meanwhile come first
       }

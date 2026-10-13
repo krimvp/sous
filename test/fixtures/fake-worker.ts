@@ -18,6 +18,11 @@ export interface FakeStep {
   result?: { status: 'done' | 'blocked' | 'needs_input'; summary: string; question?: string }
   /** Keep running after printing the result. */
   lingerMs?: number
+  /** An assistant message to print before anything else is done. */
+  say?: string
+  /** Text to write to stderr, and the code to exit with, after everything else. */
+  stderr?: string
+  exit?: number
 }
 
 const sessionFile = process.argv[2]
@@ -31,6 +36,7 @@ writeFileSync(sessionFile, JSON.stringify(session))
 
 const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
+if (step.say) emit({ type: 'message', text: step.say })
 for (const [path, content] of Object.entries(step.write ?? {})) writeFileSync(path, content)
 if (step.sh) spawnSync('sh', ['-c', step.sh], { stdio: 'ignore' })
 if (step.spawnSleeper) {
@@ -42,4 +48,5 @@ if (step.spawnSleeper) {
 if (step.sleepMs) await sleep(step.sleepMs)
 if (step.result) emit({ type: 'result', result: step.result })
 if (step.lingerMs) await sleep(step.lingerMs)
-process.exit(0)
+if (step.stderr) process.stderr.write(step.stderr)
+process.exit(step.exit ?? 0)

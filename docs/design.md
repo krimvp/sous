@@ -118,6 +118,13 @@ Each adapter starts the CLI as the leader of a new process group, sends stdout t
 `nodes/<n>/turn-<k>.jsonl` and stderr to `turn-<k>.err`, and asks for a structured final result:
 `{status: done|blocked|needs_input, summary, question?, note_for_parent?}`.
 
+**A turn without a result.** A turn whose output has no end-of-turn marker, or no parsable result, is resumed once with
+a reminder to give one; a second miss fails the node. A turn that exits non-zero before its end marker, on its own (not
+stopped by sous), says why on stderr: the last non-empty lines of its `.err` file (at most 5 lines and 600 characters)
+and the file's path go into `turn.ended.error` and the node's failure reason. When it wrote no output (no message or
+tool call), another turn would fail the same way, so the node fails at once without the reminder; an integrator's or
+splitter's turn like it fails the merge or the split.
+
 ### Lead runner
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after

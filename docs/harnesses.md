@@ -61,6 +61,21 @@ Workers run with full permissions in their worktree and still have a shell, your
 honest workers inside sous rather than sandboxing them. The details per harness are in the
 [design](design.md#worker-messages).
 
+## When a worker fails at once
+
+A harness that exits with an error before it ends its turn says why on stderr, which sous keeps in
+`.sous/runs/<run-id>/nodes/<node>/turn-<k>.err`. The turn's `turn.ended` error, and the node's failure reason in
+`sous run`, `sous status` and its lead's outcome, end with the last lines of that file and name it. A turn that wrote
+no output at all fails its node at once, since another turn would fail the same way; one that did some work first is
+resumed once with a reminder. Known causes with Claude Code, which make every Claude turn exit at once:
+
+- **Not logged in** (`Not logged in · Please run /login`): run `claude` once yourself and log in.
+- **Running as root** (a container, `sudo`): Claude refuses `--permission-mode bypassPermissions`, which workers run
+  with, unless `IS_SANDBOX=1` is set. Set it in the environment you start `sous` from; workers inherit it.
+- **`disableBypassPermissionsMode` in the project's `.claude/settings.json`** (under `permissions`): workers load the
+  project's settings (`--setting-sources project`), so they refuse bypass mode too. Run that project's work on another
+  harness, or remove the setting.
+
 ## Adding a harness
 
 1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
