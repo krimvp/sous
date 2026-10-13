@@ -311,6 +311,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     if (integration) return integration
     ensureRepo(workspace)
     const tree = createIntegration(workspace, runId, runDir)
+    // Merges land on what it has checked out: on another branch, the run's branch would silently never advance.
+    const on = currentBranch(tree.path)
+    if (on !== tree.branch) throw new Error(`integration worktree ${tree.path} is on ${on ? `branch ${on}` : 'a detached HEAD'}, not ${tree.branch}`)
     if (tree.base) log.append({ type: 'integration.created', branch: tree.branch, path: tree.path, base: tree.base })
     return (integration = tree)
   }

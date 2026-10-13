@@ -512,7 +512,7 @@ first work or check node starts. The workspace is the repository's top level eve
    node in Langfuse; the integrator is its own trajectory under the root.
 
 Recovery: worktrees, branches and queue state survive a crash. `integration.created` and `worktree.created`
-are appended only when the branch was newly created; on resume the existing worktree is used. On `sous
+are appended only when the branch was newly created; on resume the existing worktree is used, whatever it has checked out (a node's then fails at its branch check, and an integration worktree not on `sous/<run>` fails the run). On `sous
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
 usual; queued merges continue in order.

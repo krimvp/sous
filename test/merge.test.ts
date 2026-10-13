@@ -125,6 +125,25 @@ test('sous resume of a done worker that left its branch fails the node with that
   assert.equal(git(tree.path, 'status', '--porcelain'), '?? w.txt', 'sous committed nothing')
 })
 
+test('sous resume of a run whose integration worktree left its branch fails the run with that reason', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  git(created.path, 'switch', '-q', '-c', 'elsewhere')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: work('w', [{ write: { 'w.txt': 'w\n' }, result: done('wrote w.txt') }]), by: 'graph' })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.reason, `integration worktree ${created.path} is on branch elsewhere, not sous/r1`)
+  assert.equal(state.nodes.get('w')!.turns.length, 0)
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.base)
+})
+
 test('a node with no changes merges by nothing', async () => {
   const { outcome, events, state } = await runGraph([work('noop', [{ result: done('nothing to change') }])])
   assert.equal(outcome, 'completed')
