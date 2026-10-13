@@ -63,7 +63,8 @@ write checks such as `test -s results/report.md`.
 
 - Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. The run prints
   `agents: …; not available: …` at start; a CLI must be on PATH and logged in. A graph whose node names an
-  unavailable agent is refused before anything runs.
+  unavailable agent is refused before anything runs. `$M doctor` says up front whether a run could start here (each
+  harness on PATH with its version, the lead's credentials and model, the git state) and what is missing.
 - Workers run with full permissions inside their own worktree or folder. Say so if the user has not accepted that.
 - Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.

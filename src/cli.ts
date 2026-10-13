@@ -10,6 +10,7 @@ import { agentNames, agentSpec, checkAgents, defaultLeadModel, defines, unusable
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
+import { doctor } from './doctor.ts'
 import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.ts'
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
@@ -32,7 +33,8 @@ const USAGE = `usage:
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]
-  sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)`
+  sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)
+  sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials, git state)`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
@@ -96,6 +98,9 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'cancel':
         if (args.length !== 1) break
         return sendCommand(workspace, { type: command, node: args[0] })
+      case 'doctor':
+        if (args.length) break
+        return await doctor(workspace, deps.leadCredential)
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])

@@ -58,7 +58,8 @@ your ChatGPT subscription (`openai-codex/gpt-5.5`); any of them also through you
 run `pi` once to log in or refresh). A lead that names no model runs on the first of these, in that order, that has a
 credential; the run prints the choice on its `agents:` line, as `lead (anthropic/claude-haiku-5-5)`. A run with no
 credential for its lead is refused with what to do. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
-`{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. Their workers default to the first agent whose CLI is on your `PATH`: Claude
+`{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. `sous doctor`
+shows what a run here would find, and says what is missing. Their workers default to the first agent whose CLI is on your `PATH`: Claude
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
@@ -93,6 +94,7 @@ sous status                # latest run as a tree
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
 sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 sous ui                    # a local page with every run, live or finished (--port <n>)
+sous doctor                # could a run start here? harnesses on PATH with versions, lead credentials and model, git state
 ```
 
 `sous ui` prints a `127.0.0.1` address with a random token and serves one page: the workspace's runs, each run's tree

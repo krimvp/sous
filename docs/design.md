@@ -382,7 +382,11 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   provider has a credential, or, for a lead agent with no model, when any lead provider has one; such an agent runs
   on the first with a credential, see Lead runner). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`, each lead agent with the model it runs on). A run is refused before it exists, naming the node and the agent and
+  and printed (`agents: …; not available: …`, each lead agent with the model it runs on). `sous doctor` runs the same
+  check without a run and prints it (each harness on `PATH` with its `--version`, the lead credentials present, never
+  their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
+  commit, uncommitted changes, which workers do not see, and whether the workspace is the top level), and exits 0
+  when a run could start: a lead, a worker, and a commit when in git. A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
   graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
   available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
