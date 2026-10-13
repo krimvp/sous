@@ -444,7 +444,10 @@ function board() {
     const tm = n.kind === 'lead' ? team(n) : null
     const sub = tm
       ? `team of ${tm.nodes} · ${tm.turns} turns · ${tm.merged} merged${tm.failed ? ` · <em>${tm.failed} failed</em>` : ''} · ${dur(ms(tm.start, tm.end ?? runEnd()))}`
-      : esc(oneLine(n.outcome ?? (n.needs?.length ? `after ${n.needs.join(', ')}` : ''), 90))
+      : n.turn
+        // A running turn: how long it runs, and when its output last grew.
+        ? `turn ${n.turn.number} · ${dur(ms(n.turn.startedAt, runEnd()))} · ${n.turn.outputAt ? `output ${dur(ms(n.turn.outputAt, runEnd()))} ago` : 'no output yet'}`
+        : esc(oneLine(n.outcome ?? (n.needs?.length ? `after ${n.needs.join(', ')}` : ''), 90))
     const spans = n.spans.map((s) => {
       // A turn that asked its parent waits on an answer; one cut short or a failed merge went wrong.
       const tone = !s.outcome ? '' : /blocked|needs_input/.test(s.outcome) ? ' ask' : /fail|interrupted|no result/.test(s.outcome) ? ' bad' : ''
@@ -580,6 +583,7 @@ function trajectory(d, t0) {
         return step(e.at, t0, 'in', `<b>message</b> from ${e.from === 'person' || e.from === 'supervisor' ? esc(e.from) : nodeLink(e.from)}${e.mode === 'interrupt' ? ' <span class="chip bad">interrupt</span>' : ''}`, txt(e.body))
       case 'turn.started': return turnSteps(turns.get(e.turn), e, t0)
       case 'turn.interrupted': return step(e.at, t0, 'bad', `<b>interrupted</b> turn ${e.turn} <span class="chip bad">${esc(e.signal)}</span>`, txt(e.reason))
+      case 'turn.stalled': return step(e.at, t0, '', `<b>no new output</b> turn ${e.turn}`, txt(`Nothing new in its output for ${dur(ms(e.since, e.at))}; it keeps running.`))
       case 'turn.ended': {
         const r = e.result
         if (!r) return step(e.at, t0, 'bad', `<b>turn ${e.turn} ended without a result</b>`, txt(e.error ?? `exit ${e.exitCode ?? e.signal}`))
@@ -696,8 +700,15 @@ window.addEventListener('hashchange', () => {
   if (other) openRun(h.run, true)
   if (other || (h.node ?? null) !== ui.nodeId) h.node ? openNode(h.node) : closeNode()
 })
-// A running run's clocks and open bars move every second.
-setInterval(() => { if (ui.run?.status === 'running') renderRun() }, 1000)
+// A running run's clocks and open bars move every second. Output does not grow the log, so while a turn runs the run is
+// fetched again every 10 seconds for when its output last grew.
+setInterval(() => {
+  if (ui.run?.status !== 'running') return
+  if (ui.run.nodes.some((n) => n.turn) && Date.now() - Math.max(ui.run.loadedAt, ui.polledAt ?? 0) > 10_000) {
+    ui.polledAt = Date.now()
+    openRun(ui.runId, true)
+  } else renderRun()
+}, 1000)
 
 ;(async () => {
   const h = readHash()

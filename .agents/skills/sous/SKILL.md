@@ -42,7 +42,8 @@ write checks such as `test -s results/report.md`.
 3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
    approvals, so a foreground run can block your shell).
 4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
-   `run.failed`; `$M status` prints the live tree and pending questions.
+   `run.failed`, and `turn.stalled` (a worker without output for 10 minutes: look before cancelling it, a long command
+   is silent too); `$M status` prints the live tree, each running turn's age and last output, and pending questions.
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).

@@ -125,6 +125,11 @@ and the file's path go into `turn.ended.error` and the node's failure reason. Wh
 tool call), another turn would fail the same way, so the node fails at once without the reminder; an integrator's or
 splitter's turn like it fails the merge or the split.
 
+**Stalls.** There is no turn timeout yet (budgets, #39), so a hung harness must at least show. The supervisor watches each
+turn's output file; once it has not grown for 10 minutes (a constant), it records `turn.stalled {since}`, once per turn:
+a warning that changes nothing in the run's state, since a long command is silent too. `sous status` shows each running
+turn's age and how long ago its output last grew (the output file's modification time); the UI's tree shows both.
+
 ### Lead runner
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
@@ -650,8 +655,8 @@ from them, so traces can move between tools later.
   `subagent_trajectory_ref`. Nesting follows the node tree.
 - A worker node's steps come from parsing its turn output files: Claude stream-json, Codex `--json` items,
   Pi `--mode json` events, Droid stream-json. A tool call and its result must share one step (`source_call_id` matches a
-  `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt is a `system`
-  step.
+  `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt, or a stall, is a
+  `system` step.
 - sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
 - Tests check every document with a strict checker of the subset sous emits (`test/atif-checker.ts`),
@@ -691,7 +696,8 @@ and `cancel`.
   20,000 characters, marked with how many more there were.
 - **Live.** One server-sent event stream per page sends every run's log size and lock whenever one changes (polled
   every 500 ms); the page refetches the run, or the node, that changed. A finished run is a log that stopped growing,
-  so live and finished runs share every view.
+  so live and finished runs share every view. A worker's output does not grow the log, so while a turn runs the page
+  fetches the run every 10 seconds, and the tree shows the turn's age and when its output last grew.
 - **Timeline.** Worker turns, merge-queue waits and checks per node; a lead is busy from a delivery until it has
   answered every queued one (an interrupt joins the stretch it steers). A lead's row also shows its team's span and
   totals (nodes, turns, tokens, merges, failures), so a folded team still reads at a glance.

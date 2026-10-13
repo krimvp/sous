@@ -76,6 +76,10 @@ resumed once with a reminder. Known causes with Claude Code, which make every Cl
   project's settings (`--setting-sources project`), so they refuse bypass mode too. Run that project's work on another
   harness, or remove the setting.
 
+A worker that hangs without failing is not stopped (there is no turn timeout yet): `sous status` shows how long each
+running turn has run and when its output last grew, and a turn without output for 10 minutes is reported once as
+`turn.stalled`. A long command a worker waits on is silent too, so look before you cancel it.
+
 ## Adding a harness
 
 1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and

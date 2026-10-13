@@ -249,6 +249,7 @@ function printEvent(e: Event): void {
     case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}` : ''} pid ${e.pid}`; break
     case 'turn.session': text = `${e.node} turn ${e.turn} session ${e.sessionId}`; break
     case 'turn.interrupted': text = `${e.node} turn ${e.turn} ${e.signal}: ${e.reason}`; break
+    case 'turn.stalled': text = `${e.node} turn ${e.turn}: no output for ${duration(Date.parse(e.at) - Date.parse(e.since))}; it keeps running`; break
     case 'turn.ended':
       text = `${e.node} turn ${e.turn} ` + (e.result ? `${e.result.status}: ${e.result.summary}` : `exit ${e.exitCode ?? e.signal}, ${e.error}`)
       break
@@ -302,17 +303,31 @@ async function exportRun(format: 'atif' | 'otlp', workspace: string, deps: CliDe
 
 function status(workspace: string, runId?: string): number {
   const { id, runDir } = findRun(workspace, runId)
-  const state = fold(readEvents(runDir))
+  const events = readEvents(runDir)
+  const state = fold(events)
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
   console.log(`run ${id} ${live}: ${state.goal}`)
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
   const result = resultOf(state, runDir)
   if (result) console.log(`  result: ${result}`)
   const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
+  // A running turn's age and the age of its last output (its output file's last change), so a hung turn shows.
+  const now = Date.now()
+  const startedAt = new Map(events.flatMap((e) => (e.type === 'turn.started' ? [[`${e.node} ${e.turn}`, Date.parse(e.at)]] : [])))
+  const running = (n: NodeState) => {
+    const t = n.turns.at(-1)
+    if (live !== 'running' || !t || t.ended) return ''
+    let output = 'no output yet'
+    try {
+      const out = statSync(resolve(runDir, t.outFile))
+      if (out.size) output = `last output ${duration(now - out.mtimeMs)} ago`
+    } catch {}
+    return ` (turn ${t.number} running for ${duration(now - startedAt.get(`${n.spec.id} ${t.number}`)!)}, ${output})`
+  }
   const print = (n: NodeState, depth: number) => {
     const turns = n.turns.length ? ` turns ${n.turns.length}` : ''
     const agent = n.turns.findLast((t) => t.agent)?.agent ?? n.spec.agent
-    console.log(`${'  '.repeat(depth)}${n.spec.id} ${n.status}${agent ? ` on ${agent}` : ''}${turns}${lastSummary(n)}`)
+    console.log(`${'  '.repeat(depth)}${n.spec.id} ${n.status}${agent ? ` on ${agent}` : ''}${turns}${running(n)}${lastSummary(n)}`)
     for (const c of children(n.spec.id)) print(c, depth + 1)
   }
   for (const n of children(undefined)) print(n, 1)
@@ -359,6 +374,15 @@ function lastSummary(n: NodeState): string {
   const text = n.reason ?? (n.failedChecks?.length ? completedText(n) : undefined) ?? n.turns.findLast((t) => t.result)?.result?.summary ?? n.summary ??
     (n.checks.length ? lastLine(n.checks[n.checks.length - 1].output) : undefined)
   return text ? `: ${oneLine(text)}` : ''
+}
+
+/** A duration as 45s, 3m 05s or 2h 05m. */
+function duration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
 }
 
 function lastLine(output: string): string {

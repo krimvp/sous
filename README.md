@@ -83,7 +83,7 @@ Or give it a fixed graph file:
 
 ```bash
 sous run graph.json        # runs in the current directory; state in .sous/runs/<id>/
-sous status                # latest run as a tree
+sous status                # latest run as a tree; a running turn shows its age and its last output's
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
 sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 sous ui                    # a local page with every run, live or finished (--port <n>)

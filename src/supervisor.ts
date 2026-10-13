@@ -34,6 +34,8 @@ export interface SupervisorOptions {
   /** How long a turn may keep running after its end-of-turn marker before its group is stopped,
    * and how long a stopped group gets between SIGTERM and SIGKILL. */
   graceMs?: number
+  /** How long a turn's output may stop growing before `turn.stalled` warns about it; default STALL_MS. */
+  stallMs?: number
   /** `sous resume`: take over a stopped supervisor's lock and recover its unfinished turns and lead deliveries. */
   resume?: boolean
   /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
@@ -47,6 +49,8 @@ const MAX_FIX_ROUNDS = 2
 const OUTPUT_TAIL = 4096
 const MAX_CHILDREN = 12
 const MAX_REMINDERS = 2
+/** A turn whose output has not grown for this long is reported once with `turn.stalled`; it keeps running. */
+const STALL_MS = 10 * 60_000
 /** How much of a failed turn's stderr goes into its error: the last non-empty lines, at most this many characters. */
 const STDERR_LINES = 5
 const STDERR_CHARS = 600
@@ -226,6 +230,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const runId = basename(runDir)
   const unavailable = opts.unavailable ?? { commands: [], leadProviders: [] }
   const graceMs = opts.graceMs ?? 5000
+  const stallMs = opts.stallMs ?? STALL_MS
   const log = openLog(runDir, opts.onEvent, { takeOver: opts.resume })
   if (opts.resume) {
     const { status } = fold(log.events)
@@ -558,19 +563,29 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
     // A harness may keep running after its end-of-turn marker (spike: Claude with a background
     // command). Watch the output and stop the group once the turn has ended and the grace is over.
-    let size = -1
+    // Output that stops growing for stallMs is reported once (`turn.stalled`); the turn keeps running.
+    let size = 0
+    let grewAt = Date.now()
+    let stalled = false
     let grace: NodeJS.Timeout | undefined
     const watch = setInterval(() => {
       try {
         const now = statSync(turnSpec.outFile).size
-        if (now === size) return
+        if (now === size) {
+          if (!stalled && !ended && !stopping && Date.now() - grewAt >= stallMs) {
+            stalled = true
+            log.append({ type: 'turn.stalled', node: spec.id, turn, since: new Date(grewAt).toISOString() })
+          }
+          return
+        }
         size = now
+        grewAt = Date.now()
         if (adapter.parse(readFileSync(turnSpec.outFile, 'utf8')).ended) {
           clearInterval(watch)
           grace = setTimeout(() => void terminate(pid), graceMs)
         }
       } catch {}
-    }, Math.min(1000, graceMs))
+    }, Math.min(1000, graceMs, stallMs))
 
     const exit = await running.exit
     ended = true
