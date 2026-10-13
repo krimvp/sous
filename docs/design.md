@@ -116,7 +116,9 @@ interface RunningTurn {
 
 Each adapter starts the CLI as the leader of a new process group, sends stdout to
 `nodes/<n>/turn-<k>.jsonl` and stderr to `turn-<k>.err`, and asks for a structured final result:
-`{status: done|blocked|needs_input, summary, question?, note_for_parent?}`.
+`{status: done|blocked|needs_input, summary, question?}`. What each field means is said once, in every worker prompt;
+Pi and Droid, which have no structured-output flag, are also told to give it as JSON in a ```` ```json ```` fence, and
+their parsers take the last fence that holds a result, else a bare JSON object.
 
 ### Lead runner
 
@@ -189,7 +191,10 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
   a `message` with `sent: true`. It stays the only writer.
 - **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`
-  (`TurnSpec.env`), which both ways read. This is attribution, not authentication: workers run as the person.
+  (`TurnSpec.env`), which both ways read; no other `SOUS_*` variable of the supervisor's environment reaches a turn or a
+  check, so a standing node, which gets none, or a check does not take on the identity of an outer run's worker when
+  sous runs inside one.
+  This is attribution, not authentication: workers run as the person.
 - **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
@@ -221,16 +226,18 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   | Harness | MCP | The person's own setup |
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
-  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key; a name outside `A-Za-z0-9_-` is reported on stderr and not disabled) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, listed once without blocking when `sous run` or `sous resume` starts, not on a turn; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
   | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended (none in a folder-mode node's folder) |
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
   A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
-  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait).
-  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
-  a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
-  shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
-  determined one from reaching another service; that needs sandboxed workers.
+  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait),
+  or one of the wrong type (an object `body` is not sent as text). If Codex's servers cannot be listed, sous says so on
+  stderr and Codex workers may load them; a Codex server, the person's or the project's, whose name is outside
+  `A-Za-z0-9_-` (a dot, a space) cannot be named in an override, so sous says so on stderr and does not disable it.
+  So the channels a worker is offered all go through the run's log. A worker still has a shell and the person's files
+  and network, so this keeps honest workers inside sous rather than preventing a determined one from reaching another
+  service; that needs sandboxed workers.
 
 ## Leads
 
@@ -240,7 +247,8 @@ events in `src/types.ts`.
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
 `lead` node with id `lead` and the goal as its brief (`--agents <file>` gives a goal run agent definitions; see
-Agents). A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
+Agents). A single word that ends in `.json` or holds a path separator but names no file is refused as a likely
+mistyped file name, not run as a goal. A lead's first delivery is its brief, with request ID `<node>:brief`; in a run with a splitter, the brief
 waits for the lead's proposed split and carries it (see Splitting).
 
 **Deliveries.** The supervisor composes every text a lead receives and records it as `lead.delivered`
@@ -374,8 +382,12 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
-  first available of `claude`, `codex`, `pi`, `droid`. Naming an unavailable agent fails the node with a clear reason.
-  Availability is checked once when a run starts or resumes, and printed (`agents: …; not available: …`); each
+  first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
+  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
+  graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
+  available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
+  agent a lead's child names later fails that node with a clear reason. Each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then

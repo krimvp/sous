@@ -16,7 +16,8 @@ sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
-names an existing file is a graph file; anything else is a goal. `--agents` is for goal runs only.
+names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
+path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
 `sous answer <lead> "<changes>"`.
 
@@ -25,7 +26,7 @@ names an existing file is a graph file; anything else is a goal. `--agents` is f
 | Key | Meaning |
 |---|---|
 | `agent` | default agent for work nodes that name none (else the first available of `claude`, `codex`, `pi`, `droid`) |
-| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
+| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in and follows the id rule (letters, digits, `_` and `-`, and `.` after the first character); `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default

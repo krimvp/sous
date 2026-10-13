@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'no
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, defines, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
@@ -39,6 +39,8 @@ export interface CliDeps {
   createLeadRunner?: SupervisorOptions['createLeadRunner']
   /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
   hasLeadCredential: (provider: string) => Promise<boolean>
+  /** Lists the person's Codex MCP servers for the Codex adapter, at run start when Codex is available. */
+  listCodexServers?: () => Promise<void>
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -117,11 +119,15 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
- * agent definitions of `agentsFile`, if given. */
+ * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word, not a URL, that ends in
+ * `.json` or has a path separator) but names no file is refused, not taken for a goal. */
 async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
   const { maxDepth, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
+  if (!isGraph && !/\s/.test(arg) && !arg.includes('://') && (arg.endsWith('.json') || /[\\/]/.test(arg))) {
+    throw new Error(`${existsSync(arg) ? 'not a file' : 'no such file'}: ${arg}; if it is a goal, write it as a sentence`)
+  }
   if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
   const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }
@@ -129,6 +135,10 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   const splitters = defines(graph, SPLITTER) || graph.nodes.some((n) => n.roles?.splitter) || Object.values(graph.agents ?? {}).some((a) => a.runs !== 'lead')
   if (approveSplits && !splitters) throw new Error('--approve-splits needs a splitter: define an agent named splitter, or agents leads may give the splitter role')
   if (!existsSync(workspace)) throw new Error(`workspace ${workspace} does not exist`)
+  // Refused before the run exists, as no process starts and nothing is spent on a graph that cannot run.
+  const unavailable = await agents(graph, deps)
+  const unusable = unusableNodeAgents(graph, unavailable)
+  if (unusable.length) throw new Error(unusable.join('\n'))
   const id = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + randomBytes(2).toString('hex')
   const runDir = join(workspace, '.sous', 'runs', id)
   mkdirSync(runDir, { recursive: true })
@@ -136,7 +146,6 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ id, goal: graph.goal, workspace, ...(isGraph ? { graph: resolve(arg) } : {}), ...(definitions ? { agents: resolve(agentsFile!) } : {}), createdAt }, null, 2) + '\n')
   console.log(`run ${id} (${runDir})`)
 
-  const unavailable = await agents(graph, deps)
   // Decided once: a resumed run keeps the mode it was created with.
   const mode = inWorkTree(workspace) ? 'git' : 'folder'
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
@@ -191,6 +200,8 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
   const names = agentNames(graph)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  // Here rather than on a Codex worker's first turn, where it would hold up the supervisor.
+  if (!unavailable.commands.includes('codex')) await deps.listCodexServers?.()
   return unavailable
 }
 
@@ -355,6 +366,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential })
+  const [{ getAdapter, listCodexServers }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential, listCodexServers })
 }

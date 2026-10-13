@@ -1,11 +1,11 @@
 // Pi: `pi -p --mode json`. Pi has no structured-output flag, so the prompt asks for the result as a
-// JSON object in a ```json fence at the end of the final message, and parse reads the last such fence.
+// JSON object in a ```json fence at the end of the final message, and parse reads it back (`resultFromText`).
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, lastJsonFence, RESULT_INSTRUCTION, spawnTurn, textOf, toTurnResult } from './common.ts'
+import { jsonLines, num, RESULT_INSTRUCTION, resultFromText, spawnTurn, str, textOf } from './common.ts'
 
 function run(spec: TurnSpec, sessionId: string) {
   // Pi creates the session when the ID is new and continues it otherwise. Default tools, no MCP: a worker tells others
@@ -54,7 +54,8 @@ export const pi: WorkerAdapter = {
         const reasoning = parts.filter((p) => p?.type === 'thinking').map((p) => p.thinking).join('\n')
         if (last || reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: last, model, at, ...(reasoning ? { reasoning } : {}) })
         for (const part of parts) {
-          if (part?.type === 'toolCall') turn.items.push({ kind: 'tool_call', id: part.id, name: part.name, arguments: part.arguments, at })
+          // A call without an ID cannot be paired with its result; it is left out.
+          if (part?.type === 'toolCall' && typeof part.id === 'string') turn.items.push({ kind: 'tool_call', id: part.id, name: str(part.name), arguments: part.arguments, at })
         }
         if (message.stopReason === 'error' && message.errorMessage) {
           turn.items.push({ kind: 'message', role: 'system', text: String(message.errorMessage), at })
@@ -63,14 +64,14 @@ export const pi: WorkerAdapter = {
         const u = message.usage
         if (u) {
           usage ??= { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, costUsd: 0 }
-          usage.inputTokens += (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0)
-          usage.outputTokens += u.output ?? 0
-          usage.cachedTokens += u.cacheRead ?? 0
-          usage.cacheWriteTokens += u.cacheWrite ?? 0
-          usage.costUsd += u.cost?.total ?? 0
+          usage.inputTokens += num(u.input) + num(u.cacheRead) + num(u.cacheWrite)
+          usage.outputTokens += num(u.output)
+          usage.cachedTokens += num(u.cacheRead)
+          usage.cacheWriteTokens += num(u.cacheWrite)
+          usage.costUsd += num(u.cost?.total)
         }
       } else if (message.role === 'toolResult') {
-        turn.items.push({ kind: 'tool_result', callId: message.toolCallId, content: textOf(message.content), isError: message.isError === true, at })
+        turn.items.push({ kind: 'tool_result', callId: str(message.toolCallId), content: textOf(message.content), isError: message.isError === true, at })
       }
       // User messages are the prompt Pi echoes back; the supervisor already has it.
     }
@@ -79,7 +80,7 @@ export const pi: WorkerAdapter = {
       const { costUsd, ...counts } = usage
       turn.usage = costUsd > 0 ? usage : counts
     }
-    if (turn.ended && last) turn.result = toTurnResult(lastJsonFence(last))
+    if (turn.ended && last) turn.result = resultFromText(last)
     return turn
   },
 }
