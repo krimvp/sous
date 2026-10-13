@@ -28,7 +28,17 @@ export function sous(args: string[], cwd: string, sessions: string, path = `${BI
   child.stdout.on('data', (d) => (stdout += d))
   child.stderr.on('data', (d) => (stdout += d))
   const exit = new Promise<number | null>((resolve) => child.on('close', resolve))
-  return { child, exit, output: () => stdout }
+  /** The exit code; a process still running after `ms` is interrupted and the promise rejects, so a run left waiting
+   * for a command that never reached it fails its test instead of hanging it. */
+  const exitWithin = (ms = 30_000) => {
+    let timer: NodeJS.Timeout | undefined
+    const late = new Promise<never>((_, reject) => (timer = setTimeout(() => {
+      child.kill('SIGINT')
+      reject(new Error(`sous ${args[0]} still running after ${ms} ms:\n${stdout}`))
+    }, ms)))
+    return Promise.race([exit, late]).finally(() => clearTimeout(timer))
+  }
+  return { child, exit, exitWithin, output: () => stdout }
 }
 
 /** The workspace's only run directory, once it exists. */
