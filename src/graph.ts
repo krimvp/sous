@@ -17,6 +17,7 @@ const RESERVED: string[] = [ROOT, PERSON, INTEGRATOR, ...ROLES]
 const reserved = (id: string) => RESERVED.includes(id) || ROLES.some((role) => id.startsWith(`${role}.`))
 // IDs name directories under nodes/, so keep them to safe file-name characters.
 const ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/
+const ID_RULE = 'letters, digits, _ and - (and . after the first character)'
 // An agent in a role names its standing node and git branch (`sous/<run>.<role>.<agent>`), so no dots.
 const ROLE_AGENT = /^[A-Za-z0-9_-]+$/
 
@@ -55,28 +56,15 @@ export function validateGraph(raw: unknown): GraphFile {
     const where = isObject(node) && typeof node.id === 'string' ? `node ${node.id}` : `node #${i + 1}`
     if (!isObject(node)) throw new Error(`${where}: must be an object`)
     unknownKeys(node, NODE_KEYS, where)
-    if (typeof node.id !== 'string' || !ID.test(node.id)) throw new Error(`${where}: id must match ${ID}`)
+    if (typeof node.id !== 'string' || !ID.test(node.id)) throw new Error(`${where}: id must be ${ID_RULE}`)
     if (reserved(node.id)) throw new Error(`${where}: id ${node.id} is reserved`)
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
     if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files: their nodes are top-level`)
-    if (!KINDS.includes(node.kind)) throw new Error(`${where}: kind must be work, check, lead or gate`)
-    if (node.needs !== undefined && !(Array.isArray(node.needs) && node.needs.every((n) => typeof n === 'string'))) {
-      throw new Error(`${where}: needs must be an array of node ids`)
-    }
-    if (node.acceptance !== undefined && !(Array.isArray(node.acceptance) && node.acceptance.every((a) => typeof a === 'string'))) {
-      throw new Error(`${where}: acceptance must be an array of strings`)
-    }
-    for (const key of ['brief', 'command', 'model'] as const) {
-      if (node[key] !== undefined && typeof node[key] !== 'string') throw new Error(`${where}: ${key} must be a string`)
-    }
+    const shape = shapeError(node)
+    if (shape) throw new Error(`${where}: ${shape}`)
     const agent = agentError(graph, node.kind, node.agent) ?? rolesError(node.kind, node.roles, (name) => agentSpec(graph, name), 'an agent of the graph or a built-in')
     if (agent) throw new Error(`${where}: ${agent}`)
-    if (node.kind === 'lead' && node.command !== undefined) throw new Error(`${where}: leads have no command; add a check node for a deterministic gate`)
-    if (node.kind === 'gate' && node.command !== undefined) throw new Error(`${where}: gates have no command; the person approves them`)
-    if (node.kind === 'check' ? !node.command?.trim() : !node.brief?.trim()) {
-      throw new Error(`${where}: ${node.kind} nodes need a ${node.kind === 'check' ? 'command' : 'brief'}`)
-    }
     return node as NodeSpec
   })
 
@@ -99,6 +87,8 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
     if (!isObject(raw.agents)) throw new Error(`${what}: agents must be an object of agents by name`)
     for (const [name, agent] of Object.entries(raw.agents)) {
       const where = `agent ${name}`
+      // An agent that fills a role names a node and a branch.
+      if (!ID.test(name)) throw new Error(`${what}: agent name ${JSON.stringify(name)} must be ${ID_RULE}`)
       if (!isObject(agent)) throw new Error(`${where}: must be an object`)
       unknownKeys(agent, AGENT_KEYS, where)
       if (!RUNTIMES.includes(agent.runs)) throw new Error(`${where}: runs must be one of ${RUNTIMES.join(', ')}`)
@@ -158,21 +148,35 @@ function rolesError(kind: string, roles: unknown, lookup: (name: string) => Agen
  * ones a lead may give a role. */
 export function childError(c: ChildSpec, used: (id: string) => boolean, siblings: string[], defs?: Definitions, person?: Pick<Definitions, 'agents'>): string | undefined {
   if (!isObject(c)) return 'must be an object'
-  if (typeof c.id !== 'string' || !ID.test(c.id) || reserved(c.id)) return `id must match ${ID}, not be ${RESERVED.join(', ')}, nor start with a role and a dot`
+  if (typeof c.id !== 'string' || !ID.test(c.id) || reserved(c.id)) return `id must be ${ID_RULE}, not be ${RESERVED.join(', ')}, nor start with a role and a dot`
   if (used(c.id)) return 'id is already used'
-  if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
-  if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; spawn a check child for a deterministic gate'
-  if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
-  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return c.kind === 'check' ? 'a check needs a command' : `a ${c.kind} needs a brief`
+  const shape = shapeError(c)
+  if (shape) return shape
   const agent = isObject(c.agent) ? newAgentError(defs, c.kind, c.agent) : agentError(defs, c.kind, c.agent)
   if (agent) return agent
   const roles = rolesError(c.kind, c.roles, (name) => (Object.hasOwn(person?.agents ?? {}, name) ? person!.agents![name] : undefined), 'an agent the run defines')
   if (roles) return roles
-  for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
   const model = childModelError(defs, c)
   if (model) return model
+  const later = (c.needs ?? []).find((n: string) => !siblings.includes(n))
+  if (later !== undefined) return `needs may name only earlier siblings, not ${later}`
+  return undefined
+}
+
+/** Why a node or child is invalid whatever the run's ids and agents, if it is: its kind, the types of its fields, and
+ * the fields its kind takes or needs. */
+function shapeError(c: Record<string, any>): string | undefined {
+  if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
+  for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
+  if (c.needs !== undefined) {
+    const bad = Array.isArray(c.needs) ? c.needs.findIndex((n) => typeof n !== 'string') : -2
+    if (bad !== -1) return `needs must be an array of node ids${bad >= 0 ? `, not ${JSON.stringify(c.needs[bad])}` : ''}`
+  }
   if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
-  if (c.needs !== undefined && !(Array.isArray(c.needs) && c.needs.every((n) => siblings.includes(n)))) return 'needs may name only earlier siblings'
+  if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; add a check node for a deterministic gate'
+  if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
+  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return `${c.kind} nodes need a ${c.kind === 'check' ? 'command' : 'brief'}`
+  if ((c.kind === 'check' || c.kind === 'gate') && c.model !== undefined) return `${c.kind} nodes have no model`
   return undefined
 }
 
@@ -181,7 +185,7 @@ function newAgentError(defs: Definitions | undefined, kind: string, d: Record<st
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   const extra = Object.keys(d).filter((k) => !NEW_AGENT_KEYS.includes(k))
   if (extra.length) return `agent: unknown field ${extra.join(', ')}`
-  if (typeof d.name !== 'string' || !ID.test(d.name) || RESERVED.includes(d.name)) return `agent.name must match ${ID} and not be ${RESERVED.join(', ')}`
+  if (typeof d.name !== 'string' || !ID.test(d.name) || RESERVED.includes(d.name)) return `agent.name must be ${ID_RULE} and not be ${RESERVED.join(', ')}`
   if (agentSpec(defs, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
   if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
   if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'
@@ -195,7 +199,6 @@ function newAgentError(defs: Definitions | undefined, kind: string, d: Record<st
  * runtime. A new agent carries its own model. */
 function childModelError(defs: Definitions | undefined, c: ChildSpec): string | undefined {
   if (c.model === undefined) return undefined
-  if (c.kind === 'check' || c.kind === 'gate') return `${c.kind} nodes have no model`
   if (isObject(c.agent)) return 'set the model of a new agent in it, as agent.model'
   if (c.agent === undefined) return 'a model needs a named agent: name the agent it applies to'
   return modelError(defs, agentSpec(defs, c.agent)!.runs, c.model)
