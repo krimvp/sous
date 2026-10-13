@@ -39,6 +39,12 @@ Every harness passes the same conformance suite, and a new one must pass it befo
 Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Certifying Codex adds an entry for each
 temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
 
+Every certification run writes `test/fixtures/conformance/<harness>/certified.json`: the output of `<cli> --version`,
+the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. The next
+`npm run certify` for a harness creates its file (none is committed yet, so until then the Certified column above
+is the only record). `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
+certified ones, so you can see when a harness has moved on and needs certifying again.
+
 ## What sous keeps out of workers
 
 Workers talk to the run's other agents only through sous, and get as little of your own setup as each harness allows.
@@ -48,9 +54,9 @@ The project's own instruction files still apply, as each harness reads them:
   settings apply. It reads the project's `CLAUDE.md` and `CLAUDE.local.md`, and those in the directories above the
   worktree, your workspace's included.
 - **Codex:** your MCP servers and the project's are disabled; rules, hooks, apps, plugins and skills are off. It reads
-  the project's `AGENTS.md`, and your global `~/.codex/AGENTS.md` still loads. A server whose name has a dot is not
-  disabled, nor are your servers when `codex mcp list` fails (sous says so on stderr). Codex records each workspace it
-  runs in as trusted in your `~/.codex/config.toml`.
+  the project's `AGENTS.md`, and your global `~/.codex/AGENTS.md` still loads. A server whose name has a character
+  other than letters, digits, `_` and `-` (a dot, a space) is not disabled, nor are your servers when `codex mcp list`
+  fails (sous says so on stderr). Codex records each workspace it runs in as trusted in your `~/.codex/config.toml`.
 - **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`,
   which sous passes to it.
 - **Droid:** your MCP servers and the project's are disabled, hooks are off, and your skills (yours and your plugins')

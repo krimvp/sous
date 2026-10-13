@@ -7,7 +7,7 @@ moving, delivers messages between levels, and recovers after a crash.
 
 - **Local only.** One supervisor process per run, state in `.sous/runs/<id>/` as plain files. Runs from
   before the rename, under `.murm/`, are not read.
-- **Few dependencies.** Node 22.19 or later; only the lead runner depends on Pi's durable runtime. A checkout runs
+- **Few dependencies.** Node 22.19 or later, on Linux and macOS (the tests run on Linux); only the lead runner depends on Pi's durable runtime. A checkout runs
   the TypeScript sources directly; the npm package is the same code compiled to JavaScript.
 - **Any worker.** Workers sit behind a small adapter interface and run in turns: a message waits in an
   inbox until the next turn, or interrupts the current one.
@@ -85,7 +85,7 @@ Or give it a fixed graph file:
 ```
 
 ```bash
-sous run graph.json        # runs in the current directory; state in .sous/runs/<id>/
+sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
 sous status                # latest run as a tree
 sous runs                  # every run of the workspace, newest first: id, state, start, goal
 sous --help | --version    # the usage (also: sous <command> --help), the installed version

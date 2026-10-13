@@ -198,3 +198,50 @@ test('a graph run lists only the agents its work nodes use; a goal run lists eve
   assert.equal(await goal.exit, 0, goal.output())
   assert.match(goal.output(), /^agents: claude, lead; not available: codex \(codex not found\), pi \(pi not found\), droid \(droid not found\)$/m)
 })
+
+test('a graph that can merge also lists the agent that resolves conflicts, so a missing one shows', async () => {
+  const workspace = gitWorkspace('sous-usage-')
+  const sessions = join(workspace, 'sessions')
+  const dir = tmp()
+  const brief = `Do it.\n${fakePlan([{ result: { status: 'done', summary: 'done' } }])}`
+  const nodes = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `w${i}`, kind: 'work', agent: 'claude', brief }))
+  let files = 0
+  const start = async (extra: object, count: number, bin: string) => {
+    const graph = join(dir, `graph-${files++}.json`)
+    writeFileSync(graph, JSON.stringify({ goal: 'g', ...extra, nodes: nodes(count) }))
+    const r = sous(['run', graph], workspace, sessions, bin)
+    assert.equal(await r.exit, 0, r.output())
+    return r.output()
+  }
+  const only = fakeBin(['claude'], ['git', 'sh'])
+  // One work node cannot conflict; two can, and the integrator is then the first available worker.
+  assert.match(await start({}, 1, only), /^agents: claude$/m)
+  assert.match(await start({}, 2, only), /^agents: claude$/m)
+  assert.match(await start({}, 2, fakeBin(['claude', 'codex'], ['git', 'sh'])), /^agents: claude, codex$/m)
+  const droid = { agents: { integrator: { runs: 'droid' } } }
+  assert.match(await start(droid, 2, only), /^agents: claude; not available: integrator \(droid not found\)$/m)
+  assert.match(await start(droid, 1, only), /^agents: claude$/m)
+})
+
+test('--workspace is used exactly as given, even inside a git repository; only the current directory becomes the root', async () => {
+  const repo = gitWorkspace('sous-usage-')
+  const sub = join(repo, 'sub')
+  mkdirSync(sub)
+  const run = sous(['run', complete('Anything.'), '--workspace', sub], tmp(), join(repo, 'sessions'))
+  assert.equal(await run.exit, 0, run.output())
+  assert.doesNotMatch(run.output(), /git repository root/)
+  assert.ok(runDirOf(sub), '.sous/ is in the folder that was named')
+  assert.equal(existsSync(join(repo, '.sous', 'runs')), false)
+})
+
+test('sous runs shows a run whose log has no first event yet as starting', async () => {
+  const workspace = tmp()
+  const runs = join(workspace, '.sous', 'runs')
+  mkdirSync(join(runs, '20261013T100000Z-aaaa'), { recursive: true })
+  mkdirSync(join(runs, '20261013T100001Z-bbbb'), { recursive: true })
+  writeFileSync(join(runs, '20261013T100000Z-aaaa', 'events.jsonl'), '')
+  writeFileSync(join(runs, '20261013T100001Z-bbbb', 'events.jsonl'), '{"type":"run.crea')
+  const { code, output } = await ran(['runs'], workspace)
+  assert.equal(code, 0, output)
+  assert.equal(output, '20261013T100001Z-bbbb  starting\n20261013T100000Z-aaaa  starting\n')
+})

@@ -2,7 +2,7 @@
 // sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
 // running run.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -55,6 +55,8 @@ export interface CliDeps {
   createLeadRunner?: SupervisorOptions['createLeadRunner']
   /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
   hasLeadCredential: (provider: string) => Promise<boolean>
+  /** Lists the person's Codex MCP servers for the Codex adapter, at run start when Codex is available. */
+  listCodexServers?: () => Promise<void>
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -98,7 +100,8 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
     console.log(usageOf(command === 'help' ? args[0] : command))
     return 0
   }
-  const { workspace, from } = repoWorkspace(resolve(parsed.values.workspace ?? process.cwd()))
+  // An explicit --workspace is used as given; the default, the current directory, becomes the repository's top level.
+  const { workspace, from } = parsed.values.workspace === undefined ? repoWorkspace(process.cwd()) : { workspace: resolve(parsed.values.workspace), from: undefined }
   try {
     switch (command) {
       case 'run': {
@@ -243,6 +246,8 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
   const names = startAgents(graph, unavailable)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  // Here rather than on a Codex worker's first turn, where it would hold up the supervisor.
+  if (!unavailable.commands.includes('codex')) await deps.listCodexServers?.()
   return unavailable
 }
 
@@ -365,6 +370,11 @@ function runs(workspace: string): number {
     const runDir = join(runsDir, id)
     try {
       const events = readEvents(runDir)
+      // The log file exists before its first event is written.
+      if (events[0]?.type !== 'run.created') {
+        console.log(`${id}  starting`)
+        continue
+      }
       const state = fold(events)
       const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
       console.log(`${id}  ${live.padEnd(9)}  ${events[0].at.slice(0, 19)}Z  ${firstLine(state.goal)}`)
@@ -431,6 +441,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential })
+  const [{ getAdapter, listCodexServers }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential, listCodexServers })
 }

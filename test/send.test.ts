@@ -2,7 +2,8 @@
 // supervisor delivering, copying and refusing messages with fake workers and the scripted fake lead runner.
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { once } from 'node:events'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -234,13 +235,34 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.deepEqual((await call(8, 'tools/call', { name: 'receive', arguments: { seconds: '60' } })).result, {
       content: [{ type: 'text', text: 'not done: receive takes wait_seconds, not seconds' }], isError: true,
     })
-    assert.equal((await call(9, 'tools/call', { name: 'receive', arguments: { wait_seconds: '0' } })).result.isError, false)
     assert.equal((await call(5, 'resources/list')).error.code, -32601)
     server.stdin.write('null\n')
     assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })
     assert.equal((await call(6, 'ping')).result && 'still serving', 'still serving')
   } finally {
     server.kill()
+  }
+})
+
+test("sous's MCP server refuses arguments of the wrong type instead of converting them", async () => {
+  const runDir = runWithTree()
+  const server = spawn(process.execPath, [MCP], { env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: 'a', SOUS_TURN: '1' }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const lines = createInterface({ input: server.stdout })[Symbol.asyncIterator]()
+  const call = async (id: number, name: string, args: object) => {
+    server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }) + '\n')
+    return JSON.parse((await lines.next()).value).result
+  }
+  const refused = (why: string) => ({ content: [{ type: 'text', text: `not done: ${why}` }], isError: true })
+  try {
+    assert.deepEqual(await call(1, 'send', { to: 'b', body: { text: 'hi' } }), refused('send takes to and body as text'))
+    assert.deepEqual(await call(2, 'send', { to: ['b'], body: 'hi' }), refused('send takes to and body as text'))
+    assert.deepEqual(await call(3, 'send', { body: 'hi' }), refused('send takes to and body as text'))
+    assert.deepEqual(await call(4, 'receive', { wait_seconds: '60' }), refused('receive takes wait_seconds as a number'))
+    assert.equal(existsSync(join(runDir, 'commands')) && commands(runDir).length, false, 'nothing was sent or read')
+    assert.deepEqual(await call(5, 'receive', {}), { content: [{ type: 'text', text: 'No messages.' }], isError: false })
+  } finally {
+    server.stdin.end()
+    await once(server, 'exit')
   }
 })
 

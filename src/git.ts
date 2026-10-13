@@ -49,9 +49,10 @@ export function repoRoot(dir: string): string | undefined {
   return !r.error && r.status === 0 ? r.stdout.trim() : undefined
 }
 
-/** How many paths `git status` reports as changed or untracked in the work tree, not counting `.sous/`. */
+/** How many entries `git status` lists (changed paths and untracked files or folders), not counting `.sous/`. It takes
+ * no index lock, so it cannot get in the way of the person's own git. */
 export function dirtyChanges(workspace: string): number {
-  return git(workspace, ['status', '--porcelain', '--', '.', ':(exclude).sous']).split('\n').filter(Boolean).length
+  return git(workspace, ['--no-optional-locks', 'status', '--porcelain', '--', '.', ':(exclude).sous']).split('\n').filter(Boolean).length
 }
 
 /** The workspace must be a git repository with at least one commit. Excludes `.sous/` from git. */

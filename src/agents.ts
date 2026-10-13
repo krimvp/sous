@@ -42,17 +42,24 @@ export function agentNames(defs: AgentDefs): string[] {
 }
 
 /** The agents worth listing when a run starts: all of them when a lead may pick any (a goal run, or a graph with a lead
- * node), else those the graph's work nodes will use. */
+ * node), else those the graph's work nodes will use and, with more than one work node, whoever resolves merge conflicts. */
 export function startAgents(graph: (Definitions & { nodes?: NodeSpec[] }) | undefined, unavailable: Unavailable): string[] {
   const nodes = graph?.nodes ?? []
   if (!nodes.length || nodes.some((n) => n.kind === 'lead')) return agentNames(graph)
-  const used = new Set(nodes.filter((n) => n.kind !== 'check' && n.kind !== 'gate').map((n) => {
+  const work = nodes.filter((n) => n.kind !== 'check' && n.kind !== 'gate')
+  const used = new Set(work.map((n) => {
     try {
       return agentFor(graph, n, unavailable).name
     } catch {
       return n.agent
     }
   }))
+  if (work.length > 1) {
+    if (defines(graph, INTEGRATOR)) used.add(INTEGRATOR)
+    // With no integrator available, list the candidates so that what is missing shows.
+    const integrator = integratorAgent(graph, unavailable)
+    for (const name of integrator ? [integrator] : INTEGRATOR_AGENT_PREFERENCE) used.add(name)
+  }
   return agentNames(graph).filter((name) => used.has(name))
 }
 

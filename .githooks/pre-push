@@ -1,0 +1,15 @@
+#!/bin/sh
+# Run scripts/pr-check.sh before a push that sends commits (not a branch deletion). Bypass with `git push --no-verify`.
+# pr-check checks HEAD and the working tree, so warn when a pushed commit is not HEAD.
+head=$(git rev-parse HEAD)
+push=
+while read -r _ local_sha _; do
+  case "$local_sha" in
+    *[!0]*)
+      push=1
+      [ "$local_sha" = "$head" ] || echo "pre-push: pushing $local_sha, but pr-check checks HEAD $head and the working tree" >&2
+      ;;
+  esac
+done
+[ -n "$push" ] || exit 0
+exec "$(git rev-parse --show-toplevel)/scripts/pr-check.sh"
