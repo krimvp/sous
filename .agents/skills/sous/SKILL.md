@@ -18,12 +18,13 @@ M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill 
 
 - Run `$M doctor` where the agents will work: each harness CLI on PATH with its version (not whether it is logged
   in), the lead's credentials and model, the git state; it exits 0 when a run could start, else says what is missing.
-- The lead needs a model credential of its own (a worker CLI's login does not count). Prefer a Pi login (`pi` run
-  once; it can cover every lead provider, ChatGPT included) or `OLLAMA_API_KEY`. `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
-  also work, but workers inherit the environment, so such a key moves Claude Code, and may move Codex, from the user's
-  subscription to API billing: ask the user first. A lead that names no model takes the first provider with a
-  credential, in this order: `ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`,
-  `openai-codex/gpt-5.5` (ChatGPT), and keeps it when resumed. With none, the run is refused with what to do.
+- The lead needs a model credential of its own (a worker CLI's login does not count). Prefer `OLLAMA_API_KEY` or a Pi
+  login (install Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, then run `pi`, then
+  `/login`; it covers Anthropic and ChatGPT, not Ollama Cloud). `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` also work (not
+  yet run live), but workers inherit the environment, so such a key moves Claude Code, and may move Codex, from the
+  user's subscription to API billing: ask the user first. A lead that names no model takes the first provider with a
+  credential, in a fixed order (Ollama Cloud, Anthropic, OpenAI, ChatGPT; `$M doctor` prints the choice), and keeps it
+  when resumed. With none, the run is refused with what to do.
 - In a git repository (it needs a commit) workers see the last commit (`HEAD`) only: commit what they need first (the
   run prints `workspace has N uncommitted changes; workers see HEAD only`). From a subdirectory the workspace is the
   repository root, which the run prints.
@@ -77,10 +78,10 @@ Leads may read files before splitting. In folder mode, workers and checks run in
 - Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. A graph whose node
   names an unavailable agent is refused before anything runs.
 - Workers run as the user with full permissions inside their own worktree or folder, and can write the run's command
-  files: a worker, or anything it runs, could forge an approval or an answer. Until workers are sandboxed, gates
-  protect only as far as the user trusts the agents. Say so if the user has not accepted that.
-- Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead; at most 4 workers and checks run at
-  a time in a run, the rest wait.
+  files: a worker, or anything it runs, could forge an approval, an answer or a cancel. Until workers are sandboxed,
+  gates protect only as far as the user trusts the agents. Say so if the user has not accepted that.
+- Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead in total; at most 4 workers and
+  checks run at a time in a run, the rest wait.
 - A failed worker turn's stderr is in `.sous/runs/<id>/nodes/<node>/turn-<k>.err`, its raw output in `turn-<k>.jsonl`.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.
 - Prefer cheap models for experiments (`pi` on Ollama models, the default lead).

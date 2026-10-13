@@ -20,7 +20,7 @@ import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supe
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
 import { startUi } from './ui.ts'
-import { PERSON, SPLITTER } from './types.ts'
+import { DEFAULT_LEAD_MODEL, PERSON, SPLITTER } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
@@ -232,7 +232,8 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel)
+  // A run from before the choice was recorded started on the fixed default.
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel ?? DEFAULT_LEAD_MODEL)
   printPending(state)
   const printEvent = printer(events)
   let outcome: SupervisorOutcome | undefined

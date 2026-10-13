@@ -262,14 +262,14 @@ export const DEFAULT_MAX_LEAD_DEPTH = 3
  * `credential` is what a person does to give sous one (every message about a lead that cannot run says so).
  * Credentials are read as `src/lead/providers.ts` says: the environment variable named here, or the Pi login. */
 export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: string }[] = [
-  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY or log in with Pi (run pi)' },
-  { id: 'anthropic', model: 'claude-haiku-5-5', credential: 'set ANTHROPIC_API_KEY or log in with Pi (run pi)' },
-  { id: 'openai', model: 'gpt-6-luna', credential: 'set OPENAI_API_KEY or log in with Pi (run pi)' },
-  { id: 'openai-codex', model: 'gpt-5.5', credential: 'log in with Pi (run pi) using ChatGPT' },
+  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY' },
+  { id: 'anthropic', model: 'claude-haiku-5-5', credential: 'set ANTHROPIC_API_KEY, or run pi, then /login' },
+  { id: 'openai', model: 'gpt-6-luna', credential: 'set OPENAI_API_KEY, or run pi, then /login' },
+  { id: 'openai-codex', model: 'gpt-5.5', credential: 'run pi, then /login with ChatGPT' },
 ]
 
 /** What gets a credential for some lead provider: the fix when none has one. */
-export const ANY_LEAD_CREDENTIAL_FIX = 'set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi (run pi)'
+export const ANY_LEAD_CREDENTIAL_FIX = 'set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login'
 
 /** The lead model when nothing names one and availability was not consulted: the first lead provider's. */
 export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].model}`
@@ -277,7 +277,7 @@ export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].m
 /** What gets a credential for lead provider `provider`: its entry's, or, for a provider sous has no entry for, the
  * Pi login that every provider may be logged in to. */
 export const leadCredentialFix = (provider: string) =>
-  LEAD_PROVIDERS.find((p) => p.id === provider)?.credential ?? 'log in with Pi (run pi)'
+  LEAD_PROVIDERS.find((p) => p.id === provider)?.credential ?? 'run pi, then /login'
 
 // ---- Event log -------------------------------------------------------------------------------
 
