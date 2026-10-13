@@ -41,6 +41,7 @@
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
+    "test:quick": "node --test test/adapters-parse.test.ts test/agents.test.ts test/graph.test.ts test/git.test.ts test/trace-atif.test.ts test/trace-otlp.test.ts",
     "check": "npm run typecheck && npm test",
     "certify": "SOUS_CERTIFY=1 node --test --test-concurrency=1 test/conformance-live.test.ts"
   },

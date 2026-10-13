@@ -6,10 +6,11 @@ import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'no
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
+import { agentNames, agentSpec, checkAgents, defaultLeadModel, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
 import { inWorkTree } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
+import { doctor } from './doctor.ts'
 import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.ts'
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
 import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
@@ -32,15 +33,18 @@ const USAGE = `usage:
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]
-  sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)`
+  sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)
+  sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials, git state)`
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
   createLeadRunner?: SupervisorOptions['createLeadRunner']
-  /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
-  hasLeadCredential: (provider: string) => Promise<boolean>
+  /** Where lead agents on `provider` get their credential (an environment variable, or the Pi login), if anywhere. */
+  leadCredential: (provider: string) => Promise<string | undefined>
   /** Lists the person's Codex MCP servers for the Codex adapter, at run start when Codex is available. */
   listCodexServers?: () => Promise<void>
+  /** What is wrong with the Pi login file, if anything (`sous doctor` says so). */
+  loginProblem?: () => string | undefined
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -98,6 +102,9 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
       case 'cancel':
         if (args.length !== 1) break
         return sendCommand(workspace, { type: command, node: args[0] })
+      case 'doctor':
+        if (args.length) break
+        return await doctor(workspace, deps.leadCredential, deps.loginProblem)
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
@@ -151,7 +158,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}) })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -173,7 +180,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps)
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel)
   printPending(state)
   const printEvent = printer(events)
   let outcome: SupervisorOutcome | undefined
@@ -189,12 +196,16 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
 }
 
 /** After the supervisor: where the run's results are (the branch that holds its merged work, once it has one, or its
- * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. */
+ * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. Nothing
+ * when another supervisor holds the run (this one never ran it), and never an error over the supervisor's own. */
 function printEnd(id: string, runDir: string): void {
-  const state = fold(readEvents(runDir))
-  const result = resultOf(state, runDir)
-  if (result) console.log(`result: ${result}`)
-  if (state.status === 'running' && lockHolder(runDir) === undefined) console.log(`stopped; continue with: sous resume ${id}`)
+  try {
+    if (lockHolder(runDir) !== undefined) return
+    const state = fold(readEvents(runDir))
+    const result = resultOf(state, runDir)
+    if (result) console.log(`result: ${result}`)
+    if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+  } catch {}
 }
 
 function resultOf(state: RunState, runDir: string): string | undefined {
@@ -202,13 +213,18 @@ function resultOf(state: RunState, runDir: string): string | undefined {
   return state.integration && `branch ${state.integration.branch}`
 }
 
-/** Check which agents can run, once per run start, and print it. */
-async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps): Promise<Unavailable> {
-  const unavailable = await checkAgents(graph, deps.hasLeadCredential)
+/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
+ * the one recorded for a resumed run). */
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, leadModel?: string): Promise<Unavailable> {
+  const unavailable = await checkAgents(graph, deps.leadCredential, leadModel)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
+  const label = (name: string) => {
+    const spec = agentSpec(graph, name)!
+    return spec.runs === 'lead' ? `${name} (${spec.model ?? defaultLeadModel(unavailable)})` : name
+  }
   const names = agentNames(graph)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
-  console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
   // Here rather than on a Codex worker's first turn, where it would hold up the supervisor.
   if (!unavailable.commands.includes('codex')) await deps.listCodexServers?.()
   return unavailable
@@ -399,6 +415,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter, listCodexServers }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential, listCodexServers })
+  const [{ getAdapter, listCodexServers }, { createLeadRunner, leadCredential, loginProblem }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, leadCredential, listCodexServers, loginProblem })
 }

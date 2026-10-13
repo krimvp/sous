@@ -5,6 +5,20 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
+  the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
+  worktree is reset before each merge and after each check there, and the integrator's verification counts untracked
+  files (#90); an error inside the supervisor stops every worker, keeps the run resumable and prints the `sous resume`
+  hint, and a second Ctrl-C kills what still runs (#91); a lead delivery the runner could not get answered is retried
+  once with the reason and then fails the lead with it, and a settlement the runner cannot report reaches the host as
+  unanswered (#92).
+- Leads run on Anthropic (`anthropic/claude-haiku-5-5`) and OpenAI (`openai/gpt-6-luna`) models with `ANTHROPIC_API_KEY`
+  or `OPENAI_API_KEY`, beside Ollama Cloud and the ChatGPT login through the Pi login. A lead that names no model gets
+  the first provider with a credential (Ollama Cloud first, so nothing changes for a person who has it), printed on the
+  `agents:` line and kept on resume; a run with no lead credential is refused with what to do. The Anthropic and OpenAI
+  leads have not been run live yet, and such a key in the environment also reaches Claude Code and Codex workers.
+  `sous doctor` reports each harness on PATH with its version (not its login), the lead credentials and model, and the
+  git state, and exits 0 when a run could start (#93, #99).
 - A worker harness that exits with an error before ending its turn is explained: the last lines of its stderr and the
   path of its `.err` file are in the turn's error and the node's failure reason, and a turn that wrote no output fails
   its node at once instead of spending a reminder turn. `docs/harnesses.md` lists the known Claude causes (#87).

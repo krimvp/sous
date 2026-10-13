@@ -3,13 +3,13 @@
 A harness is the coding-agent CLI a worker runs on. sous starts it for each turn in the worker's own git worktree,
 reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
 same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
-also be logged in, or the nodes it gets fail.
+also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
 
 | Harness | CLI | Login | Messages between workers | Certified |
 |---|---|---|---|---|
 | [Claude Code](https://claude.com/claude-code) | `claude` | your Claude login | sous's MCP tools `send` and `receive` | 2.1.296, 2026-10-12 |
 | [Codex](https://github.com/openai/codex) | `codex` | your ChatGPT or API login | sous's MCP tools `send` and `receive` | 0.160.0, 2026-10-12 |
-| [Pi](https://github.com/earendil-works/pi) | `pi` | your Pi login (leads use it too) | the commands `sous send` and `sous receive` | 1.1.0, 2026-10-12 |
+| [Pi](https://github.com/earendil-works/pi) | `pi` | your Pi login (leads may use it too) | the commands `sous send` and `sous receive` | 1.1.0, 2026-10-12 |
 | [Factory Droid](https://docs.factory.ai/cli/getting-started/overview) | `droid` | your Factory login, or a custom model in your Droid settings | sous's MCP tools `send` and `receive` | 0.210.0, 2026-10-12 |
 
 A work node that names no agent runs on the first available of Claude Code, Codex, Pi, Droid. The integrator, which

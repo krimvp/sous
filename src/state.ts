@@ -102,8 +102,9 @@ export interface NodeState {
   idle: boolean
   /** Leads: seq of the last `lead.turn`. */
   lastTurn?: number
-  /** Leads: the reason of the last `lead.turn` when the runner could not get the delivery answered (a model error). */
-  unanswered?: string
+  /** Leads: the last `lead.turn` was `unanswered` (the runner could not get the delivery answered: a model error), with
+   * its reason and whether the one retry for it has been delivered. */
+  unanswered?: { reason: string; retried: boolean }
   /** Leads: reminders delivered since the last accepted tool call. */
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
@@ -124,6 +125,8 @@ export interface RunState {
   workspace: string
   mode: RunMode
   graph?: GraphFile
+  /** The model of lead agents that name none, from `run.created`. */
+  leadModel?: string
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
   /** The agent definitions the person wrote (the graph's, or the agents file's), without those leads defined. */
@@ -257,7 +260,7 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
+        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
         state.agents = { agent, agents: registry(agents), models }
         state.definitions = { agent, agents: registry(agents), models }
         break
@@ -322,7 +325,11 @@ export function fold(events: readonly Event[]): RunState {
       case 'lead.delivered': {
         const node = state.nodes.get(e.node)
         if (!node) break
-        if (node.lastTurn !== undefined && e.requestId === `evt-${node.lastTurn}`) node.reminders++
+        // A delivery named after the last turn is the retry of an unanswered one, else an idle reminder.
+        if (node.lastTurn !== undefined && e.requestId === `evt-${node.lastTurn}`) {
+          if (node.unanswered) node.unanswered.retried = true
+          else node.reminders++
+        }
         node.delivered.push(e.requestId)
         node.inbox = node.inbox.filter((m) => `evt-${m.seq}` !== e.requestId)
         node.idle = false
@@ -333,7 +340,10 @@ export function fold(events: readonly Event[]): RunState {
         if (!node) break
         const done = answered.get(e.node) ?? new Set<string>()
         answered.set(e.node, done.add(e.requestId))
-        Object.assign(node, { idle: node.delivered.every((r) => done.has(r)), lastTurn: e.seq, unanswered: e.status === 'unanswered' ? e.text : undefined })
+        Object.assign(node, {
+          idle: node.delivered.every((r) => done.has(r)), lastTurn: e.seq,
+          unanswered: e.status === 'unanswered' ? { reason: e.text, retried: node.unanswered?.retried ?? false } : undefined,
+        })
         break
       }
       case 'lead.call': {

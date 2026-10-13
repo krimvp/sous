@@ -146,11 +146,20 @@ reopened lead continues where it stopped.
   extension. Each is `replay: "safe"`, keyed by the model's tool call ID. An orchestration tool **returns the
   original result on replay**: in the spike, a different replay result made the model stop early. A read
   changes nothing, so a replayed read simply reads again.
-- **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
-  (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
-  from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
-  refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
-  small provider definition, because pi-ai has none built in.
+- **Model:** the node's `model`, else its agent's, as `provider/model`, else the default: the first provider in
+  `LEAD_PROVIDERS` (`src/types.ts`) with a credential, on that provider's default model, decided with availability
+  when the run starts and printed on the `agents:` line. The providers, in that order, are Ollama Cloud
+  (`ollama-cloud/deepseek-v4.1-flash`: cheap; passed the spike, as did `ollama-cloud/glm-5.3`), Anthropic
+  (`anthropic/claude-haiku-5-5`), OpenAI (`openai/gpt-6-luna`) and the ChatGPT login (`openai-codex/gpt-5.5`, which
+  passed the spike); the first keeps its place so that nothing changes for a person who has it. The Anthropic and
+  OpenAI leads have not been run live yet. The choice is recorded in `run.created.leadModel` and kept on resume (see
+  Agents). Credentials come from the environment (`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, as pi-ai
+  reads them) or the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes the login (a refresh
+  rotates Pi's token; an expired login is refreshed by running `pi` once), so an OAuth token that has expired, or will
+  within pi-ai's refresh margin, is left out, and a key in the environment is used instead; a login file that is not
+  JSON is ignored and `sous doctor` says so. A lead that cannot run says what gets a credential for its provider. An
+  Anthropic or OpenAI key in the environment also reaches Claude Code and Codex workers, which inherit it (the README
+  says so). Ollama Cloud needs a small provider definition, because pi-ai has none built in; the others are pi-ai's.
 
 Its tools:
 
@@ -299,9 +308,10 @@ child's brief.
 one was delivered, and the runner may report one twice after a crash; the second report is ignored). When it settles idle with no running or pending children, no undelivered
 messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
 reminders without progress the lead fails. A delivery the runner could not get answered (a model error, an
-expired login: `lead.turn` is `unanswered` with the reason) is retried once with the reason (the retry counts
-as a reminder); a second failure fails the lead with that reason, not as idle. A settlement the runner cannot
-report (its storage, the host's log) reaches the host the same way, as `unanswered` with the error.
+expired login: `lead.turn` is `unanswered` with the reason) is retried once with the reason, where an idle
+lead would be reminded (so a working child's outcome reaches the lead first, and the retry is not a
+reminder); when the retry goes unanswered too, the lead fails with that reason, not as idle. A settlement the
+runner cannot report (its storage, the host's log) reaches the host the same way, as `unanswered` with the error.
 
 **The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
@@ -397,10 +407,18 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 
 - **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined. A graph file may define
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
-- **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
-  login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
+- **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when its model's
+  provider has a credential, or, for a lead agent with no model, when any lead provider has one; such an agent runs
+  on the first with a credential, see Lead runner). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  and printed (`agents: …; not available: …`, each lead agent with the model it runs on). The model chosen for lead
+  agents that name none is recorded in `run.created.leadModel`; a resumed run resolves such leads to it, whatever
+  credentials are present then (a lead whose recorded provider lost its credential is unavailable, with the fix,
+  rather than moved to another provider). `sous doctor` runs the same
+  check without a run and prints it (each harness on `PATH` with its `--version`, not whether it is logged in; the
+  lead credentials present, never their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
+  commit, uncommitted changes, which workers do not see, and whether the workspace is the top level), and exits 0
+  when a run could start: a lead, a worker, and a commit when in git. A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
   graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
   available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable

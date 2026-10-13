@@ -463,15 +463,25 @@ test("a worker's question reaches its lead and the lead's answer resumes the sam
 
 test('an interrupt send stops a running worker and resumes it with the message', async () => {
   const started = Date.now()
+  let outFile = ''
   const { outcome, state, sessions } = await runLead([
     { calls: [{ tool: 'spawn', children: [{ id: 'w', kind: 'work', brief: `Slow.\n${fakePlan([
       { sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
     ])}` }] }] },
     { calls: [{ tool: 'complete', summary: 'ok' }] },
   ], (e, host) => {
-    if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) {
-      setTimeout(() => host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' }), 100)
-    }
+    if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) outFile = e.outFile // <workspace>/run/nodes/w/turn-1.jsonl
+    if (e.type !== 'turn.session' || e.node !== 'w' || e.turn !== 1) return
+    // Interrupt only once the worker has printed its session line, which it does after saving the session (the plan);
+    // stopped earlier, the resumed turn would find no plan and end without a result. Gives up after 10 s.
+    const deadline = Date.now() + 10_000
+    const poll = setInterval(() => {
+      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"session"')
+      if (!printed && Date.now() < deadline) return
+      clearInterval(poll)
+      if (printed) host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
+    }, 10)
+    poll.unref()
   })
   assert.equal(outcome, 'completed')
   assert.ok(Date.now() - started < 20_000)
@@ -480,6 +490,7 @@ test('an interrupt send stops a running worker and resumes it with the message',
   assert.deepEqual(w.turns.map((t) => [t.mode, t.result?.summary]), [['start', undefined], ['resume', 'redirected']])
   const session = JSON.parse(readFileSync(join(sessions, `${w.turns[0].sessionId}.json`), 'utf8'))
   assert.match(session.prompts[1], /Message from lead:\nChange of plan\./)
+  assert.deepEqual([w.status, w.summary], ['completed', 'redirected']) // the resumed turn ran the plan's second step, not a reminder
 })
 
 test('an idle lead gets two reminders and then fails', async () => {
@@ -502,6 +513,47 @@ test('a delivery the runner could not get answered is retried once with the reas
   assert.equal(failed.outcome, 'failed')
   assert.equal(failed.state.nodes.get('lead')!.reason, `unanswered after a retry: ${reason}`)
   assert.equal(delivered(failed.events).length, 2)
+
+  // A lead reminded once still gets its retry: the retry is not a reminder.
+  const reminded = await runLead([{}, { unanswered: reason }, { calls: [{ tool: 'complete', summary: 'done after a reminder and a retry' }] }])
+  assert.equal(reminded.outcome, 'completed')
+  assert.deepEqual(delivered(reminded.events).map((d) => d.text.split(' ')[0]), ['You', 'Reminder', 'Your'])
+})
+
+test('an unanswered delivery does not fail a lead whose children still work: their outcomes come first', async () => {
+  const reason = 'model_error: 429 slow down'
+  const { outcome, events, state } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      { id: 'quick', kind: 'work', brief: `Quick.\n${fakePlan([{ result: done('quick') }])}` },
+      { id: 'slow', kind: 'work', brief: `Slow.\n${fakePlan([{ sleepMs: 1500, result: done('slow') }])}` },
+    ] }] },
+    { unanswered: reason }, // quick's outcome: slow still works, so no retry yet
+    { unanswered: reason }, // slow's outcome
+    { calls: [{ tool: 'complete', summary: 'both done' }] }, // the retry
+  ])
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(['quick', 'slow'].map((id) => state.nodes.get(id)!.summary), ['quick', 'slow'])
+  assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child', 'Your'])
+})
+
+test('a run whose log fails still stops its workers, releases the lock and reports the error that ended it', async () => {
+  // The log starts failing (a throwing onEvent, like a full disk) at the gate's message, while w's turn runs.
+  let pid = 0
+  let runDir = ''
+  let broken = false
+  await assert.rejects(runGraph([
+    work('w', [{ sleepMs: 60_000, result: done('late') }]),
+    { id: 'c', kind: 'check', command: 'sleep 1' },
+    { id: 'ship', kind: 'gate', brief: 'Ship?', needs: ['c'] },
+  ], 300, { onEvent: (e) => {
+    if (e.type === 'turn.started') ({ pid } = e), runDir = join(e.outFile, '../../..')
+    if (e.type === 'message' && e.from === 'ship') broken = true
+    if (broken) throw new Error('log failing at ' + e.type)
+  } }), { message: 'log failing at message' })
+  assert.ok(pid, 'the worker had started')
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the worker was stopped')
+  assert.equal(existsSync(join(runDir, 'lock')), false, 'the lock was released')
+  assert.equal(fold(readEvents(runDir)).status, 'running', 'the run is left resumable')
 })
 
 test('a lead may not complete while a message for it waits; the message is delivered next', async () => {
