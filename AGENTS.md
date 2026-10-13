@@ -13,7 +13,13 @@ Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries
   the live lead run with `SOUS_LIVE=1`, the harness certification with `npm run certify` (never in `npm run check`).
 - **A harness merges only certified.** A new harness, or a change to an adapter, passes the conformance suite
   (`test/conformance/harnesses.ts`; see the design's Harness conformance) and `SOUS_HARNESS=<name> npm run certify`,
-  whose output goes in the PR.
-- **Done means:** `npm run check` passes, the changed path was run for real when practical, and the PR says
-  what was verified and what was not.
-- **Review:** every code PR gets one independent review of its exact head by an agent that did not write it.
+  whose output goes in the PR and whose `certified.json` (written by the run) is committed with the change.
+- **Done means:** `scripts/pr-check.sh` passes (`npm run check` and `npm pack --dry-run`; `npm install` installs it as the
+  pre-push hook, since GitHub Actions is not available), the changed path was run for real when practical, and the PR
+  fills in [the template](.github/PULL_REQUEST_TEMPLATE.md): issues closed, what changed, the head SHA pr-check passed
+  on, what was verified and what was not.
+- **Review:** every code PR gets one independent review of its exact head by an agent that did not write it, posted as a
+  GitHub review on the PR (not only a "review fixes" commit), with its link and the SHA it reviewed in the PR body.
+- **Releases and dependencies:** user-visible changes go under "Unreleased" in [CHANGELOG.md](CHANGELOG.md); a release PR
+  names the version and its merge commit is tagged `vX.Y.Z`. Dependencies are exact pins; look for new
+  `@earendil-works/*` releases when cutting a release.

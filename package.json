@@ -37,6 +37,7 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/ui.html','dist/ui.html')\"",
+    "prepare": "[ -d .githooks ] && git config core.hooksPath .githooks || true",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
