@@ -11,6 +11,7 @@ import { createModels, createProvider } from '@earendil-works/pi-ai/models'
 import type { MutableModels } from '@earendil-works/pi-ai/models'
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex'
 import type { ModelRef } from '@earendil-works/pi-durable'
+import { leadCredentialFix } from '../types.ts'
 
 const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
 const OLLAMA = 'ollama-cloud'
@@ -67,9 +68,7 @@ export async function resolveModel(models: MutableModels, ref: string): Promise<
     models.setProvider(ollamaCloud([...models.getModels(OLLAMA).map((m) => m.id), modelId]))
   }
   if (!models.getModel(provider, modelId)) throw new Error(`unknown lead model "${ref}"`)
-  if (!(await models.checkAuth(provider))) {
-    throw new Error(`no credential for lead provider "${provider}" in ${AUTH_FILE}: log in with \`pi\``)
-  }
+  if (!(await models.checkAuth(provider))) throw new Error(`no credential for lead provider "${provider}": ${leadCredentialFix(provider)}`)
   return { provider, modelId }
 }
 

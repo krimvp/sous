@@ -3,7 +3,7 @@
 // or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
+import { BUILTIN_AGENTS, DEFAULT_LEAD_MODEL, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, leadCredentialFix, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
 import type { AgentRuntime, AgentSpec, Definitions, NewAgent, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
@@ -15,7 +15,7 @@ export interface Agent {
 }
 
 /** What was missing when the run started or resumed: harness commands not on PATH, and lead providers without a
- * Pi login credential. Only the providers a run's graph names (and the default lead model's) are checked; a lead child
+ * credential. Only the providers a run's graph names (and the default lead model's) are checked; a lead child
  * on another provider fails in the lead runner if it has no credential. */
 export interface Unavailable {
   commands: string[]
@@ -77,7 +77,7 @@ export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?
 export function whyUnavailable(runs: AgentRuntime, model: string | undefined, unavailable: Unavailable): string | undefined {
   if (runs !== 'lead') return unavailable.commands.includes(runs) ? `${runs} not found` : undefined
   const provider = providerOf(model)
-  return unavailable.leadProviders.includes(provider) ? `no Pi login credential for ${provider}` : undefined
+  return unavailable.leadProviders.includes(provider) ? `no credential for ${provider}` : undefined
 }
 
 function onPath(command: string): boolean {
@@ -163,7 +163,7 @@ export function agentFor(defs: Defs, node: Pick<NodeSpec, 'kind' | 'agent' | 'mo
   const model = node.model ?? spec.model
   const why = whyUnavailable(spec.runs, model, unavailable)
   if (why) {
-    const fix = spec.runs === 'lead' ? 'log in with Pi (run pi) or set OLLAMA_API_KEY, or change the agent' : `install ${spec.runs} or change the agent`
+    const fix = spec.runs === 'lead' ? `${leadCredentialFix(providerOf(model))}, or name another lead model (--agents, or the node's model)` : `install ${spec.runs} or change the agent`
     throw Object.assign(new Error(`agent ${name} is not available (${why})`), { fix })
   }
   return { name, runs: spec.runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }

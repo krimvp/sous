@@ -282,7 +282,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no Pi login credential for ollama-cloud\): log in with Pi \(run pi\) or set OLLAMA_API_KEY, or change the agent$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no credential for ollama-cloud\): set OLLAMA_API_KEY or log in with Pi \(run pi\), or name another lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

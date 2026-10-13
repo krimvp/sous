@@ -251,7 +251,7 @@ test('an unknown provider or a missing credential fails the delivery with a clea
   assert.equal(res.status, 0, res.stderr)
   assert.deepEqual(JSON.parse(res.stdout), [
     'unknown lead provider "nope" in "nope/x" (known: ollama-cloud, openai-codex)',
-    `no credential for lead provider "ollama-cloud" in ${home}/.pi/agent/auth.json: log in with \`pi\``,
+    'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY or log in with Pi (run pi)',
   ])
 })
 

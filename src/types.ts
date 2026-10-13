@@ -259,8 +259,20 @@ export type CreateLeadRunner = (opts: { runDir: string; host: LeadHost }) => Lea
 /** How deep leads may nest (a top-level lead is depth 1) unless the run sets `--max-depth`. */
 export const DEFAULT_MAX_LEAD_DEPTH = 3
 
-/** Default lead model when neither the node nor the run sets one. */
-export const DEFAULT_LEAD_MODEL = 'ollama-cloud/deepseek-v4.1-flash'
+/** The lead providers sous knows: each one's default model, and what a person does to give sous a credential for it
+ * (every message about a lead that cannot run says so). Credentials are read as `src/lead/providers.ts` says. */
+export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: string }[] = [
+  { id: 'ollama-cloud', model: 'deepseek-v4.1-flash', credential: 'set OLLAMA_API_KEY or log in with Pi (run pi)' },
+  { id: 'openai-codex', model: 'gpt-5.5', credential: 'log in with Pi (run pi) using ChatGPT' },
+]
+
+/** Default lead model when neither the node nor the run sets one: the first lead provider's. */
+export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].model}`
+
+/** What gets a credential for lead provider `provider`: its entry's, or, for a provider sous has no entry for, the
+ * Pi login that every provider may be logged in to. */
+export const leadCredentialFix = (provider: string) =>
+  LEAD_PROVIDERS.find((p) => p.id === provider)?.credential ?? 'log in with Pi (run pi)'
 
 // ---- Event log -------------------------------------------------------------------------------
 

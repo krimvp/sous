@@ -23,7 +23,8 @@ folder (folder mode, automatic when it is not in a git repository):
 $M run "Add a --precision N option to the CLI, with tests and a check that node --test passes"
 ```
 
-A lead (default `ollama-cloud/deepseek-v4.1-flash`) splits the goal into workers, checks and sub-leads. The
+A lead (default `ollama-cloud/deepseek-v4.1-flash`, which needs `OLLAMA_API_KEY` or a Pi login, `pi` run once; a run
+without a lead credential is refused with what to do) splits the goal into workers, checks and sub-leads. The
 result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
 `.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting. In folder
 mode, workers and checks run in their own folders with links `workspace/` (inputs) and `results/` (the output), so

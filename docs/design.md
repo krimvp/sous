@@ -134,8 +134,9 @@ reopened lead continues where it stopped.
   changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
   (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
-  from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
-  refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
+  from the environment (`OLLAMA_API_KEY`) or the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never
+  refreshes them (a refresh rotates Pi's token; an expired login is refreshed by running `pi` once). A lead that
+  cannot run says what gets a credential for its provider (`LEAD_PROVIDERS` in `src/types.ts`). Ollama Cloud needs a
   small provider definition, because pi-ai has none built in.
 
 Its tools:
