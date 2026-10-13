@@ -176,8 +176,8 @@ function shapeError(c: Record<string, any>, unit: 'node' | 'child'): string | un
   if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
   if (c.kind === 'lead' && c.command !== undefined) return `leads have no command; ${unit === 'node' ? 'add a check node' : 'spawn a check child'} for a deterministic gate`
   if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
-  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return `${c.kind} ${unit}s need a ${c.kind === 'check' ? 'command' : 'brief'}`
-  if ((c.kind === 'check' || c.kind === 'gate') && c.model !== undefined) return `${c.kind} ${unit}s have no model`
+  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return `${c.kind} ${unit === 'node' ? 'nodes' : 'children'} need a ${c.kind === 'check' ? 'command' : 'brief'}`
+  if ((c.kind === 'check' || c.kind === 'gate') && c.model !== undefined) return `${c.kind} ${unit === 'node' ? 'nodes' : 'children'} have no model`
   return undefined
 }
 

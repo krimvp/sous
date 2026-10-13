@@ -106,7 +106,7 @@ test('sous run refuses an argument that looks like a missing file instead of run
     assert.match(run.output(), new RegExp(`^sous: no such file: ${arg.replace(/[./]/g, '\\$&')}; if it is a goal, write it as a sentence$`, 'm'))
   }
   mkdirSync(join(workspace, 'graphs'))
-  const directory = sous(['run', 'graphs'.concat('/')], workspace, sessions)
+  const directory = sous(['run', 'graphs/'], workspace, sessions)
   assert.equal(await directory.exit, 1, directory.output())
   assert.match(directory.output(), /^sous: not a file: graphs\/; /m)
   assert.equal(runDirOf(workspace), undefined, 'no run was created')
