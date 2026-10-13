@@ -110,10 +110,11 @@ export function toTurnResult(value: unknown): TurnResult | undefined {
 export const RESULT_INSTRUCTION = 'End your final message with your structured result as a JSON object with the keys "status", ' +
   '"summary" and, when it applies, "question", in a ```json fenced block.'
 
-/** The result in a final message: the last ```json fence (any case, with or without a newline after its tag) that holds
- * one, else the whole message as a bare object. A later fence that holds none, such as an example, is skipped. */
+/** The result in a final message: the last ```json fence (any case; its tag ends the line, or the object follows at once)
+ * that holds one, else the whole message as a bare object. A later fence that holds none, such as an example, is
+ * skipped, and so is "```json" in prose. */
 export function resultFromText(text: string): TurnResult | undefined {
-  const fences = [...text.matchAll(/```json[ \t]*\r?\n?([\s\S]*?)```/gi)]
+  const fences = [...text.matchAll(/```json[ \t]*(?:\r?\n|(?=\{))([\s\S]*?)```/gi)]
   for (const fence of fences.reverse()) {
     const result = toTurnResult(fence[1]!.trim())
     if (result) return result

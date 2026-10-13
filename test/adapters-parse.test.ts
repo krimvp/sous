@@ -195,6 +195,9 @@ test('pi and droid: the result is the last fence that holds one, in any case, wi
   const texts = [
     `Done.\n\n\`\`\`JSON\n${result}\n\`\`\``,
     `Done. \`\`\`json${result}\`\`\``,
+    `Done.\r\n\r\n\`\`\`json  \r\n${result}\r\n\`\`\``,
+    // The prompt's own wording, repeated in prose before the fence, is not a fence.
+    `Done; here is my result in a \`\`\`json fenced block:\n\n\`\`\`json\n${result}\n\`\`\``,
     // An example after the result is not the result.
     `Done.\n\n\`\`\`json\n${result}\n\`\`\`\n\nOther agents can read it like this:\n\`\`\`json\n{"file": "a.txt"}\n\`\`\``,
     result,
