@@ -473,6 +473,47 @@ test('a delivery the runner could not get answered is retried once with the reas
   assert.equal(failed.outcome, 'failed')
   assert.equal(failed.state.nodes.get('lead')!.reason, `unanswered after a retry: ${reason}`)
   assert.equal(delivered(failed.events).length, 2)
+
+  // A lead reminded once still gets its retry: the retry is not a reminder.
+  const reminded = await runLead([{}, { unanswered: reason }, { calls: [{ tool: 'complete', summary: 'done after a reminder and a retry' }] }])
+  assert.equal(reminded.outcome, 'completed')
+  assert.deepEqual(delivered(reminded.events).map((d) => d.text.split(' ')[0]), ['You', 'Reminder', 'Your'])
+})
+
+test('an unanswered delivery does not fail a lead whose children still work: their outcomes come first', async () => {
+  const reason = 'model_error: 429 slow down'
+  const { outcome, events, state } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      { id: 'quick', kind: 'work', brief: `Quick.\n${fakePlan([{ result: done('quick') }])}` },
+      { id: 'slow', kind: 'work', brief: `Slow.\n${fakePlan([{ sleepMs: 1500, result: done('slow') }])}` },
+    ] }] },
+    { unanswered: reason }, // quick's outcome: slow still works, so no retry yet
+    { unanswered: reason }, // slow's outcome
+    { calls: [{ tool: 'complete', summary: 'both done' }] }, // the retry
+  ])
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(['quick', 'slow'].map((id) => state.nodes.get(id)!.summary), ['quick', 'slow'])
+  assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child', 'Your'])
+})
+
+test('a run whose log fails still stops its workers, releases the lock and reports the error that ended it', async () => {
+  // The log starts failing (a throwing onEvent, like a full disk) at the gate's message, while w's turn runs.
+  let pid = 0
+  let runDir = ''
+  let broken = false
+  await assert.rejects(runGraph([
+    work('w', [{ sleepMs: 60_000, result: done('late') }]),
+    { id: 'c', kind: 'check', command: 'sleep 1' },
+    { id: 'ship', kind: 'gate', brief: 'Ship?', needs: ['c'] },
+  ], 300, { onEvent: (e) => {
+    if (e.type === 'turn.started') ({ pid } = e), runDir = join(e.outFile, '../../..')
+    if (e.type === 'message' && e.from === 'ship') broken = true
+    if (broken) throw new Error('log failing at ' + e.type)
+  } }), { message: 'log failing at message' })
+  assert.ok(pid, 'the worker had started')
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the worker was stopped')
+  assert.equal(existsSync(join(runDir, 'lock')), false, 'the lock was released')
+  assert.equal(fold(readEvents(runDir)).status, 'running', 'the run is left resumable')
 })
 
 test('a lead may not complete while a message for it waits; the message is delivered next', async () => {

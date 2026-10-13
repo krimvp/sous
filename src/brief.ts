@@ -215,12 +215,12 @@ export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
     : `Message from ${m.from}:\n${m.body}`
 }
 
-/** Sent to a lead that settled with nothing left to wait for. */
 /** The one retry a lead gets when the runner could not get its last delivery answered. */
 export function retryPrompt(reason: string): string {
   return `Your last turn was not answered (${reason}). Continue where you left off; a second failure ends your work with that reason.\n`
 }
 
+/** Sent to a lead that settled with nothing left to wait for. */
 export function idleReminder(node: string, k: number, max: number, waiting: string[]): string {
   const ask = waiting.length ? ` Children waiting for your answer: ${waiting.join(', ')}; answer them with send.` : ''
   return `Reminder ${k} of ${max}: no child of ${node} is working and no message is waiting, but ${node} is not finished.${ask} ` +
