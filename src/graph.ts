@@ -61,7 +61,7 @@ export function validateGraph(raw: unknown): GraphFile {
     if (ids.has(node.id)) throw new Error(`${where}: duplicate id`)
     ids.add(node.id)
     if (node.parent !== undefined) throw new Error(`${where}: parent is not supported in graph files: their nodes are top-level`)
-    const shape = shapeError(node)
+    const shape = shapeError(node, 'node')
     if (shape) throw new Error(`${where}: ${shape}`)
     const agent = agentError(graph, node.kind, node.agent) ?? rolesError(node.kind, node.roles, (name) => agentSpec(graph, name), 'an agent of the graph or a built-in')
     if (agent) throw new Error(`${where}: ${agent}`)
@@ -150,7 +150,7 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   if (!isObject(c)) return 'must be an object'
   if (typeof c.id !== 'string' || !ID.test(c.id) || reserved(c.id)) return `id must be ${ID_RULE}, not be ${RESERVED.join(', ')}, nor start with a role and a dot`
   if (used(c.id)) return 'id is already used'
-  const shape = shapeError(c)
+  const shape = shapeError(c, 'child')
   if (shape) return shape
   const agent = isObject(c.agent) ? newAgentError(defs, c.kind, c.agent) : agentError(defs, c.kind, c.agent)
   if (agent) return agent
@@ -163,20 +163,21 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
   return undefined
 }
 
-/** Why a node or child is invalid whatever the run's ids and agents, if it is: its kind, the types of its fields, and
- * the fields its kind takes or needs. */
-function shapeError(c: Record<string, any>): string | undefined {
+/** Why a node of a graph file or a child of a lead (`unit`) is invalid whatever the run's ids and agents, if it is: its
+ * kind, the types of its fields, and the fields its kind takes or needs. */
+function shapeError(c: Record<string, any>, unit: 'node' | 'child'): string | undefined {
   if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
   if (c.needs !== undefined) {
-    const bad = Array.isArray(c.needs) ? c.needs.findIndex((n) => typeof n !== 'string') : -2
-    if (bad !== -1) return `needs must be an array of node ids${bad >= 0 ? `, not ${JSON.stringify(c.needs[bad])}` : ''}`
+    if (!Array.isArray(c.needs)) return 'needs must be an array of node ids'
+    const bad = c.needs.findIndex((n) => typeof n !== 'string')
+    if (bad >= 0) return `needs must be an array of node ids, not ${JSON.stringify(c.needs[bad])}`
   }
   if (c.acceptance !== undefined && !(Array.isArray(c.acceptance) && c.acceptance.every((a) => typeof a === 'string'))) return 'acceptance must be an array of strings'
-  if (c.kind === 'lead' && c.command !== undefined) return 'leads have no command; add a check node for a deterministic gate'
+  if (c.kind === 'lead' && c.command !== undefined) return `leads have no command; ${unit === 'node' ? 'add a check node' : 'spawn a check child'} for a deterministic gate`
   if (c.kind === 'gate' && c.command !== undefined) return 'gates have no command; the person approves them'
-  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return `${c.kind} nodes need a ${c.kind === 'check' ? 'command' : 'brief'}`
-  if ((c.kind === 'check' || c.kind === 'gate') && c.model !== undefined) return `${c.kind} nodes have no model`
+  if (c.kind === 'check' ? !isText(c.command) : !isText(c.brief)) return `${c.kind} ${unit}s need a ${c.kind === 'check' ? 'command' : 'brief'}`
+  if ((c.kind === 'check' || c.kind === 'gate') && c.model !== undefined) return `${c.kind} ${unit}s have no model`
   return undefined
 }
 

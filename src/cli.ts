@@ -117,13 +117,15 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
- * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word that ends in `.json` or
- * has a path separator) but names no file is refused, not taken for a goal. */
+ * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word, not a URL, that ends in
+ * `.json` or has a path separator) but names no file is refused, not taken for a goal. */
 async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
   const { maxDepth, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
-  if (!isGraph && !/\s/.test(arg) && (arg.endsWith('.json') || /[\\/]/.test(arg))) throw new Error(`no such file: ${arg}; if it is a goal, write it as a sentence`)
+  if (!isGraph && !/\s/.test(arg) && !arg.includes('://') && (arg.endsWith('.json') || /[\\/]/.test(arg))) {
+    throw new Error(`${existsSync(arg) ? 'not a file' : 'no such file'}: ${arg}; if it is a goal, write it as a sentence`)
+  }
   if (isGraph && agentsFile !== undefined) throw new Error('--agents is for goal runs: put agents in the graph file')
   const definitions = agentsFile === undefined ? undefined : loadDefinitions(agentsFile)
   const graph: GraphFile = isGraph ? loadGraph(arg) : { goal: arg, ...definitions, nodes: [{ id: 'lead', kind: 'lead', brief: arg }] }

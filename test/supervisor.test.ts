@@ -344,7 +344,7 @@ test('policy refuses a lead with a command, a fourth lead level, completing with
   ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { lead: ['other/model'] } })
   assert.equal(outcome, 'completed')
   assert.deepEqual(calls(events).filter((c) => !c.ok).map((c) => [c.node, c.call.tool, c.result]), [
-    ['lead', 'spawn', 'refused: child gate: leads have no command; add a check node for a deterministic gate'],
+    ['lead', 'spawn', 'refused: child gate: leads have no command; spawn a check child for a deterministic gate'],
     ['lead', 'complete', 'refused: children still pending or running: l2'],
     ['l3', 'spawn', 'refused: child l4: leads may nest at most 3 deep'],
     ['lead', 'send', 'refused: lead may send only to its children or to person'],

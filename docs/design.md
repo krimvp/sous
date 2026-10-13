@@ -376,9 +376,11 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent, when
-  a graph node names an unavailable agent or has no available default worker. What a lead decides at runtime cannot be
-  checked then: an unavailable agent a lead's child names later fails that node with a clear reason. Each
+  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
+  graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
+  available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
+  agent a lead's child names later fails that node with a clear reason. Each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then

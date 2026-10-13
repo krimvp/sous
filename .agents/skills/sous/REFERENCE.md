@@ -26,7 +26,7 @@ path separator, which is refused as a mistyped file name. `--agents` is for goal
 | Key | Meaning |
 |---|---|
 | `agent` | default agent for work nodes that name none (else the first available of `claude`, `codex`, `pi`, `droid`) |
-| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in; `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
+| `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in and follows the id rule (letters, digits, `_` and `-`, and `.` after the first character); `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
 Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
