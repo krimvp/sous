@@ -32,10 +32,10 @@ function login(): { credentials: Record<string, Credential>; problem?: string } 
   try {
     raw = JSON.parse(readFileSync(AUTH_FILE, 'utf8'))
   } catch {
-    return { credentials: {}, problem: `${AUTH_FILE} is not valid JSON; the Pi login is ignored (run pi to log in again)` }
+    return { credentials: {}, problem: `${AUTH_FILE} is not valid JSON; the Pi login is ignored (run pi, then /login)` }
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { credentials: {}, problem: `${AUTH_FILE} is not an object of credentials by provider; the Pi login is ignored (run pi to log in again)` }
+    return { credentials: {}, problem: `${AUTH_FILE} is not an object of credentials by provider; the Pi login is ignored (run pi, then /login)` }
   }
   const live = Object.entries(raw as Record<string, Credential>)
     .filter(([, c]) => typeof c === 'object' && c !== null && (c.type !== 'oauth' || (typeof c.expires === 'number' && Date.now() + OAUTH_MINIMUM_VALIDITY_MS < c.expires)))

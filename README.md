@@ -59,9 +59,10 @@ Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, with `
 (`anthropic/claude-haiku-5-5`, with `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, with `OPENAI_API_KEY`) or your
 ChatGPT subscription (`openai-codex/gpt-5.5`). Anthropic, OpenAI and ChatGPT also work through your
 [Pi](https://github.com/earendil-works/pi) login (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`,
-then `/login` inside `pi`; it stores `~/.pi/agent/auth.json`, which sous reads and never refreshes, so log in again
-when it expires). Pi's login has no Ollama Cloud account: that provider needs the key. A lead that names no model runs on the first of
-these, in that order, that has a credential, and the run keeps that choice when resumed; the run prints it on its
+then `/login` inside `pi`; it stores `~/.pi/agent/auth.json`, which sous reads and never refreshes: an expired login
+is refreshed by running `pi` once). Pi's login has no Ollama Cloud account: that provider needs the key. A lead that
+names no model runs on the first of these, in that order, that has a credential, and the run keeps that choice when
+resumed; the run prints it on its
 `agents:` line, as `lead (ollama-cloud/deepseek-v4.1-flash)`. A run with no credential for its lead is refused with
 what to do. Caution: an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment is also what Claude Code and Codex
 workers use (workers inherit your environment), so it moves Claude Code, and may move Codex, from your subscription

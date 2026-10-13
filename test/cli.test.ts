@@ -385,6 +385,7 @@ test('a run from before the lead model was recorded resumes on the fixed default
   try {
     for (let i = 0; i < 200 && !/^agents: /m.test(resumed.output()); i++) await sleep(50)
     assert.match(resumed.output(), /^agents: .*; not available: lead \(no credential for ollama-cloud\)$/m)
+    await waitFor(workspace, (e) => e.type === 'node.failed' && e.node === 'lead')
   } finally {
     resumed.child.kill('SIGINT') // a run that picked a fresh default would wait for an answer instead of failing
     await resumed.exit
@@ -413,7 +414,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi \(run pi\), or name a lead model \(--agents, or the node's model\)$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

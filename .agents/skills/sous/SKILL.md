@@ -26,10 +26,10 @@ $M run "Add a --precision N option to the CLI, with tests and a check that node 
 A lead splits the goal into workers, checks and sub-leads. It runs on the first provider with a credential, in this
 order: `ollama-cloud/deepseek-v4.1-flash` (`OLLAMA_API_KEY`; Pi's login does not cover Ollama Cloud),
 `anthropic/claude-haiku-5-5` (`ANTHROPIC_API_KEY`, or an Anthropic login in Pi: `/login` inside `pi`),
-`openai/gpt-6-luna` (`OPENAI_API_KEY`), `openai-codex/gpt-5.5` (a ChatGPT login in Pi). The run prints the choice on its `agents:` line and keeps it when resumed; a run without a lead
-credential is refused with what to do. Prefer the Pi login or `OLLAMA_API_KEY`: an `ANTHROPIC_API_KEY` or
-`OPENAI_API_KEY` in the environment is also what Claude Code and Codex workers use, so it moves Claude Code, and may
-move Codex, from the user's subscription to API billing. The
+`openai/gpt-6-luna` (`OPENAI_API_KEY`), `openai-codex/gpt-5.5` (a ChatGPT login in Pi). The run prints the choice on
+its `agents:` line and keeps it when resumed; a run without a lead credential is refused with what to do. Prefer the
+Pi login or `OLLAMA_API_KEY`: an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment is also what Claude Code
+and Codex workers use, so it moves Claude Code, and may move Codex, from the user's subscription to API billing. The
 result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
 `.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting. In folder
 mode, workers and checks run in their own folders with links `workspace/` (inputs) and `results/` (the output), so
