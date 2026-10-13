@@ -110,7 +110,7 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
-- `@krimvp/sous`: package.json `name`; published to npm as 0.1.0.
+- `@krimvp/sous`: package.json `name`; published to npm as 0.1.1.
 
 ## Changelog
 
