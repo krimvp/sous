@@ -295,6 +295,11 @@ export type EventBody =
   | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
+  /** A warning, recorded once per turn: the turn's output file has not grown since `since` (its start, or its last
+   * output) for the supervisor's stall time. The turn keeps running; nothing in the run's state changes. */
+  | { type: 'turn.stalled'; node: string; turn: number; since: string }
+  /** `error`: why the turn has no result. Without an end-of-turn marker after a non-zero exit, it ends with the last
+   * lines of the turn's stderr and the path of its `.err` file. */
   | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
   /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */

@@ -33,6 +33,13 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   the start-up `agents:` line of a graph without leads lists only the agents the graph uses (#98, #99).
 - A run in a git checkout with uncommitted changes warns that workers see `HEAD` only. Started in a subdirectory of a
   repository, a run uses the repository root as its workspace (an explicit `--workspace` is used as given).
+- A worker harness that exits with an error before ending its turn is explained: the last lines of its stderr and the
+  path of its `.err` file are in the turn's error and the node's failure reason, and a turn that wrote no output fails
+  its node at once instead of spending a reminder turn. `docs/harnesses.md` lists the known Claude causes (#87).
+- `sous status` and `sous ui` show each running turn's age and when its output last grew; a turn without output for
+  10 minutes is reported once as `turn.stalled`, a warning that changes nothing (#100).
+- Git-mode workers are told their worktree's branch and that sous commits for them; a worker that leaves its branch
+  fails its node instead of having its work committed where it is never merged (#101).
 
 ## 0.1.1 (2026-10-12)
 

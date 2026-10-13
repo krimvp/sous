@@ -168,6 +168,20 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   assert.match(run.output(), /continue with: sous resume /)
 })
 
+test("sous status shows a running turn's age and the age of its last output", async () => {
+  const { workspace, graph, sessions } = setup([{ sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
+  const run = sous(['run', graph], workspace, sessions)
+  const session = await waitFor(workspace, (e) => e.type === 'turn.session' && e.node === 'write')
+  const file = join(sessions, `${session.type === 'turn.session' ? session.sessionId : ''}.json`)
+  for (let i = 0; i < 200 && !existsSync(file); i++) await sleep(25)
+  await sleep(1100)
+  const status = sous(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(status.output(), /\n  write running on claude turns 1 \(turn 1 running for [1-9]\d*s, last output [1-9]\d*s ago\)\n  test pending\n/)
+})
+
 test('a second SIGINT while stopping kills a group that ignores SIGTERM at once', async () => {
   const { workspace, graph, sessions } = setup([{ spawnSleeper: 'ignore-term', sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
   const run = sous(['run', graph], workspace, sessions)

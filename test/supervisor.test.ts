@@ -134,6 +134,35 @@ test('a missing result gets one reminder; a second miss fails the node', async (
   assert.equal(state.nodes.get('never')?.turns.length, 2)
 })
 
+test('a harness that exits non-zero with no output fails its node at once with the end of its stderr; one with output gets the reminder', async () => {
+  const noise = Array.from({ length: 8 }, (_, i) => `debug line ${i}`).join('\n')
+  const { state } = await runGraph([
+    work('dead', [{ stderr: `${noise}\n\nError: Not logged in · Please run /login\n\n`, exit: 1 }, { result: done('never asked') }]),
+    work('crashed', [{ say: 'working', stderr: 'boom\n', exit: 2 }, { say: 'again', exit: 2 }]),
+  ])
+  const dead = state.nodes.get('dead')!
+  const errFile = dead.turns[0].errFile
+  assert.equal(dead.turns.length, 1, 'no reminder turn is spent')
+  assert.equal(dead.status, 'failed')
+  assert.equal(dead.reason, `turn 1 exited 1 with no output; stderr: debug line 4\ndebug line 5\ndebug line 6\ndebug line 7\nError: Not logged in · Please run /login (${errFile})`)
+  assert.equal(dead.turns[0].error, `no end-of-turn marker in the output; stderr: debug line 4\ndebug line 5\ndebug line 6\ndebug line 7\nError: Not logged in · Please run /login (${errFile})`)
+  const crashed = state.nodes.get('crashed')!
+  assert.equal(crashed.turns.length, 2)
+  assert.equal(crashed.turns[0].error, `no end-of-turn marker in the output; stderr: boom (${crashed.turns[0].errFile})`)
+  assert.equal(crashed.reason, `turn 2 ended without a structured result; nothing on stderr (${crashed.turns[1].errFile})`)
+})
+
+test('a turn whose output stops growing is reported once as stalled and keeps running to its result', async () => {
+  const { outcome, events, state } = await runGraph([work('slow', [{ sleepMs: 1500, result: done('slow but done') }])], 300, { stallMs: 200 })
+  assert.equal(outcome, 'completed')
+  const stalled = events.filter((e) => e.type === 'turn.stalled')
+  assert.deepEqual(stalled.map((e) => e.type === 'turn.stalled' && [e.node, e.turn]), [['slow', 1]])
+  const started = events.find((e) => e.type === 'turn.started')!
+  const since = stalled[0].type === 'turn.stalled' ? Date.parse(stalled[0].since) : 0
+  assert.ok(since >= Date.parse(started.at) && Date.parse(stalled[0].at) - since >= 200)
+  assert.equal(state.nodes.get('slow')?.summary, 'slow but done')
+})
+
 test('a turn that keeps running after its result is stopped after the grace period', async () => {
   const started = Date.now()
   const { outcome, state } = await runGraph([work('linger', [{ result: done('ok'), lingerMs: 60_000 }])], 300)
