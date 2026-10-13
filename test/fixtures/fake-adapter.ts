@@ -44,6 +44,7 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
           continue
         }
         if (event.type === 'session') turn.sessionId = event.id
+        if (event.type === 'message') turn.items.push({ kind: 'message', role: 'assistant', text: event.text })
         if (event.type === 'result') Object.assign(turn, { ended: true, result: event.result })
       }
       return turn

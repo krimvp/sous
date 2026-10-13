@@ -142,6 +142,8 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       add({ source: 'system', timestamp: e.at, message: `Messages read during the turn, up to event ${e.upTo}`, extra: { up_to: e.upTo } })
     } else if (e.type === 'turn.interrupted') {
       add({ source: 'system', timestamp: e.at, message: `Turn ${e.turn} interrupted (${e.signal}): ${e.reason}` })
+    } else if (e.type === 'turn.stalled') {
+      add({ source: 'system', timestamp: e.at, message: `Turn ${e.turn} has had no new output since ${e.since}; it keeps running` })
     } else if (e.type === 'check.ended' && spec.kind === 'check') {
       add({
         source: 'agent',

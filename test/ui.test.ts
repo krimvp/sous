@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -113,6 +113,25 @@ test('sous ui streams a change when the run log grows', { timeout: 10_000 }, asy
   assert.equal((await next())[RUN][1], true)
   writeFileSync(lock, JSON.stringify({ pid: 2 ** 22 + 1 }) + '\n')
   assert.equal((await next())[RUN][1], false)
+})
+
+test("sous ui shows a running run's running turn with when its output last grew", async (t) => {
+  const { ws, server, get } = await ui()
+  t.after(() => server.close())
+  const id = '20261013T090000Z-0002'
+  const dir = join(ws, '.sous', 'runs', id)
+  mkdirSync(join(dir, 'nodes', 'w'), { recursive: true })
+  const out = join(dir, 'nodes', 'w', 'turn-1.jsonl')
+  writeFileSync(out, '{"type":"session"}\n')
+  writeFileSync(join(dir, 'events.jsonl'), [
+    { seq: 1, at: '2026-10-13T09:00:00.000Z', type: 'run.created', goal: 'g', workspace: ws },
+    { seq: 2, at: '2026-10-13T09:00:00.000Z', type: 'node.added', node: { id: 'w', kind: 'work', brief: 'b' }, by: 'graph' },
+    { seq: 3, at: '2026-10-13T09:00:01.000Z', type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', pid: 1, outFile: out, errFile: `${out}.err` },
+  ].map((e) => JSON.stringify(e) + '\n').join(''))
+  const live = async () => (await (await get('/api/run', { run: id })).json()).nodes[0].turn
+  assert.equal(await live(), undefined, 'a stopped run has no running turn')
+  writeFileSync(join(dir, 'lock'), JSON.stringify({ pid: process.pid }) + '\n')
+  assert.deepEqual(await live(), { number: 1, startedAt: '2026-10-13T09:00:01.000Z', outputAt: statSync(out).mtime.toISOString() })
 })
 
 test('sous ui caps the long texts of a node it sends', async (t) => {

@@ -120,6 +120,18 @@ Each adapter starts the CLI as the leader of a new process group, sends stdout t
 Pi and Droid, which have no structured-output flag, are also told to give it as JSON in a ```` ```json ```` fence, and
 their parsers take the last fence that holds a result, else a bare JSON object.
 
+**A turn without a result.** A turn whose output has no end-of-turn marker, or no parsable result, is resumed once with
+a reminder to give one; a second miss fails the node. A turn that exits non-zero before its end marker, on its own (not
+stopped by sous), says why on stderr: the last non-empty lines of its `.err` file (at most 5 lines and 600 characters)
+and the file's path go into `turn.ended.error` and the node's failure reason. When it wrote no output (no message or
+tool call), another turn would fail the same way, so the node fails at once without the reminder; an integrator's or
+splitter's turn like it fails the merge or the split.
+
+**Stalls.** There is no turn timeout yet (budgets, #39), so a hung harness must at least show. The supervisor watches each
+turn's output file; once it has not grown for 10 minutes (a constant), it records `turn.stalled {since}`, once per turn:
+a warning that changes nothing in the run's state, since a long command is silent too. `sous status` shows each running
+turn's age and how long ago its output last grew (the output file's modification time); the UI's tree shows both.
+
 ### Lead runner
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
@@ -470,9 +482,12 @@ first work or check node starts. The workspace is the repository's top level eve
 2. **Node worktrees.** A work node gets branch `sous/<run>.<node>` (git cannot hold `sous/<run>/<node>` beside
    `sous/<run>`) and worktree `.sous/runs/<run>/worktrees/<node>/`, created from the integration branch's
    current commit when the node starts (`worktree.created`). Its worker runs there and its acceptance check
-   runs there. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
+   runs there. Its brief names the branch, says sous commits its changes, and tells it not to switch branches, commit
+   elsewhere, stash, reset or push. Nodes with `needs` start only after their dependencies are merged, so they build on that work.
 3. **Merge queue.** When a work node is done and its acceptance check passed in its own worktree, the
-   supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
+   supervisor checks that the worktree is still on the node's branch (a worker that switched branches or detached
+   `HEAD` fails its node, and nothing is committed), commits any uncommitted changes there and queues the branch
+   (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
    again in the integration worktree; if it passes, `merge.done` by `supervisor`. The worktree is reset to its
@@ -510,7 +525,7 @@ first work or check node starts. The workspace is the repository's top level eve
    node in Langfuse; the integrator is its own trajectory under the root.
 
 Recovery: worktrees, branches and queue state survive a crash. `integration.created` and `worktree.created`
-are appended only when the branch was newly created; on resume the existing worktree is used. On `sous
+are appended only when the branch was newly created; on resume the existing worktree is used, whatever it has checked out (a node's then fails at its branch check, and an integration worktree not on `sous/<run>` fails the run). On `sous
 resume`, a merge in progress with no integrator request pending is aborted and retried (a merge that already
 committed is not repeated, its check runs again); with a request pending, the integrator's session resumes as
 usual; queued merges continue in order. A merge of a node cancelled before the stop that is still on the integration
@@ -693,8 +708,8 @@ from them, so traces can move between tools later.
   `subagent_trajectory_ref`. Nesting follows the node tree.
 - A worker node's steps come from parsing its turn output files: Claude stream-json, Codex `--json` items,
   Pi `--mode json` events, Droid stream-json. A tool call and its result must share one step (`source_call_id` matches a
-  `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt is a `system`
-  step.
+  `tool_call_id` in the same step). Resumed turns continue the same trajectory; an interrupt, or a stall, is a
+  `system` step.
 - sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
 - Tests check every document with a strict checker of the subset sous emits (`test/atif-checker.ts`),
@@ -734,7 +749,8 @@ and `cancel`.
   20,000 characters, marked with how many more there were.
 - **Live.** One server-sent event stream per page sends every run's log size and lock whenever one changes (polled
   every 500 ms); the page refetches the run, or the node, that changed. A finished run is a log that stopped growing,
-  so live and finished runs share every view.
+  so live and finished runs share every view. A worker's output does not grow the log, so while a turn runs the page
+  fetches the run every 10 seconds, and the tree shows the turn's age and when its output last grew.
 - **Timeline.** Worker turns, merge-queue waits and checks per node; a lead is busy from a delivery until it has
   answered every queued one (an interrupt joins the stretch it steers). A lead's row also shows its team's span and
   totals (nodes, turns, tokens, merges, failures), so a folded team still reads at a glance.

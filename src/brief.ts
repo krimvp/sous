@@ -50,8 +50,9 @@ function contactsSection(contacts: { lead?: string; siblings: string[]; max: num
 }
 
 /** The first prompt of a work node, with its agent's standing instructions, its ancestors' notes, any messages already
- * waiting, and whom it may message while it works. `folders` in folder mode, where `cwd` is the node's own folder. */
-export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number; maxWait: number }, folders?: Folders): string {
+ * waiting, and whom it may message while it works. `folders` in folder mode, where `cwd` is the node's own folder;
+ * `branch` in git mode, the branch of the node's worktree `cwd`. */
+export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: string[] = [], inbox: InboxMessage[] = [], instructions?: string, contacts?: { lead?: string; siblings: string[]; max: number; maxWait: number }, folders?: Folders, branch?: string): string {
   const parts = [
     `You are one worker on a larger goal.\n\nGoal: ${goal}`,
     ...standing(instructions),
@@ -66,7 +67,12 @@ export function composeBrief(goal: string, node: NodeSpec, cwd: string, notes: s
       'Write your own output files at the top of your folder, not inside workspace/ or results/; they are added to the',
       'results when you finish. Do only this task.',
     ].join('\n')
-    : `Work in the directory ${cwd}. Do only this task.`
+    : branch
+      ? [
+        `Work in the directory ${cwd}, a git worktree on branch ${branch}; sous commits your changes there when you finish.`,
+        'Do not switch branches, commit elsewhere, stash, reset or push. Do only this task.',
+      ].join('\n')
+      : `Work in the directory ${cwd}. Do only this task.`
   parts.push(...fromLeads(notes), ...messages(inbox), where, ...(contacts ? contactsSection(contacts) : []), RESULT)
   return parts.join('\n\n') + '\n'
 }

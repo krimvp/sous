@@ -43,7 +43,7 @@ test('sous doctor reports each harness with its version, the lead credentials an
     'lead credentials: none',
     'lead model: none',
     `workspace: ${workspace}, git repository at its top level, 2 uncommitted changes (workers see HEAD only)`,
-    'not ready: no lead provider has a credential: set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi (run pi)',
+    'not ready: no lead provider has a credential: set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login',
     '',
   ].join('\n'))
 
@@ -59,7 +59,7 @@ test('sous doctor reports each harness with its version, the lead credentials an
   writeFileSync(join(home, '.pi', 'agent', 'auth.json'), '{not json')
   const broken = doctor(workspace, bin, { ANTHROPIC_API_KEY: 'test-not-a-key' }, home)
   assert.equal(broken.code, 0, broken.out + broken.err)
-  assert.match(broken.out, new RegExp(`^lead credentials: anthropic \\(ANTHROPIC_API_KEY\\)\nPi login: ${home}/.pi/agent/auth.json is not valid JSON; the Pi login is ignored \\(run pi to log in again\\)\nlead model: anthropic/claude-haiku-5-5$`, 'm'))
+  assert.match(broken.out, new RegExp(`^lead credentials: anthropic \\(ANTHROPIC_API_KEY\\)\nPi login: ${home}/.pi/agent/auth.json is not valid JSON; the Pi login is ignored \\(run pi, then /login\\)\nlead model: anthropic/claude-haiku-5-5$`, 'm'))
 })
 
 test('sous doctor says when the workspace is below the top level, outside git, or without a worker, and refuses arguments', () => {
