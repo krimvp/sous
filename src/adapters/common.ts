@@ -68,6 +68,13 @@ export function jsonLines(raw: string): Json[] {
   return found
 }
 
+/** A harness count as a number: 0 unless it is a finite number. */
+export const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+
+/** A harness field as text: a string as is, nothing as '', an object or array as its JSON. */
+export const str = (value: unknown): string =>
+  typeof value === 'string' ? value : value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+
 /** A harness content field as text: a string, or the text parts of an array of blocks. */
 export function textOf(content: unknown): string {
   if (typeof content === 'string') return content
@@ -90,26 +97,28 @@ export function toTurnResult(value: unknown): TurnResult | undefined {
     }
   }
   if (!value || typeof value !== 'object') return undefined
-  const { status, summary, question, note_for_parent } = value as Record<string, unknown>
+  const { status, summary, question } = value as Record<string, unknown>
   if (typeof status !== 'string' || !STATUSES.includes(status) || typeof summary !== 'string') return undefined
   const result: TurnResult = { status: status as TurnResult['status'], summary }
   // Codex's strict schemas send absent optional fields as null.
   if (typeof question === 'string') result.question = question
-  if (typeof note_for_parent === 'string') result.note_for_parent = note_for_parent
   return result
 }
 
-/** For harnesses without a structured-output flag (Pi, Droid): the prompt asks for the result in a fence, and
- * `lastJsonFence` reads it back from the final message. */
-export const RESULT_INSTRUCTION = [
-  'When you finish, end your final message with your result as a JSON object in a ```json fenced block:',
-  '{"status": "done" | "blocked" | "needs_input", "summary": "...", "question": "... (only when needs_input)",',
-  '"note_for_parent": "... (optional)"}',
-].join('\n')
+/** For harnesses without a structured-output flag (Pi, Droid): how to give the result, whose fields every worker prompt
+ * describes; `resultFromText` reads it back from the final message. */
+export const RESULT_INSTRUCTION = 'End your final message with your structured result as a JSON object with the keys "status", ' +
+  '"summary" and, when it applies, "question", in a ```json fenced block.'
 
-export function lastJsonFence(text: string): string | undefined {
-  const fences = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)]
-  return fences.at(-1)?.[1]
+/** The result in a final message: the last ```json fence (any case, with or without a newline after its tag) that holds
+ * one, else the whole message as a bare object. A later fence that holds none, such as an example, is skipped. */
+export function resultFromText(text: string): TurnResult | undefined {
+  const fences = [...text.matchAll(/```json[ \t]*\r?\n?([\s\S]*?)```/gi)]
+  for (const fence of fences.reverse()) {
+    const result = toTurnResult(fence[1]!.trim())
+    if (result) return result
+  }
+  return toTurnResult(text.trim())
 }
 
 /** Poll a turn's output until `parse` finds its session ID; reject if the process exits first. For harnesses that

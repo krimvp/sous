@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, sessionFromOutput, sousServer, spawnTurn, toTurnResult } from './common.ts'
+import { jsonLines, num, resultFromText, sessionFromOutput, sousServer, spawnTurn, str } from './common.ts'
 import type { Json } from './common.ts'
 
 // OpenAI's strict structured output requires every property to be listed in `required`;
@@ -150,7 +150,8 @@ export const codex: WorkerAdapter = {
           if (completed) reasoning = reasoning ? `${reasoning}\n${item.text}` : String(item.text ?? '')
         } else {
           const tool = toolOf(item)
-          if (!tool) continue
+          // A call without an ID cannot be paired with its result; it is left out.
+          if (!tool || typeof item.id !== 'string') continue
           if (!started.has(item.id)) {
             started.add(item.id)
             turn.items.push({ kind: 'tool_call', id: item.id, name: tool.name, arguments: tool.arguments })
@@ -166,7 +167,7 @@ export const codex: WorkerAdapter = {
       }
     }
     if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning })
-    if (succeeded && last !== undefined) turn.result = toTurnResult(last)
+    if (succeeded && last !== undefined) turn.result = resultFromText(last)
     return turn
   },
 }
@@ -180,14 +181,14 @@ function toolOf(item: Json): Tool | undefined {
       return {
         name: 'shell',
         arguments: { command: item.command },
-        content: String(item.aggregated_output ?? ''),
+        content: str(item.aggregated_output),
         isError: failed || (typeof item.exit_code === 'number' && item.exit_code !== 0),
       }
     case 'file_change':
-      return { name: 'file_change', arguments: { changes: item.changes }, content: String(item.status ?? ''), isError: failed }
+      return { name: 'file_change', arguments: { changes: item.changes }, content: str(item.status), isError: failed }
     case 'mcp_tool_call':
       return {
-        name: `${item.server}.${item.tool}`,
+        name: `${str(item.server)}.${str(item.tool)}`,
         arguments: item.arguments,
         content: JSON.stringify(item.error ?? item.result ?? null),
         isError: failed,
@@ -201,9 +202,9 @@ function toolOf(item: Json): Tool | undefined {
 /** Codex's `input_tokens` already includes cached tokens. */
 function usageOf(usage: Json): Usage {
   return {
-    inputTokens: usage.input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    cachedTokens: usage.cached_input_tokens ?? 0,
-    ...(typeof usage.cache_write_input_tokens === 'number' ? { cacheWriteTokens: usage.cache_write_input_tokens } : {}),
+    inputTokens: num(usage.input_tokens),
+    outputTokens: num(usage.output_tokens),
+    cachedTokens: num(usage.cached_input_tokens),
+    ...(typeof usage.cache_write_input_tokens === 'number' ? { cacheWriteTokens: num(usage.cache_write_input_tokens) } : {}),
   }
 }

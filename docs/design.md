@@ -116,7 +116,9 @@ interface RunningTurn {
 
 Each adapter starts the CLI as the leader of a new process group, sends stdout to
 `nodes/<n>/turn-<k>.jsonl` and stderr to `turn-<k>.err`, and asks for a structured final result:
-`{status: done|blocked|needs_input, summary, question?, note_for_parent?}`.
+`{status: done|blocked|needs_input, summary, question?}`. What each field means is said once, in every worker prompt;
+Pi and Droid, which have no structured-output flag, are also told to give it as JSON in a ```` ```json ```` fence, and
+their parsers take the last fence that holds a result, else a bare JSON object.
 
 ### Lead runner
 
