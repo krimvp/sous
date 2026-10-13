@@ -320,7 +320,10 @@ no command. Once its `needs` complete, the supervisor sends its brief to `person
 it as an approval request and `sous status` lists it. `sous approve <gate>` completes it with summary "approved
 by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
 told). A gate takes no messages, and a lead waiting only on a gate (or on a child lead whose split awaits the person's
-approval) is not reminded.
+approval) is not reminded. Nothing checks who wrote a command file: workers run as the person with full permissions
+and get `SOUS_RUN_DIR`, so a worker, or anything it runs, can write one too and approve a gate or a split, answer as
+the person or cancel a node. Until workers are sandboxed (#43), a gate protects only as far as the person trusts the
+run's agents.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
 several top-level nodes its summary names each top-level lead that completed with failed checks.
