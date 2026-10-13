@@ -413,6 +413,43 @@ for (const integrated of [false, true]) {
   })
 }
 
+test('sous resume keeps a merge done after a cancelled merge was undone, though it carries the cancelled commits', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  const integration = join(runDir, 'integration')
+  const commit = (path: string, file: string) => {
+    writeFileSync(join(path, file), `${file}\n`)
+    git(path, 'add', file)
+    git(path, 'commit', '-q', '-m', file)
+  }
+  // c's merge went to the integrator; d's worktree was cut while c's merge was on the branch; c was cancelled and its
+  // merge undone; then d merged, bringing c's commits along.
+  const c = createNodeWorktree(workspace, 'r1', runDir, 'c', created.base!)
+  commit(c.path, 'c.txt')
+  git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge c', c.branch)
+  const d = createNodeWorktree(workspace, 'r1', runDir, 'd', git(integration, 'rev-parse', 'HEAD'))
+  commit(d.path, 'd.txt')
+  git(integration, 'reset', '-q', '--hard', created.base!)
+  git(integration, 'merge', '--no-ff', '-q', '-m', 'sous: merge d', d.branch)
+  const merged = git(integration, 'rev-parse', 'HEAD')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  for (const id of ['c', 'd']) log.append({ type: 'node.added', node: { id, kind: 'work', brief: id, agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'merge.queued', node: 'c', branch: c.branch })
+  log.append({ type: 'merge.conflict', node: 'c', reason: 'check failed after the merge (exit 1)', files: [], onto: created.base! })
+  log.append({ type: 'node.cancelled', node: 'c', by: 'person' })
+  log.append({ type: 'merge.queued', node: 'd', branch: d.branch })
+  log.append({ type: 'merge.done', node: 'd', commit: merged, by: 'supervisor', files: ['c.txt', 'd.txt'] })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), merged)
+  assert.equal(existsSync(join(integration, 'd.txt')), true)
+})
+
 test('a merge whose integration worktree cannot be checked out again fails the node, not the supervisor', async () => {
   const workspace = gitWorkspace('sous-merge-')
   const runDir = join(workspace, '.sous', 'runs', 'r1')
