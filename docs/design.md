@@ -51,7 +51,7 @@ engine can be tested without a lead.
 |---|---|---|
 | `lead` | an LLM with orchestration tools and read-only file tools | splits its node into children, reacts to events, completes itself |
 | `work` | a worker adapter (Claude, Codex, Pi, Droid, custom) | does the work (code, research, writing, analysis) in a git worktree or its own folder |
-| `check` | a shell command | deterministic gate; exit code 0 passes |
+| `check` | a shell command | deterministic gate; exit code 0 passes. It ends when the command exits: what it left running (a server, a watcher) is stopped |
 | `review` (later) | a worker adapter, read-only brief | independent verdict, ideally from another harness |
 | `gate` | the person running sous | approval via `sous approve`, rejection via `sous cancel` |
 
@@ -295,7 +295,11 @@ child's brief.
 **Idle leads.** A lead is idle once it has answered every delivery (it may answer an earlier one after a later
 one was delivered, and the runner may report one twice after a crash; the second report is ignored). When it settles idle with no running or pending children, no undelivered
 messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
-reminders without progress the lead fails.
+reminders without progress the lead fails. A delivery the runner could not get answered (a model error, an
+expired login: `lead.turn` is `unanswered` with the reason) is retried once with the reason, where an idle
+lead would be reminded (so a working child's outcome reaches the lead first, and the retry is not a
+reminder); when the retry goes unanswered too, the lead fails with that reason, not as idle. A settlement the
+runner cannot report (its storage, the host's log) reaches the host the same way, as `unanswered` with the error.
 
 **The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in
@@ -307,7 +311,8 @@ The supervisor stays the only writer of the log.
 no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `sous run` prints
 it as an approval request and `sous status` lists it. `sous approve <gate>` completes it with summary "approved
 by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
-told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
+told). A gate takes no messages, and a lead waiting only on a gate (or on a child lead whose split awaits the person's
+approval) is not reminded.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
 several top-level nodes its summary names each top-level lead that completed with failed checks.
@@ -372,7 +377,8 @@ Without a splitter, leads split on their own, as before.
   proposed split goes to the person as a message from its lead, and the lead is `waiting` until the person
   answers: `sous approve <lead>` sends "The person approved the proposed split.", `sous answer <lead> "…"` sends
   changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
-  failed split needs no approval.
+  failed split needs no approval. Its parent lead waits for the person with it: like a lead waiting only on a gate,
+  it is not reminded.
 - **Recovery** is the integrator's: a splitter turn a supervisor stop cut short resumes its session with a recovery
   note that repeats the split's request (the cut turn may have stopped before the splitter read it); a turn that ended
   before the stop is settled from its result and its file without running again. Cancelling a lead stops the
@@ -454,7 +460,10 @@ first work or check node starts.
    supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
-   again in the integration worktree; if it passes, `merge.done` by `supervisor`. A message to a queued node
+   again in the integration worktree; if it passes, `merge.done` by `supervisor`. The worktree is reset to its
+   head (`git reset --hard`, `git clean -fd`; ignored files stay) before each merge and after each check run
+   there, so what a check leaves behind (a formatter's edits, a generated file) never refuses the next merge
+   or counts as the integrator's. A message to a queued node
    waits until its turn to merge; if its inbox is not empty then, it leaves the queue (`merge.withdrawn`) and
    its worker resumes its session in its own worktree with the messages, and it queues again when done. Once
    its merge has started, a message waits; after `merge.done` the node is completed, and messages to it are
@@ -468,7 +477,7 @@ first work or check node starts.
    session for later requests. Each request is a message in its inbox naming the node, its branch, the
    conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
    It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
-   verified: no merge in progress, no uncommitted change to tracked files, the node's branch is an ancestor of
+   verified: no merge in progress, no uncommitted change and no untracked file (ignored files aside), the node's branch is an ancestor of
    the integration branch, no conflict marker lines left in the files that conflicted, and the node's check
    passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
@@ -521,7 +530,10 @@ For non-code work and machines without git. Nothing runs git.
 ## Recovery
 
 The supervisor, not any lead, owns recovery. `sous resume [run-id]` (latest run by default) continues a run
-whose supervisor stopped, whether it was stopped with Ctrl-C or killed.
+whose supervisor stopped, whether it was stopped with Ctrl-C, killed, or ended by an error of its own. Ctrl-C
+stops every running turn and check and waits for them (a second Ctrl-C kills what still runs); an unexpected
+error does the same before the supervisor exits with it. Either way `sous run` and `sous resume` end with the
+`sous resume` hint whenever the run is not over.
 
 1. **Intent before effect.** `turn.started {node, turn, pid, startTime}` is appended immediately after
    spawning (`startTime` is field 22 of `/proc/<pid>/stat`); `turn.session` once a session ID is known;

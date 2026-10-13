@@ -1,6 +1,6 @@
 // Merging through real git repositories: node worktrees, the merge queue, the integrator, and resume mid-merge.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -148,6 +148,39 @@ test('conflict markers committed by the integrator fail verification, at any mar
   }
 })
 
+test("a check that dirties the integration worktree does not fail the next node's merge: the tree is reset before each merge", async () => {
+  const { workspace, integration, outcome, events } = await runGraph([
+    // a's check changes a tracked file and adds one wherever it runs: in a's worktree (committed with a), then in the
+    // integration worktree after a's merge, where nothing commits them.
+    work('a', [{ result: done('a') }], { command: 'echo touched >> f.txt && echo x > scratch-$$.txt' }),
+    work('b', [{ write: { 'f.txt': 'b\n' }, result: done('b') }], { needs: ['a'] }),
+  ], { files: { 'f.txt': 'base\n' } })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(['a', 'b'].map((n) => mergeDone(events, n)?.by), ['supervisor', 'supervisor'])
+  assert.equal(show(workspace, 'f.txt'), 'b')
+  assert.equal(git(integration, 'status', '--porcelain'), '', 'the integration worktree is clean after the last merge')
+})
+
+test('an integrator that leaves changes uncommitted is sent back once, told which paths; its merge is done once they are committed', async () => {
+  const { workspace, integration, outcome, events, state, prompts } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    files: { 'f.txt': 'base\n', 'g.txt': 'g\n' },
+    agents: integrator([
+      // The merge is committed, but a tracked file is changed and three files are left over, one with a space in its name.
+      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} && echo more >> g.txt && touch forgotten.txt 'new file.txt' && mkdir scratch && touch scratch/junk`, result: done('merged, with leftovers') },
+      { sh: `git checkout -- g.txt && git add forgotten.txt && rm -r 'new file.txt' scratch && ${COMMIT} -m 'add the helper'`, result: done('committed the helper') },
+    ]),
+  })
+  assert.equal(outcome, 'completed')
+  assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
+  assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: uncommitted changes remain in g\.txt, forgotten\.txt, new file\.txt, scratch\/: commit what belongs to the merge and delete the rest/)
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.equal(git(workspace, 'ls-tree', '--name-only', 'sous/r1'), 'f.txt\nforgotten.txt\ng.txt')
+  assert.equal(git(integration, 'status', '--porcelain'), '')
+})
+
 test('an integrator that aborts the merge does not get it accepted: after a retry the merge fails', async () => {
   const abort = { sh: 'git merge --abort', result: done('done, honestly') }
   const { integration, outcome, events, state } = await runGraph([
@@ -251,6 +284,31 @@ test('sous resume aborts a merge left in progress without an integrator request 
   assert.equal(git(integration, 'log', '-1', '--format=%s'), 'sous: merge w')
   assert.equal(mergeInProgress(integration), false)
   assert.match(resumed.output(), /^result: branch sous\/r1$/m)
+})
+
+test('a merge whose integration worktree cannot be checked out again fails the node, not the supervisor', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+  git(tree.path, 'commit', '-q', '--allow-empty', '-m', 'w')
+  // The integration worktree is gone and something else sits at its path, so it cannot be added again on resume.
+  git(workspace, 'worktree', 'remove', '--force', created.path)
+  mkdirSync(created.path)
+  writeFileSync(join(created.path, 'in-the-way.txt'), 'x\n')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'merge.queued', node: 'w', branch: tree.branch })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.status, 'failed')
+  assert.match(state.nodes.get('w')!.reason!, /^merge failed: supervisor error: git worktree add \S+ sous\/r1 failed in /)
+  assert.doesNotMatch(resumed.output(), /continue with: sous resume/)
 })
 
 test('a workspace that is not a git repository fails the run with a clear reason', async () => {

@@ -157,12 +157,24 @@ export function mergedOnto(path: string, branch: string): string | undefined {
   return git(path, ['rev-parse', 'HEAD^1'])
 }
 
-/** Whether tracked files have changes that are not committed. */
-export function hasUncommitted(path: string): boolean {
-  return git(path, ['status', '--porcelain', '--untracked-files=no']) !== ''
+/** The paths with changes not committed: tracked files changed, or files added but not committed (ignored files do
+ * not count). */
+export function uncommitted(path: string): string[] {
+  // Not through `git()`: it trims, which eats the leading space of ` M path`. -z: paths unquoted, NUL-separated.
+  const r = run(path, ['status', '--porcelain', '-z'])
+  if (r.status !== 0) throw new Error(`git status failed in ${path}: ${r.stderr}`)
+  const fields = r.stdout.split('\0')
+  const paths: string[] = []
+  for (let i = 0; i < fields.length; i++) {
+    if (!fields[i]) continue
+    paths.push(fields[i].slice(3))
+    if (/[RC]/.test(fields[i].slice(0, 2))) i++ // a rename or copy carries its source as the next field
+  }
+  return paths
 }
 
-/** Drop a merge that could not be finished: abort it if in progress, and move the branch back to `commit`. */
+/** Move the worktree to `commit`, dropping a merge in progress, every uncommitted change and every untracked file
+ * (ignored files stay). With the worktree's own head: a clean tree at its head. */
 export function resetTo(path: string, commit: string): void {
   if (mergeInProgress(path)) abortMerge(path)
   git(path, ['reset', '-q', '--hard', commit])
