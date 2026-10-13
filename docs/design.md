@@ -278,7 +278,10 @@ child's brief.
 **Idle leads.** A lead is idle once it has answered every delivery (it may answer an earlier one after a later
 one was delivered, and the runner may report one twice after a crash; the second report is ignored). When it settles idle with no running or pending children, no undelivered
 messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
-reminders without progress the lead fails.
+reminders without progress the lead fails. A delivery the runner could not get answered (a model error, an
+expired login: `lead.turn` is `unanswered` with the reason) is retried once with the reason (the retry counts
+as a reminder); a second failure fails the lead with that reason, not as idle. A settlement the runner cannot
+report (its storage, the host's log) reaches the host the same way, as `unanswered` with the error.
 
 **The person.** Messages to `person` are printed by `sous run` and listed by `sous status`. `sous answer
 <node> "text"`, `sous approve <gate>` and `sous cancel <node>` (from another terminal) write a command file in

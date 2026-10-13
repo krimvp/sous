@@ -12,6 +12,8 @@ export interface FakeLeadStep {
   calls?: ((LeadCall | LeadRead) & { callId?: string })[]
   /** Wait before playing the step, leaving the delivery unanswered meanwhile. */
   sleepMs?: number
+  /** Settle the delivery `unanswered` with this reason (a model error) instead of playing calls. */
+  unanswered?: string
 }
 
 /** The brief line that scripts a fake lead. */
@@ -58,12 +60,14 @@ export const fakeLeadRunner: CreateLeadRunner = ({ runDir, host }) => {
         if (l.cancelled) return
         const step = l.step++
         if (l.plan[step]?.sleepMs) await sleep(l.plan[step].sleepMs)
-        for (const [i, c] of (l.plan[step]?.calls ?? []).entries()) {
+        const unanswered = l.plan[step]?.unanswered
+        for (const [i, c] of (unanswered === undefined ? l.plan[step]?.calls ?? [] : []).entries()) {
           const { callId = `${node}-${step}-${i}`, ...call } = c
           const read = call.tool === 'list_files' || call.tool === 'read_file'
           record({ op: 'act', node, callId, result: read ? host.read(node, callId, call as LeadRead) : host.act(node, callId, call as LeadCall) })
         }
-        host.settled(node, { requestId, status: 'done', text: `played step ${step}`, model: model ?? '' })
+        if (unanswered === undefined) host.settled(node, { requestId, status: 'done', text: `played step ${step}`, model: model ?? '' })
+        else host.settled(node, { requestId, status: 'unanswered', text: unanswered, model: model ?? '' })
         record({ op: 'settled', node, requestId })
         l.reported.push(requestId)
         save(node, l)

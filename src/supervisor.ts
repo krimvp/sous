@@ -8,7 +8,7 @@ import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoi
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
-  recoveryPrompt, resultReminder, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
+  recoveryPrompt, resultReminder, retryPrompt, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
 } from './brief.ts'
 import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
@@ -379,7 +379,14 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
     const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
     for (const i of fresh) deliver(lead, agent, `evt-${i.seq}`, i.text, i.mode)
-    if (fresh.length || !lead.idle || lead.escalated) return
+    if (fresh.length || !lead.idle) return
+    // A delivery the runner could not get answered (a model error, an expired login) gets one retry, which counts as a
+    // reminder; then the lead fails with the reason instead of being reminded as if idle.
+    if (lead.unanswered !== undefined) {
+      if (lead.reminders >= 1) return abandon(state, id, `unanswered after a retry: ${lead.unanswered}`)
+      return deliver(lead, agent, `evt-${lead.lastTurn}`, retryPrompt(lead.unanswered), 'queue')
+    }
+    if (lead.escalated) return
     // A waiting child with messages is about to resume, and one whose open question is to the person (a gate, a lead
     // whose split awaits approval) waits for them, not for this lead, so both still count as working.
     const asksPerson = (c: NodeState) => state.questions.some((q) => q.from === c.spec.id)

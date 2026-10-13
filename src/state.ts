@@ -102,6 +102,8 @@ export interface NodeState {
   idle: boolean
   /** Leads: seq of the last `lead.turn`. */
   lastTurn?: number
+  /** Leads: the reason of the last `lead.turn` when the runner could not get the delivery answered (a model error). */
+  unanswered?: string
   /** Leads: reminders delivered since the last accepted tool call. */
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
@@ -331,7 +333,7 @@ export function fold(events: readonly Event[]): RunState {
         if (!node) break
         const done = answered.get(e.node) ?? new Set<string>()
         answered.set(e.node, done.add(e.requestId))
-        Object.assign(node, { idle: node.delivered.every((r) => done.has(r)), lastTurn: e.seq })
+        Object.assign(node, { idle: node.delivered.every((r) => done.has(r)), lastTurn: e.seq, unanswered: e.status === 'unanswered' ? e.text : undefined })
         break
       }
       case 'lead.call': {

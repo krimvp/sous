@@ -443,6 +443,19 @@ test('an idle lead gets two reminders and then fails', async () => {
   assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
 })
 
+test('a delivery the runner could not get answered is retried once with the reason; a second failure fails the lead with it', async () => {
+  const reason = 'model_error: 401 the login expired'
+  const recovered = await runLead([{ unanswered: reason }, { calls: [{ tool: 'complete', summary: 'done after the retry' }] }])
+  assert.equal(recovered.outcome, 'completed')
+  assert.match(delivered(recovered.events)[1].text, /^Your last turn was not answered \(model_error: 401 the login expired\)\. Continue where you left off/)
+  assert.equal(recovered.state.summary, 'done after the retry')
+
+  const failed = await runLead([{ unanswered: reason }, { unanswered: reason }])
+  assert.equal(failed.outcome, 'failed')
+  assert.equal(failed.state.nodes.get('lead')!.reason, `unanswered after a retry: ${reason}`)
+  assert.equal(delivered(failed.events).length, 2)
+})
+
 test('a lead may not complete while a message for it waits; the message is delivered next', async () => {
   // A runner that lets the lead answer its brief at once, before the waiting message is delivered.
   const { outcome, events } = await runGraph([lead([{}, { calls: [{ tool: 'complete', summary: 'done with the extra requirement' }] }])], undefined, {
