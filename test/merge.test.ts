@@ -151,21 +151,23 @@ test("a check that dirties the integration worktree does not fail the next node'
   assert.equal(git(integration, 'status', '--porcelain'), '', 'the integration worktree is clean after the last merge')
 })
 
-test('an integrator that leaves a new file uncommitted is sent back once; its merge is done once the file is committed', async () => {
+test('an integrator that leaves new files uncommitted is sent back once, told which; its merge is done once they are committed', async () => {
+  // Both change the same line: whichever merges second conflicts and goes to the integrator.
   const { workspace, integration, outcome, events, state, prompts } = await runGraph([
     work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
-    work('b', [{ sleepMs: 300, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+    work('b', [{ write: { 'f.txt': 'b\n' }, result: done('b') }]),
   ], {
     files: { 'f.txt': 'base\n' },
     agents: integrator([
-      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} && touch forgotten.txt`, result: done('merged, with a helper file') },
-      { sh: `git add forgotten.txt && ${COMMIT} -m 'add the helper'`, result: done('committed the helper') },
+      { sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT} && touch forgotten.txt && mkdir -p scratch && touch scratch/junk`, result: done('merged, with helper files') },
+      { sh: `git add forgotten.txt && rm -r scratch && ${COMMIT} -m 'add the helper'`, result: done('committed the helper') },
     ]),
   })
   assert.equal(outcome, 'completed')
+  const conflicted = events.find((e) => e.type === 'merge.conflict')!.node
   assert.equal(state.nodes.get(INTEGRATOR)!.turns.length, 2)
-  assert.match(prompts(INTEGRATOR)[1], /Node b is not merged yet: uncommitted changes remain \(new files included\)/)
-  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.match(prompts(INTEGRATOR)[1], new RegExp(`Node ${conflicted} is not merged yet: uncommitted changes remain in forgotten\\.txt, scratch/: commit what belongs to the merge and delete the rest`))
+  assert.equal(mergeDone(events, conflicted)?.by, 'integrator')
   assert.equal(git(workspace, 'ls-tree', '--name-only', 'sous/r1'), 'f.txt\nforgotten.txt')
   assert.equal(git(integration, 'status', '--porcelain'), '')
 })

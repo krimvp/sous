@@ -189,12 +189,16 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
 }
 
 /** After the supervisor: where the run's results are (the branch that holds its merged work, once it has one, or its
- * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. */
+ * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. Nothing
+ * when another supervisor holds the run (this one never ran it), and never an error over the supervisor's own. */
 function printEnd(id: string, runDir: string): void {
-  const state = fold(readEvents(runDir))
-  const result = resultOf(state, runDir)
-  if (result) console.log(`result: ${result}`)
-  if (state.status === 'running' && lockHolder(runDir) === undefined) console.log(`stopped; continue with: sous resume ${id}`)
+  try {
+    if (lockHolder(runDir) !== undefined) return
+    const state = fold(readEvents(runDir))
+    const result = resultOf(state, runDir)
+    if (result) console.log(`result: ${result}`)
+    if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+  } catch {}
 }
 
 function resultOf(state: RunState, runDir: string): string | undefined {

@@ -13,8 +13,8 @@ import {
 import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
 import {
-  changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
-  resetTo, withConflictMarkers,
+  changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, head, merge, mergedOnto, mergeInProgress, resetTo,
+  uncommitted, withConflictMarkers,
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
@@ -266,17 +266,27 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const stop = () => {
     if (stopping) return
     stopping = true
+    // Every group is stopped whatever the log does: it may be what failed (a full disk, a throwing onEvent), and then
+    // the interruptions go unrecorded.
+    let recording = true
     for (const [pid, g] of groups) {
-      if (g.turn !== undefined) {
-        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason: 'supervisor stopped', signal: 'SIGTERM' })
-      }
       void terminate(pid)
+      if (g.turn === undefined || !recording) continue
+      try {
+        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason: 'supervisor stopped', signal: 'SIGTERM' })
+      } catch {
+        recording = false
+      }
     }
   }
   /** Ctrl-C (or SIGTERM) stops the run; a second one while it stops kills every group still being stopped. */
   const onSignal = () => {
     if (!stopping) return stop()
-    for (const pid of new Set([...groups.keys(), ...terminations.keys()])) interrupt(pid, 'SIGKILL')
+    for (const pid of new Set([...groups.keys(), ...terminations.keys()])) {
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {} // gone already, or not ours any more
+    }
   }
 
   const complete = (node: string, summary: string) => void log.append({ type: 'node.completed', node, summary })
@@ -402,19 +412,19 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
     const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
     for (const i of fresh) deliver(lead, agent, `evt-${i.seq}`, i.text, i.mode)
-    if (fresh.length || !lead.idle) return
-    // A delivery the runner could not get answered (a model error, an expired login) gets one retry, which counts as a
-    // reminder; then the lead fails with the reason instead of being reminded as if idle.
-    if (lead.unanswered !== undefined) {
-      if (lead.reminders >= 1) return abandon(state, id, `unanswered after a retry: ${lead.unanswered}`)
-      return deliver(lead, agent, `evt-${lead.lastTurn}`, retryPrompt(lead.unanswered), 'queue')
-    }
-    if (lead.escalated) return
+    if (fresh.length || !lead.idle || lead.escalated) return
     // A waiting child with messages is about to resume, and one whose open question is to the person (a gate, a lead
     // whose split awaits approval) waits for them, not for this lead, so both still count as working.
     const asksPerson = (c: NodeState) => state.questions.some((q) => q.from === c.spec.id)
     const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && !asksPerson(c)).map((c) => c.spec.id)
     if (children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))) return
+    // Where an idle lead would be reminded, one whose last delivery the runner could not get answered (a model error,
+    // an expired login) gets one retry instead; then it fails with the reason. A working child's outcome gives it a
+    // fresh delivery first.
+    if (lead.unanswered) {
+      if (lead.unanswered.retried) return abandon(state, id, `unanswered after a retry: ${lead.unanswered.reason}`)
+      return deliver(lead, agent, `evt-${lead.lastTurn}`, retryPrompt(lead.unanswered.reason), 'queue')
+    }
     if (lead.reminders >= MAX_REMINDERS) return abandon(state, id, `idle after ${MAX_REMINDERS} reminders`)
     deliver(lead, agent, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')
   }
@@ -818,9 +828,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (result && result.status !== 'done') {
         return mergeFailed(id, `the integrator is ${result.status}: ${result.question ?? result.summary}`, onto)
       }
+      const left = result && !mergeInProgress(path) ? uncommitted(path) : []
       let why = !result ? 'your last turn ended without the required structured result'
         : mergeInProgress(path) ? 'the merge is still in progress: resolve every conflict and commit the merge'
-        : hasUncommitted(path) ? 'uncommitted changes remain (new files included)'
+        : left.length ? `uncommitted changes remain in ${left.slice(0, 5).join(', ')}${left.length > 5 ? ` and ${left.length - 5} more` : ''}: `
+          + 'commit what belongs to the merge and delete the rest'
         : hasChanges(path, nodeBranch) ? `branch ${nodeBranch} is not merged`
         : undefined
       const marked = why ? [] : withConflictMarkers(path, conflict!.files)
@@ -1000,6 +1012,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
 
   process.on('SIGINT', onSignal)
   process.on('SIGTERM', onSignal)
+  let failed: unknown
   try {
     if (opts.resume) await recover()
     for (;;) {
@@ -1105,19 +1118,31 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       const woken = new Promise<void>((resolve) => (wakeUp = resolve))
       await Promise.race([...tasks(), woken, sleep(POLL_MS)])
     }
+  } catch (err) {
+    failed = err
+    throw err
   } finally {
+    // An error above leaves turns and checks running: stop them all, and let the turns record their end, before the
+    // runner and the log close. Every step runs even when one fails, and the error that ended the run is the one
+    // reported: a failure of the clean-up itself surfaces only after a run that ended normally.
+    const errors: unknown[] = []
+    const attempt = async (step: () => Promise<void> | void) => {
+      try {
+        await step()
+      } catch (err) {
+        errors.push(err)
+      }
+    }
+    await attempt(stop)
+    await attempt(async () => {
+      while (tasks().length) await Promise.allSettled(tasks())
+      await Promise.allSettled(terminations.values())
+    })
     process.off('SIGINT', onSignal)
     process.off('SIGTERM', onSignal)
-    // An error above leaves turns and checks running: stop them all, and let the turns record their end, before the
-    // log closes. The run stays resumable.
-    stop()
-    while (tasks().length) await Promise.allSettled(tasks())
-    await Promise.allSettled(terminations.values())
     closed = true // the run is over: later tool calls and turns of a closing runner are not recorded
-    try {
-      await runner?.close()
-    } finally {
-      log.close()
-    }
+    await attempt(() => runner?.close())
+    await attempt(() => log.close())
+    if (failed === undefined && errors.length) throw errors[0]
   }
 }

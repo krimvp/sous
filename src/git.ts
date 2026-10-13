@@ -145,9 +145,10 @@ export function mergedOnto(path: string, branch: string): string | undefined {
   return git(path, ['rev-parse', 'HEAD^1'])
 }
 
-/** Whether changes are not committed: to tracked files, or files added but not committed (ignored files do not count). */
-export function hasUncommitted(path: string): boolean {
-  return git(path, ['status', '--porcelain']) !== ''
+/** The paths with changes not committed: tracked files changed, or files added but not committed (ignored files do
+ * not count). */
+export function uncommitted(path: string): string[] {
+  return git(path, ['status', '--porcelain']).split('\n').filter(Boolean).map((line) => line.slice(3))
 }
 
 /** Move the worktree to `commit`, dropping a merge in progress, every uncommitted change and every untracked file
