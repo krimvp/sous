@@ -104,6 +104,25 @@ test('a failed node fails every node that needs it, transitively', async () => {
   assert.equal(events.at(-1)?.type, 'run.failed')
 })
 
+test("a check never sees an outer run's SOUS_* identity", async () => {
+  // sous running inside a worker of another run: that worker's identity is in the supervisor's environment.
+  const outer = { SOUS_RUN_DIR: '/outer/run', SOUS_NODE: 'outer', SOUS_TURN: '3' }
+  const saved = { ...process.env }
+  Object.assign(process.env, outer)
+  try {
+    const { outcome, events } = await runGraph([{ id: 'c', kind: 'check', command: "env | grep '^SOUS_'; echo checked" }])
+    assert.equal(outcome, 'completed')
+    const ended = events.find((e) => e.type === 'check.ended')
+    assert.ok(ended?.type === 'check.ended')
+    assert.equal(ended.output, 'checked\n')
+  } finally {
+    for (const key of Object.keys(outer)) {
+      if (key in saved) process.env[key] = saved[key]
+      else delete process.env[key]
+    }
+  }
+})
+
 test('a missing result gets one reminder; a second miss fails the node', async () => {
   const { state } = await runGraph([
     work('ok', [{}, { result: done('done after reminder') }]),

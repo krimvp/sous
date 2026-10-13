@@ -587,7 +587,7 @@ function trajectory(d, t0) {
       case 'turn.ended': {
         const r = e.result
         if (!r) return step(e.at, t0, 'bad', `<b>turn ${e.turn} ended without a result</b>`, txt(e.error ?? `exit ${e.exitCode ?? e.signal}`))
-        return step(e.at, t0, r.status === 'done' ? 'good' : 'in', `<b>result</b> <span class="chip ${r.status === 'done' ? 'ok' : 'blue'}">${esc(r.status)}</span><span class="muted">${usage(e.usage)}</span>`, txt(r.summary) + (r.question ? `<div class="txt"><b>Question:</b> ${esc(r.question)}</div>` : '') + (r.note_for_parent ? `<div class="txt muted">Note for parent: ${esc(r.note_for_parent)}</div>` : ''))
+        return step(e.at, t0, r.status === 'done' ? 'good' : 'in', `<b>result</b> <span class="chip ${r.status === 'done' ? 'ok' : 'blue'}">${esc(r.status)}</span><span class="muted">${usage(e.usage)}</span>`, txt(r.summary) + (r.question ? `<div class="txt"><b>Question:</b> ${esc(r.question)}</div>` : ''))
       }
       case 'check.ended':
         return step(e.at, t0, e.exitCode === 0 ? 'good' : 'bad', `<b>check</b> <span class="chip ${e.exitCode === 0 ? 'ok' : 'bad'}">exit ${esc(e.exitCode)}</span> <code>${esc(oneLine(e.command, 60))}</code>`, e.output.trim() ? `<pre class="out">${esc(e.output.trimEnd())}</pre>` : '')

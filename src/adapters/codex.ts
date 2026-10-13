@@ -1,12 +1,12 @@
 // Codex: `codex exec --json`. The structured result is the last `agent_message`, constrained by
 // `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
 
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, sessionFromOutput, sousServer, spawnTurn, toTurnResult } from './common.ts'
+import { jsonLines, num, resultFromText, sessionFromOutput, sousServer, spawnTurn, str } from './common.ts'
 import type { Json } from './common.ts'
 
 // OpenAI's strict structured output requires every property to be listed in `required`;
@@ -21,19 +21,45 @@ const STRICT_SCHEMA = {
   ),
 }
 
+/** A name an override can address (`mcp_servers.<name>…`): others cannot be disabled, and some would not parse. */
+const OVERRIDABLE = /^[A-Za-z0-9_-]+$/
+
+/** The servers in `codex mcp list --json` output that an override can disable; each other one, or a listing that failed,
+ * is said on stderr. */
+function serversIn(stdout: string, err?: Error): string[] {
+  let names: string[]
+  try {
+    const list: unknown = JSON.parse(stdout)
+    if (!Array.isArray(list)) throw new Error('not a list')
+    names = list.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
+  } catch (e) {
+    console.error(`sous: cannot list Codex's MCP servers (${(err ?? (e as Error)).message}); Codex workers may load them`)
+    return []
+  }
+  return names.filter((name) => {
+    if (OVERRIDABLE.test(name)) return true
+    console.error(`sous: cannot disable Codex's MCP server ${JSON.stringify(name)}; Codex workers may load it`)
+    return false
+  })
+}
+
+const LIST = ['mcp', 'list', '--json']
 let configured: string[] | undefined
-/** The MCP servers the user's Codex configuration loads, listed once per process. When they cannot be listed, Codex
- * workers may load them: that is said once on stderr. */
+
+/** List the MCP servers the user's Codex configuration loads, once per process and without blocking: `sous run` and
+ * `sous resume` do it at run start, so no turn waits for it. */
+export async function listCodexServers(): Promise<void> {
+  if (configured) return
+  const listed = await new Promise<string[]>((resolve) =>
+    execFile('codex', LIST, { encoding: 'utf8', timeout: 15_000 }, (err, stdout) => resolve(serversIn(stdout, err ?? undefined))))
+  configured ??= listed
+}
+
+/** The servers `listCodexServers` found; without it (the adapter used on its own), the first turn lists them. */
 function configuredServers(): string[] {
   if (!configured) {
-    try {
-      const list: unknown = JSON.parse(spawnSync('codex', ['mcp', 'list', '--json'], { encoding: 'utf8', timeout: 15_000 }).stdout)
-      if (!Array.isArray(list)) throw new Error('not a list')
-      configured = list.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
-    } catch (err) {
-      console.error(`sous: cannot list Codex's MCP servers (${(err as Error).message}); Codex workers may load them`)
-      configured = []
-    }
+    const r = spawnSync('codex', LIST, { encoding: 'utf8', timeout: 15_000 })
+    configured = serversIn(r.stdout ?? '', r.error)
   }
   return configured
 }
@@ -74,7 +100,7 @@ function projectServers(cwd: string): Map<string, boolean> {
     }
   }
   for (const name of servers.keys()) {
-    if (/^[A-Za-z0-9_-]+$/.test(name)) continue
+    if (OVERRIDABLE.test(name)) continue
     console.error(`sous: cannot disable Codex's MCP server ${JSON.stringify(name)} of ${file}; Codex workers may load it`)
     servers.delete(name)
   }
@@ -83,7 +109,7 @@ function projectServers(cwd: string): Map<string, boolean> {
 
 /** Config overrides that disable every MCP server the user or the project configured, and Codex's apps and plugins (which bring tools
  * of their own), and add sous's server for a worker of the tree: Codex merges `-c mcp_servers=…` into its
- * configuration rather than replacing it. A server whose name has a dot cannot be named in an override. */
+ * configuration rather than replacing it. */
 function mcpConfig(spec: TurnSpec): string[] {
   const q = (value: string) => JSON.stringify(value) // a TOML basic string
   const server = sousServer(spec)
@@ -150,7 +176,8 @@ export const codex: WorkerAdapter = {
           if (completed) reasoning = reasoning ? `${reasoning}\n${item.text}` : String(item.text ?? '')
         } else {
           const tool = toolOf(item)
-          if (!tool) continue
+          // A call without an ID cannot be paired with its result; it is left out.
+          if (!tool || typeof item.id !== 'string') continue
           if (!started.has(item.id)) {
             started.add(item.id)
             turn.items.push({ kind: 'tool_call', id: item.id, name: tool.name, arguments: tool.arguments })
@@ -166,7 +193,7 @@ export const codex: WorkerAdapter = {
       }
     }
     if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning })
-    if (succeeded && last !== undefined) turn.result = toTurnResult(last)
+    if (succeeded && last !== undefined) turn.result = resultFromText(last)
     return turn
   },
 }
@@ -180,14 +207,14 @@ function toolOf(item: Json): Tool | undefined {
       return {
         name: 'shell',
         arguments: { command: item.command },
-        content: String(item.aggregated_output ?? ''),
+        content: str(item.aggregated_output),
         isError: failed || (typeof item.exit_code === 'number' && item.exit_code !== 0),
       }
     case 'file_change':
-      return { name: 'file_change', arguments: { changes: item.changes }, content: String(item.status ?? ''), isError: failed }
+      return { name: 'file_change', arguments: { changes: item.changes }, content: str(item.status), isError: failed }
     case 'mcp_tool_call':
       return {
-        name: `${item.server}.${item.tool}`,
+        name: `${str(item.server)}.${str(item.tool)}`,
         arguments: item.arguments,
         content: JSON.stringify(item.error ?? item.result ?? null),
         isError: failed,
@@ -201,9 +228,9 @@ function toolOf(item: Json): Tool | undefined {
 /** Codex's `input_tokens` already includes cached tokens. */
 function usageOf(usage: Json): Usage {
   return {
-    inputTokens: usage.input_tokens ?? 0,
-    outputTokens: usage.output_tokens ?? 0,
-    cachedTokens: usage.cached_input_tokens ?? 0,
-    ...(typeof usage.cache_write_input_tokens === 'number' ? { cacheWriteTokens: usage.cache_write_input_tokens } : {}),
+    inputTokens: num(usage.input_tokens),
+    outputTokens: num(usage.output_tokens),
+    cachedTokens: num(usage.cached_input_tokens),
+    ...(typeof usage.cache_write_input_tokens === 'number' ? { cacheWriteTokens: num(usage.cache_write_input_tokens) } : {}),
   }
 }

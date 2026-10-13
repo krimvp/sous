@@ -30,8 +30,8 @@ No sandbox (workers run as the user's own CLIs, in a git worktree or their own f
 no remote pushes or PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only
 reads runs for now; steering a run from it is #60.
 
-Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
-product; sous shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
+Related projects: **Taskweave** is the heavy, durable, evidence-oriented
+product; sous shares no code with it. **Orchy** runs declared, fixed flows;
 sous focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
 engine can be tested without a lead.
 
@@ -116,7 +116,9 @@ interface RunningTurn {
 
 Each adapter starts the CLI as the leader of a new process group, sends stdout to
 `nodes/<n>/turn-<k>.jsonl` and stderr to `turn-<k>.err`, and asks for a structured final result:
-`{status: done|blocked|needs_input, summary, question?, note_for_parent?}`.
+`{status: done|blocked|needs_input, summary, question?}`. What each field means is said once, in every worker prompt;
+Pi and Droid, which have no structured-output flag, are also told to give it as JSON in a ```` ```json ```` fence, and
+their parsers take the last fence that holds a result, else a bare JSON object.
 
 **A turn without a result.** A turn whose output has no end-of-turn marker, or no parsable result, is resumed once with
 a reminder to give one; a second miss fails the node. A turn that exits non-zero before its end marker, on its own (not
@@ -133,7 +135,7 @@ turn's age and how long ago its output last grew (the output file's modification
 ### Lead runner
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
-[the spike](../spikes/pi-durable/RESULTS.md)). Each lead node is one durable conversation, stored with the
+a spike that killed a lead in the middle of a spawn and reopened it without spawning anything twice). Each lead node is one durable conversation, stored with the
 JSONL backend in `.sous/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
 reopened lead continues where it stopped.
 
@@ -201,7 +203,10 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
   a `message` with `sent: true`. It stays the only writer.
 - **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`
-  (`TurnSpec.env`), which both ways read. This is attribution, not authentication: workers run as the person.
+  (`TurnSpec.env`), which both ways read; no other `SOUS_*` variable of the supervisor's environment reaches a turn or a
+  check, so a standing node, which gets none, or a check does not take on the identity of an outer run's worker when
+  sous runs inside one.
+  This is attribution, not authentication: workers run as the person.
 - **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
@@ -233,16 +238,18 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   | Harness | MCP | The person's own setup |
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
-  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key; a name outside `A-Za-z0-9_-` is reported on stderr and not disabled) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, listed once without blocking when `sous run` or `sous resume` starts, not on a turn; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
   | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended (none in a folder-mode node's folder) |
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
   A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
-  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait).
-  If Codex's servers cannot be listed, sous says so on stderr and Codex workers may load them; a server whose name has
-  a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
-  shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
-  determined one from reaching another service; that needs sandboxed workers.
+  take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait),
+  or one of the wrong type (an object `body` is not sent as text). If Codex's servers cannot be listed, sous says so on
+  stderr and Codex workers may load them; a Codex server, the person's or the project's, whose name is outside
+  `A-Za-z0-9_-` (a dot, a space) cannot be named in an override, so sous says so on stderr and does not disable it.
+  So the channels a worker is offered all go through the run's log. A worker still has a shell and the person's files
+  and network, so this keeps honest workers inside sous rather than preventing a determined one from reaching another
+  service; that needs sandboxed workers.
 
 ## Leads
 
@@ -580,7 +587,9 @@ the certification model) is required by the type checker.
   supervisor's stop (no result, nothing left running, resumes); a turn killed with SIGKILL (resumes); two siblings that
   settle a name with `send` and `receive` in a real `sous run` while an MCP canary configured in every project location
   a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; and a
-  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings. Pi reads a
+  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings (with the
+  home directory scrubbed from them). Every run writes `certified.json` beside them: CLI version, model, date, tests
+  passed and failed. Pi reads a
   project's MCP servers only in projects the person trusted; Codex records trust itself (see the isolation table), and
   so each certification adds entries for its temporary workspaces to `~/.codex/config.toml`.
 - **Merging a harness requires a passing certification**, its output in the PR. Isolation from the person's own setup
@@ -593,7 +602,12 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 
 ## Harness facts (spike, 2026-10-11)
 
-`spikes/resume-after-kill.sh` stops each CLI while it runs a foreground command, with SIGTERM and with
+Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
+stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
+tree, since the facts they established are written down here and `npm run certify` supersedes the second; they remain
+on the branch `archive/site-notes-and-spikes` (at 0.1.1).
+
+The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with
 SIGKILL, then resumes the session and asks for a codeword given before the stop. All six combinations
 passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike established:
 
@@ -625,7 +639,7 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   and a final `completion` with `finalText` and `usage` (`input_tokens` excludes cache reads; cache writes were 0 in
   every run seen, so whether it excludes them too is assumed; `factory_credits` are not a price). A failed exec
   writes `error` events (one ending early repeats its assistant message as one) and exits 1 without `completion`.
-- `spikes/resume-after-kill.sh droid` passed with SIGTERM and SIGKILL. On SIGTERM Droid sees its command killed,
+- The resume-after-kill spike on Droid passed with SIGTERM and SIGKILL. On SIGTERM Droid sees its command killed,
   may start it again, and exits 0 without `completion`. Like Pi, it runs tool commands in their own process group,
   with a watcher that kills that group once Droid is gone; on SIGTERM it stops the command itself.
 - No session ID up front: every event carries `session_id`. **Resume forks.** `exec -s <id>` loads the session
