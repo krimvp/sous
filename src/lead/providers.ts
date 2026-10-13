@@ -17,13 +17,15 @@ import type { ModelRef } from '@earendil-works/pi-durable'
 import { leadCredentialFix } from '../types.ts'
 
 const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
+/** pi-ai refreshes an OAuth token with less validity left than this (its DEFAULT_OAUTH_MINIMUM_VALIDITY_MS, not
+ * exported); sous's read-only store cannot, so such a token does not count as a credential. */
+const OAUTH_MINIMUM_VALIDITY_MS = 5 * 60 * 1000
 const OLLAMA = 'ollama-cloud'
 const OLLAMA_URL = 'https://ollama.com/v1'
 
-/** The Pi login's credentials, read at each use. An OAuth token past its `expires` is left out: pi-ai stores `expires`
- * five minutes before the token's real end and refreshes a token from then on, which sous cannot, so an expired login
- * is invisible and a key in the environment is used instead. A file that is not an object of credentials by provider
- * counts as empty, and `problem` says so. */
+/** The Pi login's credentials, read at each use. An OAuth token with under five minutes left is left out: pi-ai would
+ * refresh it, which sous cannot, so such a login is invisible and a key in the environment is used instead. A file that
+ * is not an object of credentials by provider counts as empty, and `problem` says so. */
 function login(): { credentials: Record<string, Credential>; problem?: string } {
   if (!existsSync(AUTH_FILE)) return { credentials: {} }
   let raw: unknown
@@ -36,7 +38,7 @@ function login(): { credentials: Record<string, Credential>; problem?: string } 
     return { credentials: {}, problem: `${AUTH_FILE} is not an object of credentials by provider; the Pi login is ignored (run pi to log in again)` }
   }
   const live = Object.entries(raw as Record<string, Credential>)
-    .filter(([, c]) => typeof c === 'object' && c !== null && (c.type !== 'oauth' || (typeof c.expires === 'number' && Date.now() < c.expires)))
+    .filter(([, c]) => typeof c === 'object' && c !== null && (c.type !== 'oauth' || (typeof c.expires === 'number' && Date.now() + OAUTH_MINIMUM_VALIDITY_MS < c.expires)))
   return { credentials: Object.fromEntries(live) }
 }
 
