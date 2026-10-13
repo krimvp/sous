@@ -4,6 +4,6 @@ import type { CreateLeadRunner } from '../types.ts'
 import { loginModels } from './providers.ts'
 import { openLeadRunner } from './runner.ts'
 
-export { leadCredential } from './providers.ts'
+export { leadCredential, loginProblem } from './providers.ts'
 
 export const createLeadRunner: CreateLeadRunner = ({ runDir, host }) => openLeadRunner({ runDir, host, models: loginModels() })

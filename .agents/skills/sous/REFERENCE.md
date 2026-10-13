@@ -11,7 +11,7 @@ sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
-sous doctor [--workspace <dir>]  (each harness on PATH with its version, lead credentials and model, git state; exit 0 when a run could start)
+sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```

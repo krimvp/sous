@@ -17,12 +17,36 @@ import type { ModelRef } from '@earendil-works/pi-durable'
 import { leadCredentialFix } from '../types.ts'
 
 const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
+/** pi-ai refreshes an OAuth token with less validity left than this; sous cannot, so such a token does not count. */
+const OAUTH_MARGIN_MS = 5 * 60 * 1000
 const OLLAMA = 'ollama-cloud'
 const OLLAMA_URL = 'https://ollama.com/v1'
 
+/** The Pi login's credentials, read at each use. An OAuth token that has expired, or is about to, is left out: pi-ai
+ * would refresh it, which sous cannot, so an expired login is invisible and a key in the environment is used instead.
+ * A file that is not an object of credentials by provider counts as empty, and `problem` says so. */
+function login(): { credentials: Record<string, Credential>; problem?: string } {
+  if (!existsSync(AUTH_FILE)) return { credentials: {} }
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(AUTH_FILE, 'utf8'))
+  } catch {
+    return { credentials: {}, problem: `${AUTH_FILE} is not valid JSON; the Pi login is ignored (run pi to log in again)` }
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { credentials: {}, problem: `${AUTH_FILE} is not an object of credentials by provider; the Pi login is ignored (run pi to log in again)` }
+  }
+  const live = Object.entries(raw as Record<string, Credential>)
+    .filter(([, c]) => typeof c === 'object' && c !== null && (c.type !== 'oauth' || (typeof c.expires === 'number' && c.expires > Date.now() + OAUTH_MARGIN_MS)))
+  return { credentials: Object.fromEntries(live) }
+}
+
+/** What is wrong with the Pi login file, if anything; its credentials are then ignored. */
+export const loginProblem = (): string | undefined => login().problem
+
 /** The lead providers, reading credentials from the environment and the Pi login at each use. */
 export function loginModels(): MutableModels {
-  const auth = (): Record<string, Credential> => existsSync(AUTH_FILE) ? JSON.parse(readFileSync(AUTH_FILE, 'utf8')) : {}
+  const auth = () => login().credentials
   const credentials: CredentialStore = {
     async read(id) { return auth()[id] },
     async list() { return Object.entries(auth()).map(([providerId, c]) => ({ providerId, type: c.type })) },

@@ -282,6 +282,38 @@ test('a lead that names no model gets the first lead provider with a credential,
   assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.summary, 'planned')
 })
 
+test('a resumed run keeps the lead model chosen when it was created, for leads resolved later too', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const sub = { id: 'sub', kind: 'lead' as const, brief: `Finish.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'sub done' }] }])}` }
+  const goal = `Plan.\n${fakeLeadPlan([
+    { calls: [{ tool: 'escalate', question: 'Go on?' }] },
+    { calls: [{ tool: 'spawn', children: [sub] }] },
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ])}`
+  // Created when only OpenAI has a credential; resumed when every provider has one.
+  process.env.FAKE_LEAD_CREDENTIALS = 'openai'
+  const run = sous(['run', goal], workspace, sessions)
+  delete process.env.FAKE_LEAD_CREDENTIALS
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(run.output(), /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/m)
+  const runDir = runDirOf(workspace)!
+  const created = readEvents(runDir)[0]
+  assert.equal(created.type === 'run.created' && created.leadModel, 'openai/gpt-6-luna')
+
+  const resumed = sous(['resume'], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'run.resumed')
+  const answer = sous(['answer', 'lead', 'Yes.'], workspace, sessions)
+  assert.equal(await answer.exit, 0, answer.output())
+  assert.equal(await resumed.exit, 0, resumed.output())
+  assert.match(resumed.output(), /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/m)
+  const delivered = fakeLeadRecords(runDir).filter((r) => r.op === 'deliver' && r.node === 'sub')
+  assert.deepEqual(delivered.map((r) => r.op === 'deliver' && r.model), ['openai/gpt-6-luna'])
+  assert.equal(fold(readEvents(runDir)).summary, 'all done')
+})
+
 test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')

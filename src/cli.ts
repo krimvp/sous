@@ -43,6 +43,8 @@ export interface CliDeps {
   leadCredential: (provider: string) => Promise<string | undefined>
   /** Lists the person's Codex MCP servers for the Codex adapter, at run start when Codex is available. */
   listCodexServers?: () => Promise<void>
+  /** What is wrong with the Pi login file, if anything (`sous doctor` says so). */
+  loginProblem?: () => string | undefined
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -102,7 +104,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         return sendCommand(workspace, { type: command, node: args[0] })
       case 'doctor':
         if (args.length) break
-        return await doctor(workspace, deps.leadCredential)
+        return await doctor(workspace, deps.leadCredential, deps.loginProblem)
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
@@ -156,7 +158,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode })
+  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}) })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -175,7 +177,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps)
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel)
   printPending(state)
   const printEvent = printer(events)
   const outcome = await runSupervisor({
@@ -198,9 +200,10 @@ function resultOf(state: RunState, runDir: string): string | undefined {
   return state.integration && `branch ${state.integration.branch}`
 }
 
-/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on. */
-async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps): Promise<Unavailable> {
-  const unavailable = await checkAgents(graph, deps.leadCredential)
+/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
+ * the one recorded for a resumed run). */
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, leadModel?: string): Promise<Unavailable> {
+  const unavailable = await checkAgents(graph, deps.leadCredential, leadModel)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
   const label = (name: string) => {
     const spec = agentSpec(graph, name)!
@@ -375,6 +378,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter, listCodexServers }, { createLeadRunner, leadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, leadCredential, listCodexServers })
+  const [{ getAdapter, listCodexServers }, { createLeadRunner, leadCredential, loginProblem }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, leadCredential, listCodexServers, loginProblem })
 }

@@ -20,6 +20,9 @@ export interface Agent {
 export interface Unavailable {
   commands: string[]
   leadProviders: string[]
+  /** The model of lead agents that name none: the one recorded for the run, else the first lead provider with a
+   * credential; absent when there is neither (`defaultLeadModel`). */
+  leadModel?: string
 }
 
 type AgentDefs = Pick<Definitions, 'agents'> | undefined
@@ -30,8 +33,10 @@ export const RUNTIMES: readonly AgentRuntime[] = [...HARNESSES, 'lead']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
 const providerOf = (model: string) => model.split('/')[0]
 
-/** The model of a lead that names none: the first lead provider, in `LEAD_PROVIDERS` order, with a credential. */
+/** The model of a lead that names none: the run's, when `unavailable` carries one, else the first lead provider, in
+ * `LEAD_PROVIDERS` order, with a credential. */
 export function defaultLeadModel(unavailable: Unavailable): string | undefined {
+  if (unavailable.leadModel !== undefined) return unavailable.leadModel
   const p = LEAD_PROVIDERS.find((p) => !unavailable.leadProviders.includes(p.id))
   return p && `${p.id}/${p.model}`
 }
@@ -68,22 +73,27 @@ export function modelError(defs: Defs, runs: AgentRuntime, model: string): strin
 }
 
 /** Check which harness commands are on PATH, and which lead providers the run's agents and lead nodes name have a
- * credential (`leadCredential` says where one is, or that none is). */
-export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, leadCredential: (provider: string) => Promise<string | undefined>): Promise<Unavailable> {
+ * credential (`leadCredential` says where one is, or that none is). `leadModel` is the model recorded for the run's
+ * lead agents without one (a resumed run), kept even when its provider has no credential now: such a lead is then
+ * unavailable rather than moved to another provider. */
+export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, leadCredential: (provider: string) => Promise<string | undefined>, leadModel?: string): Promise<Unavailable> {
   const leads = agentNames(graph).map((name) => agentSpec(graph, name)!).filter((spec) => spec.runs === 'lead')
   const models = [...leads.map((spec) => spec.model), ...(graph?.nodes ?? []).filter((n) => n.kind === 'lead').map((n) => n.model)]
   const leadProviders: string[] = []
   for (const provider of new Set([...LEAD_PROVIDERS.map((p) => p.id), ...models.filter((m) => m !== undefined).map(providerOf)])) {
     if ((await leadCredential(provider)) === undefined) leadProviders.push(provider)
   }
-  return { commands: HARNESSES.filter((command) => !onPath(command)), leadProviders }
+  const unavailable: Unavailable = { commands: HARNESSES.filter((command) => !onPath(command)), leadProviders }
+  const model = leadModel ?? defaultLeadModel(unavailable)
+  return model === undefined ? unavailable : { ...unavailable, leadModel: model }
 }
 
 /** Why an agent that runs `runs` on `model` (for a lead without one: on the default) cannot run, if it cannot. */
 export function whyUnavailable(runs: AgentRuntime, model: string | undefined, unavailable: Unavailable): string | undefined {
   if (runs !== 'lead') return unavailable.commands.includes(runs) ? `${runs} not found` : undefined
-  if (model === undefined) return defaultLeadModel(unavailable) ? undefined : 'no lead provider has a credential'
-  const provider = providerOf(model)
+  const chosen = model ?? defaultLeadModel(unavailable)
+  if (chosen === undefined) return 'no lead provider has a credential'
+  const provider = providerOf(chosen)
   return unavailable.leadProviders.includes(provider) ? `no credential for ${provider}` : undefined
 }
 
@@ -168,13 +178,13 @@ export function agentFor(defs: Defs, node: Pick<NodeSpec, 'kind' | 'agent' | 'mo
   if (!spec) throw new Error(`unknown agent ${name}`)
   if ((spec.runs === 'lead') !== (node.kind === 'lead')) throw new Error(`agent ${name} runs ${spec.runs} and cannot do a ${node.kind} node`)
   const named = node.model ?? spec.model
+  const model = named ?? (spec.runs === 'lead' ? defaultLeadModel(unavailable) : undefined)
   const why = whyUnavailable(spec.runs, named, unavailable)
   if (why) {
     const fix = spec.runs !== 'lead' ? `install ${spec.runs} or change the agent`
-      : named === undefined ? `${ANY_LEAD_CREDENTIAL_FIX}, or name a lead model (--agents, or the node's model)`
-      : `${leadCredentialFix(providerOf(named))}, or name another lead model (--agents, or the node's model)`
+      : model === undefined ? `${ANY_LEAD_CREDENTIAL_FIX}, or name a lead model (--agents, or the node's model)`
+      : `${leadCredentialFix(providerOf(model))}, or name another lead model (--agents, or the node's model)`
     throw Object.assign(new Error(`agent ${name} is not available (${why})`), { fix })
   }
-  const model = named ?? (spec.runs === 'lead' ? defaultLeadModel(unavailable) : undefined)
   return { name, runs: spec.runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }
 }

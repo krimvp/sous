@@ -10,8 +10,9 @@ import { ANY_LEAD_CREDENTIAL_FIX, HARNESSES, LEAD_PROVIDERS } from './types.ts'
 /** How long `<cli> --version` may take; a harness that answers later counts as on PATH with an unknown version. */
 const VERSION_TIMEOUT_MS = 5000
 
-/** Print the report; returns the exit code: 0 when a run could start here, 1 with what to do otherwise. */
-export async function doctor(workspace: string, leadCredential: (provider: string) => Promise<string | undefined>): Promise<number> {
+/** Print the report; returns the exit code: 0 when a run could start here, 1 with what to do otherwise. `loginProblem`
+ * says what is wrong with the Pi login file, if anything. */
+export async function doctor(workspace: string, leadCredential: (provider: string) => Promise<string | undefined>, loginProblem?: () => string | undefined): Promise<number> {
   const sources = new Map(await Promise.all(LEAD_PROVIDERS.map(async (p) => [p.id, await leadCredential(p.id)] as const)))
   const unavailable = await checkAgents(undefined, async (provider) => sources.get(provider))
   const versions = await Promise.all(HARNESSES.map((cli) => (unavailable.commands.includes(cli) ? 'not on PATH' : version(cli))))
@@ -20,6 +21,8 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
 
   const credentials = LEAD_PROVIDERS.filter((p) => sources.get(p.id) !== undefined).map((p) => `${p.id} (${sources.get(p.id)})`)
   console.log(`lead credentials: ${credentials.join(', ') || 'none'}`)
+  const problem = loginProblem?.()
+  if (problem) console.log(`Pi login: ${problem}`)
   const model = defaultLeadModel(unavailable)
   console.log(`lead model: ${model ?? 'none'}`)
 
@@ -42,19 +45,29 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   return 0
 }
 
-/** The first line `cli --version` prints, or why there is none. */
+/** The first line `cli --version` prints, or why there is none. Whether the CLI is logged in is not checked. */
 function version(cli: string): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawn(cli, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: VERSION_TIMEOUT_MS, killSignal: 'SIGKILL' })
+    // The command leads its own process group, so that a timeout kills whatever it started as well: a grandchild
+    // left behind would hold the output open, and `close` would wait for it.
+    const child = spawn(cli, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     let out = ''
     child.stdout.on('data', (d) => (out += d))
     child.stderr.on('data', (d) => (out += d))
-    child.on('error', (err) => resolve(`on PATH; --version failed (${err.message})`))
-    // A killed command resolves at once: a process it left behind may hold its output open, which `close` waits for.
-    child.on('exit', (_code, signal) => signal && resolve(`on PATH; --version gave nothing in ${VERSION_TIMEOUT_MS / 1000} s`))
+    const timer = setTimeout(() => {
+      try { process.kill(-child.pid!, 'SIGKILL') } catch {}
+      child.stdout.destroy()
+      child.stderr.destroy()
+      resolve(`on PATH; --version gave nothing in ${VERSION_TIMEOUT_MS / 1000} s; login not checked`)
+    }, VERSION_TIMEOUT_MS)
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      resolve(`on PATH; --version failed (${err.message}); login not checked`)
+    })
     child.on('close', (code) => {
+      clearTimeout(timer)
       const line = out.trim().split('\n')[0].slice(0, 80)
-      resolve(code === 0 && line ? line : `on PATH; --version exited ${code}${line ? `: ${line}` : ' with nothing'}`)
+      resolve(`${code === 0 && line ? line : `on PATH; --version exited ${code}${line ? `: ${line}` : ' with nothing'}`}; login not checked`)
     })
   })
 }

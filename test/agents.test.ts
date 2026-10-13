@@ -29,7 +29,10 @@ test('checkAgents finds the commands missing from PATH and the lead providers, k
       nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
     }
     const unavailable = await checkAgents(graph, async (provider) => (provider === 'ollama-cloud' ? 'OLLAMA_API_KEY' : undefined))
-    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['anthropic', 'openai', 'openai-codex', 'other'] })
+    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['anthropic', 'openai', 'openai-codex', 'other'], leadModel: 'ollama-cloud/deepseek-v4.1-flash' })
+    // A resumed run keeps the model recorded for it, whatever has a credential now.
+    const resumed = await checkAgents(graph, async () => 'fake', 'openai/gpt-6-luna')
+    assert.deepEqual(resumed, { commands: ['claude', 'codex', 'droid'], leadProviders: [], leadModel: 'openai/gpt-6-luna' })
   } finally {
     process.env.PATH = path
   }
