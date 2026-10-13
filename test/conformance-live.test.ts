@@ -1,14 +1,15 @@
 // Live certification: what every harness must do with its real CLI before it merges to main. Costs money; runs only with
 // SOUS_CERTIFY=1 (`npm run certify`), never as part of `npm run check`. SOUS_HARNESS=droid,pi limits it to some harnesses; SOUS_RECORD=1 also rewrites the
-// recordings the free suite reads (test/fixtures/conformance/).
+// recordings the free suite reads (test/fixtures/conformance/). Every run writes test/fixtures/conformance/<harness>/certified.json:
+// the CLI version, model, date and the tests that passed, for the PR and for scripts/harness-versions.sh.
 
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { describe, test } from 'node:test'
+import { after, afterEach, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { getAdapter } from '../src/adapters/index.ts'
@@ -17,7 +18,7 @@ import { fold } from '../src/state.ts'
 import { stopGroup } from '../src/supervisor.ts'
 import { HARNESSES } from '../src/types.ts'
 import type { HarnessName, ParsedTurn, RunningTurn, TurnSpec } from '../src/types.ts'
-import { CONFORMANCE, NEEDS_INPUT_PROMPT, NOTE, READ_FILE_PROMPT, recordingUrl } from './conformance/harnesses.ts'
+import { CONFORMANCE, NEEDS_INPUT_PROMPT, NOTE, READ_FILE_PROMPT, certifiedUrl, recordingUrl } from './conformance/harnesses.ts'
 import type { Recording } from './conformance/harnesses.ts'
 import { git, gitWorkspace } from './fixtures/git-repo.ts'
 
@@ -28,6 +29,15 @@ const unknown = only?.filter((h) => !(HARNESSES as readonly string[]).includes(h
 if (live && unknown?.length) throw new Error(`SOUS_HARNESS names no harness: ${unknown.join(', ')} (harnesses: ${HARNESSES.join(', ')})`)
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url))
 const MINUTES = 60_000
+
+/** Recordings are committed: the person's home directory must not be in them. */
+const scrubHome = (raw: string) => {
+  const home = homedir()
+  if (home === '/') return raw
+  // Claude names a project's directory under .claude/projects and /tmp/claude-<uid> after its path, with `-` for `/`.
+  const dashed = new RegExp(`(?<=/)${home.replaceAll('/', '-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[-/"])`, 'g')
+  return raw.replaceAll(home, '/home/user').replace(dashed, '-home-user')
+}
 
 const tempDir = (name: string) => mkdtempSync(join(tmpdir(), `sous-certify-${name}-`))
 const codeword = () => randomBytes(4).toString('hex').toUpperCase()
@@ -71,7 +81,7 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
     if (!record) return
     const to = fileURLToPath(recordingUrl(harness, name))
     mkdirSync(dirname(to), { recursive: true })
-    copyFileSync(s.outFile, to)
+    writeFileSync(to, scrubHome(readFileSync(s.outFile, 'utf8')))
   }
   /** Start a turn that learns a codeword and then runs a long command; resolves once the command runs. */
   const midCommand = async (cwd: string, word: string) => {
@@ -92,6 +102,20 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
   }
 
   describe(`${harness} certification`, { skip: !live }, () => {
+    const passed: string[] = []
+    const failed: string[] = []
+    afterEach((t) => void ((t as { passed?: boolean }).passed ? passed : failed).push(t.name))
+    after(() => {
+      let version = 'unknown'
+      try {
+        version = execFileSync(harness, ['--version'], { encoding: 'utf8' }).trim()
+      } catch {}
+      const file = fileURLToPath(certifiedUrl(harness))
+      mkdirSync(dirname(file), { recursive: true })
+      const certified = { cli: harness, version, model: liveModel ?? 'harness default', date: new Date().toISOString().slice(0, 10), passed, failed }
+      writeFileSync(file, `${JSON.stringify(certified, null, 2)}\n`)
+    })
+
     test('reads a file with one paired tool call and ends done', { timeout: 10 * MINUTES }, async () => {
       const cwd = tempDir(harness)
       writeFileSync(join(cwd, 'note.txt'), `${NOTE}\n`)
@@ -164,7 +188,7 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
       const marker = join(tempDir(harness), 'canary-started')
       projectMcpCanary(workspace, marker)
       commit(workspace)
-      const graph = writeGraph(workspace, harness, liveModel, [
+      const graph = writeGraph(harness, liveModel, [
         { id: 'a', kind: 'work', agent: 'worker', brief: 'Write a file named alpha.txt containing the word alpha and commit it. Then ' +
           'tell your sibling b, with send, exactly: the file is alpha.txt. Do not wait for an answer.' },
         { id: 'b', kind: 'work', agent: 'worker', brief: 'Wait up to 60 seconds with receive for a message from your sibling a. It names a ' +
@@ -193,7 +217,7 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
       // Short: the resumed worker may run it again.
       const n = holdScript(workspace, 40, 100)
       commit(workspace)
-      const graph = writeGraph(workspace, harness, liveModel, [
+      const graph = writeGraph(harness, liveModel, [
         { id: 'slow', kind: 'work', agent: 'worker', brief: `First run the shell command \`./hold.sh ${n}\` in the foreground and wait ` +
           'for it to finish. Then write a file done.txt containing the word done and commit it.' },
         { id: 'verify', kind: 'check', needs: ['slow'], command: 'grep -q done done.txt' },
@@ -222,7 +246,7 @@ function commit(workspace: string) {
 }
 
 /** A graph whose work nodes run on agent `worker`: `harness` with the certification model. */
-function writeGraph(workspace: string, harness: HarnessName, model: string | undefined, nodes: object[]): string {
+function writeGraph(harness: HarnessName, model: string | undefined, nodes: object[]): string {
   const file = join(tempDir(harness), 'graph.json')
   writeFileSync(file, JSON.stringify({ goal: `Certify ${harness}.`, agents: { worker: { runs: harness, ...(model ? { model } : {}) } }, nodes }))
   return file
