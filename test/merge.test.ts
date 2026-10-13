@@ -13,7 +13,7 @@ import { toAtif } from '../src/trace/atif.ts'
 import { toOtlp } from '../src/trace/otlp.ts'
 import { loadRun } from '../src/trace/run.ts'
 import { INTEGRATOR } from '../src/types.ts'
-import type { Event, GraphFile, LeadHost, NodeSpec } from '../src/types.ts'
+import type { Event, GraphFile, LeadHost, NodeSpec, TurnSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
 import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
@@ -42,7 +42,7 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => adapter, createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent })
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: opts.getAdapter ?? (() => adapter), createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent })
   const events = readEvents(runDir)
   const integration = join(runDir, 'integration')
   const prompts = (node: string) => {
@@ -339,6 +339,36 @@ test('a cancel of the integrator is refused, naming the node it merges, and the 
     ['sous cancel integrator: integrator serves the whole run and is not cancelled; to stop its work, cancel the node it works for (b)'])
   assert.equal(mergeDone(events, 'b')?.by, 'integrator')
   assert.equal(state.nodes.get(INTEGRATOR)!.status, 'idle')
+})
+
+test('a node cancelled while the integrator merges it is not merged, though the supervisor errs after the merge commit', async () => {
+  const workspace = gitWorkspace('sous-merge-', { 'f.txt': 'base\n' })
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const fake = fakeAdapter(join(workspace, 'sessions'))
+  let cancelled: () => void
+  const cancel = new Promise<void>((resolve) => (cancelled = resolve))
+  // The integrator's harness commits the merge, b is cancelled meanwhile, and then its turn fails with an error.
+  const broken = { ...fake, start: (spec: TurnSpec) => {
+    writeCommand(runDir, { type: 'cancel', node: 'b' })
+    const turn = fake.start(spec)
+    return { ...turn, exit: Promise.all([turn.exit, cancel]).then(() => Promise.reject(new Error('the harness broke'))) }
+  } }
+  const { outcome, events, state } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    workspace,
+    agents: integrator([{ sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`, result: done('kept both lines') }]),
+    getAdapter: (h) => (h === 'codex' ? broken : fake),
+    onEvent: (e) => {
+      if (e.type === 'node.cancelled' && e.node === 'b') cancelled()
+    },
+  })
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('b')!.reason, 'cancelled by person')
+  assert.equal(mergeDone(events, 'b'), undefined)
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), mergeDone(events, 'a')!.commit)
+  assert.equal(show(workspace, 'f.txt'), 'a')
 })
 
 test('a node cancelled while its check runs after a clean merge is not merged: the merge leaves the integration branch', async () => {
