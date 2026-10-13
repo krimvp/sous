@@ -19,6 +19,12 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   leads have not been run live yet, and such a key in the environment also reaches Claude Code and Codex workers.
   `sous doctor` reports each harness on PATH with its version (not its login), the lead credentials and model, and the
   git state, and exits 0 when a run could start (#93, #99).
+- CLI: `-h`/`--help`/`help` (also `sous <command> --help`) print the usage and `--version`/`-v` the version; a command line
+  sous cannot parse prints one `sous: ...` line before the usage and exits 2; `sous runs` lists the workspace's runs;
+  `sous status` shows the first line of a multi-line goal; `sous export otlp` names the URL and cause of a failed post;
+  the start-up `agents:` line of a graph without leads lists only the agents the graph uses (#98, #99).
+- A run in a git checkout with uncommitted changes warns that workers see `HEAD` only. Started in a subdirectory of a
+  repository, a run uses the repository root as its workspace (an explicit `--workspace` is used as given).
 
 ## 0.1.1 (2026-10-12)
 

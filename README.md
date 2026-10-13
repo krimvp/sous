@@ -36,6 +36,9 @@ sous approve <gate>             # from another terminal: approve a gate (or a pr
 sous resume                     # continue the latest run after Ctrl-C or a crash (or: resume <run-id>)
 ```
 
+Workers see your last commit (`HEAD`) only, so commit the files they need first (sous warns at the start when your checkout
+has uncommitted changes); started in a subdirectory of a git repository, sous works at the repository root and says so.
+
 While they work, workers may tell a sibling or their lead what the others must know (an interface they settled, a file
 they moved) with a `send` tool (sous's own MCP server, for Claude, Codex and Droid) or `sous send <to> 'text'`, and
 read what they are told, or wait for it, with `receive` / `sous receive [seconds]`. Their lead sees every message.
@@ -93,8 +96,10 @@ Or give it a fixed graph file:
 ```
 
 ```bash
-sous run graph.json        # runs in the current directory; state in .sous/runs/<id>/
+sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
 sous status                # latest run as a tree
+sous runs                  # every run of the workspace, newest first: id, state, start, goal
+sous --help | --version    # the usage (also: sous <command> --help), the installed version
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
 sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 sous ui                    # a local page with every run, live or finished (--port <n>)
