@@ -48,9 +48,9 @@ The project's own instruction files still apply, as each harness reads them:
   settings apply. It reads the project's `CLAUDE.md` and `CLAUDE.local.md`, and those in the directories above the
   worktree, your workspace's included.
 - **Codex:** your MCP servers and the project's are disabled; rules, hooks, apps, plugins and skills are off. It reads
-  the project's `AGENTS.md`, and your global `~/.codex/AGENTS.md` still loads. A server whose name has a dot is not
-  disabled, nor are your servers when `codex mcp list` fails (sous says so on stderr). Codex records each workspace it
-  runs in as trusted in your `~/.codex/config.toml`.
+  the project's `AGENTS.md`, and your global `~/.codex/AGENTS.md` still loads. A server whose name has a character
+  other than letters, digits, `_` and `-` (a dot, a space) is not disabled, nor are your servers when `codex mcp list`
+  fails (sous says so on stderr). Codex records each workspace it runs in as trusted in your `~/.codex/config.toml`.
 - **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`,
   which sous passes to it.
 - **Droid:** your MCP servers and the project's are disabled, hooks are off, and your skills (yours and your plugins')

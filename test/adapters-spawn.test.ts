@@ -89,11 +89,15 @@ test('workers load no MCP server but sous\'s and none of the person\'s own instr
   const bin = tempDir()
   const rec = join(bin, 'rec.jsonl')
   // Stand-ins that record their arguments and the identity in their environment; a Codex stand-in also lists the
-  // user's MCP servers, as `codex mcp list --json` does.
+  // user's MCP servers, as `codex mcp list --json` does, two of them with names no override can address.
   const script = `#!${process.execPath}
 const { appendFileSync } = require('node:fs')
 const argv = process.argv.slice(2)
-if (argv[0] === 'mcp') { console.log(JSON.stringify([{ name: 'comitia' }, { name: 'docs' }])); process.exit(0) }
+if (argv[0] === 'mcp') {
+  appendFileSync(${JSON.stringify(join(bin, 'listed'))}, 'listed\\n')
+  console.log(JSON.stringify([{ name: 'comitia' }, { name: 'my server' }, { name: 'docs' }, { name: 'a.b' }]))
+  process.exit(0)
+}
 appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path').basename(process.argv[1]), argv, node: process.env.SOUS_NODE ?? null }) + '\\n')
 `
   for (const name of ['claude', 'codex', 'pi', 'droid']) writeFileSync(join(bin, name), script, { mode: 0o755 })
@@ -114,6 +118,19 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
   try {
     const m = await import('../src/adapters/index.ts')
     const [claude, codex, pi, droid] = (['claude', 'codex', 'pi', 'droid'] as const).map(m.getAdapter)
+    // As at run start: the servers are listed once, and the names that cannot be disabled are reported.
+    const said: unknown[] = []
+    const error = console.error
+    console.error = (...args: unknown[]) => said.push(...args)
+    try {
+      await m.listCodexServers()
+    } finally {
+      console.error = error
+    }
+    assert.deepEqual(said, [
+      'sous: cannot disable Codex\'s MCP server "my server"; Codex workers may load it',
+      'sous: cannot disable Codex\'s MCP server "a.b"; Codex workers may load it',
+    ])
     const cwd = tempDir()
     writeFileSync(join(cwd, 'AGENTS.md'), '# Project rules\n')
     write(join(cwd, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp', args: [] } } }))
@@ -134,6 +151,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
       await turn.exit
       await until(() => readFileSync(rec, 'utf8').trim().split('\n').length > i)
     }
+    assert.equal(readFileSync(join(bin, 'listed'), 'utf8'), 'listed\n', 'no turn lists the servers again')
     // The turns run at once, so their records come in any order.
     const recs = readFileSync(rec, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
     const of = (cmd: string, node: string | null) => recs.find((r) => r.cmd === cmd && r.node === node)

@@ -225,17 +225,18 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   | Harness | MCP | The person's own setup |
   |---|---|---|
   | Claude | `--strict-mcp-config`, `--mcp-config` for sous's server | `--setting-sources project`: no user settings (so no user default model, `env`, permission rules or hooks: guardrails such as a hook that blocks `git push` do not apply), CLAUDE.md, skills or plugins. **Claude still reads `CLAUDE.md` and `CLAUDE.local.md` in the directories above the worktree**, the workspace's own included, since worktrees live in `<workspace>/.sous/` |
-  | Codex | the person's servers disabled by name (`codex mcp list --json`, once per process; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key; a name outside `A-Za-z0-9_-` is reported on stderr and not disabled) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
+  | Codex | the person's servers disabled by name (`codex mcp list --json`, listed once without blocking when `sous run` or `sous resume` starts, not on a turn; `-c mcp_servers=…` merges); each server the worktree's `.codex/config.toml` names (as a table, a quoted table, a `[mcp_servers]` entry or a dotted key) replaced by a whole disabled server (Codex reads its configuration once without the project's file, before its first `exec` in a workspace records the workspace as trusted in `~/.codex/config.toml`, and once with it, so a bare `enabled=false` is invalid in the first read and the listing may predate the trust); sous's added | `--ignore-rules` and hooks off (the project's rules and hooks too), apps, plugins and the skills section off; **the global `~/.codex/AGENTS.md` still loads**, since leaving it out means moving `CODEX_HOME`, which would put the login at risk |
   | Pi | `--no-mcp` | `--no-skills`, `--no-prompt-templates`, `--no-context-files`, with the worktree's own `AGENTS.md` and `CLAUDE.md` appended (none in a folder-mode node's folder) |
   | Droid | a runtime settings file (`--settings`, merged for the process) adds sous's server and replaces every other server named in `~/.factory/mcp.json` and the worktree's `.factory/mcp.json` and `.mcp.json` with a disabled stub, so none of their configuration is copied | in the same file, hooks off (`hooks.hooksDisabled`, the project's too) and, by name in `disabledSkills`, the skills in `~/.factory/skills`, `~/.agents/skills` and the person's installed plugins; `--disable-builtin-skills`. Droid reads the worktree's own `AGENTS.md`, not files above the git root. **The person's custom droids (subagents) and any MCP servers or droids their plugins bring still load** |
 
   A project skill named like one of the person's is disabled too. sous's MCP server refuses an argument a tool does not
   take (Claude once called `receive` with `{"seconds": "60"}` and read the immediate "No messages." as a minute's wait),
   or one of the wrong type (an object `body` is not sent as text). If Codex's servers cannot be listed, sous says so on
-  stderr and Codex workers may load them; a server whose name has
-  a dot cannot be disabled this way. So the channels a worker is offered all go through the run's log. A worker still has a
-  shell and the person's files and network, so this keeps honest workers inside sous rather than preventing a
-  determined one from reaching another service; that needs sandboxed workers.
+  stderr and Codex workers may load them; a Codex server, the person's or the project's, whose name is outside
+  `A-Za-z0-9_-` (a dot, a space) cannot be named in an override, so sous says so on stderr and does not disable it.
+  So the channels a worker is offered all go through the run's log. A worker still has a shell and the person's files
+  and network, so this keeps honest workers inside sous rather than preventing a determined one from reaching another
+  service; that needs sandboxed workers.
 
 ## Leads
 

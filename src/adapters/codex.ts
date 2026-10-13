@@ -1,7 +1,7 @@
 // Codex: `codex exec --json`. The structured result is the last `agent_message`, constrained by
 // `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
 
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
@@ -21,19 +21,45 @@ const STRICT_SCHEMA = {
   ),
 }
 
+/** A name an override can address (`mcp_servers.<name>…`): others cannot be disabled, and some would not parse. */
+const OVERRIDABLE = /^[A-Za-z0-9_-]+$/
+
+/** The servers in `codex mcp list --json` output that an override can disable; each other one, or a listing that failed,
+ * is said on stderr. */
+function serversIn(stdout: string, err?: Error): string[] {
+  let names: string[]
+  try {
+    const list: unknown = JSON.parse(stdout)
+    if (!Array.isArray(list)) throw new Error('not a list')
+    names = list.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
+  } catch (e) {
+    console.error(`sous: cannot list Codex's MCP servers (${(err ?? (e as Error)).message}); Codex workers may load them`)
+    return []
+  }
+  return names.filter((name) => {
+    if (OVERRIDABLE.test(name)) return true
+    console.error(`sous: cannot disable Codex's MCP server ${JSON.stringify(name)}; Codex workers may load it`)
+    return false
+  })
+}
+
+const LIST = ['mcp', 'list', '--json']
 let configured: string[] | undefined
-/** The MCP servers the user's Codex configuration loads, listed once per process. When they cannot be listed, Codex
- * workers may load them: that is said once on stderr. */
+
+/** List the MCP servers the user's Codex configuration loads, once per process and without blocking: `sous run` and
+ * `sous resume` do it at run start, so no turn waits for it. */
+export async function listCodexServers(): Promise<void> {
+  if (configured) return
+  const listed = await new Promise<string[]>((resolve) =>
+    execFile('codex', LIST, { encoding: 'utf8', timeout: 15_000 }, (err, stdout) => resolve(serversIn(stdout, err ?? undefined))))
+  configured ??= listed
+}
+
+/** The servers `listCodexServers` found; without it (the adapter used on its own), the first turn lists them. */
 function configuredServers(): string[] {
   if (!configured) {
-    try {
-      const list: unknown = JSON.parse(spawnSync('codex', ['mcp', 'list', '--json'], { encoding: 'utf8', timeout: 15_000 }).stdout)
-      if (!Array.isArray(list)) throw new Error('not a list')
-      configured = list.map((s) => s?.name).filter((n): n is string => typeof n === 'string')
-    } catch (err) {
-      console.error(`sous: cannot list Codex's MCP servers (${(err as Error).message}); Codex workers may load them`)
-      configured = []
-    }
+    const r = spawnSync('codex', LIST, { encoding: 'utf8', timeout: 15_000 })
+    configured = serversIn(r.stdout ?? '', r.error)
   }
   return configured
 }
@@ -74,7 +100,7 @@ function projectServers(cwd: string): Map<string, boolean> {
     }
   }
   for (const name of servers.keys()) {
-    if (/^[A-Za-z0-9_-]+$/.test(name)) continue
+    if (OVERRIDABLE.test(name)) continue
     console.error(`sous: cannot disable Codex's MCP server ${JSON.stringify(name)} of ${file}; Codex workers may load it`)
     servers.delete(name)
   }
@@ -83,7 +109,7 @@ function projectServers(cwd: string): Map<string, boolean> {
 
 /** Config overrides that disable every MCP server the user or the project configured, and Codex's apps and plugins (which bring tools
  * of their own), and add sous's server for a worker of the tree: Codex merges `-c mcp_servers=…` into its
- * configuration rather than replacing it. A server whose name has a dot cannot be named in an override. */
+ * configuration rather than replacing it. */
 function mcpConfig(spec: TurnSpec): string[] {
   const q = (value: string) => JSON.stringify(value) // a TOML basic string
   const server = sousServer(spec)
