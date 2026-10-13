@@ -6,9 +6,10 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { getAdapter } from '../src/adapters/index.ts'
 import type { HarnessName, ParsedTurn } from '../src/types.ts'
+import { recording } from './conformance/harnesses.ts'
 
-const fixture = (harness: HarnessName) =>
-  readFileSync(new URL(`fixtures/${harness}/read-file.jsonl`, import.meta.url), 'utf8')
+// The conformance recordings (`SOUS_RECORD=1 npm run certify` regenerates them), so these tests follow the real CLIs.
+const fixture = (harness: HarnessName) => recording(harness, 'read-file')
 
 /** Every tool call has exactly one result with its ID, after it. */
 function assertPaired(turn: ParsedTurn) {
@@ -42,20 +43,20 @@ function truncated(raw: string, marker: string): string {
 
 test('claude: parses a recorded stream-json turn', () => {
   const turn = getAdapter('claude').parse(fixture('claude'))
-  assert.equal(turn.sessionId, '4b58326a-25e8-41c4-8480-ee2d79ef5369')
+  assert.equal(turn.sessionId, 'c1c852f3-980d-47f7-86d1-9e8904e7bb80')
   assert.equal(turn.model, 'claude-haiku-5-5')
   assert.equal(turn.ended, true)
   assert.deepEqual(turn.result, {
     status: 'done',
-    summary: 'I read note.txt. The secret fruit it names is mango ("The secret fruit is mango.").',
+    summary: 'note.txt names the fruit mango. The file reads: "The secret fruit is mango."',
   })
-  // input_tokens 8 + cache writes 30614 + cache reads 60905.
+  // input_tokens 8 + cache writes 6712 + cache reads 46131.
   assert.deepEqual(turn.usage, {
-    inputTokens: 91527,
-    outputTokens: 262,
-    cachedTokens: 60905,
-    cacheWriteTokens: 30614,
-    costUsd: 0.006863650000000001,
+    inputTokens: 52851,
+    outputTokens: 213,
+    cachedTokens: 46131,
+    cacheWriteTokens: 6712,
+    costUsd: 0.0019110100000000003,
   })
   assert.match((readCall(turn, 'Read').arguments as { file_path: string }).file_path, /\/note\.txt$/)
   assertPaired(turn)
@@ -70,11 +71,11 @@ test('claude: parses a recorded stream-json turn', () => {
 
 test('codex: parses a recorded --json turn', () => {
   const turn = getAdapter('codex').parse(fixture('codex'))
-  assert.equal(turn.sessionId, '01a129e0-7f63-7ed0-a34a-343ac9a8f30a')
+  assert.equal(turn.sessionId, '01a12eb0-4a58-7d93-9bca-bddd673facc0')
   assert.equal(turn.ended, true)
   // Codex's strict schema sends absent optional fields as null; they are dropped.
   assert.deepEqual(turn.result, { status: 'done', summary: 'The fruit is mango.' })
-  assert.deepEqual(turn.usage, { inputTokens: 31117, outputTokens: 83, cachedTokens: 15360, cacheWriteTokens: 0 })
+  assert.deepEqual(turn.usage, { inputTokens: 25793, outputTokens: 82, cachedTokens: 12672, cacheWriteTokens: 0 })
   assert.deepEqual(readCall(turn, 'shell').arguments, { command: "/bin/bash -lc 'cat note.txt'" })
   assertPaired(turn)
   assert.deepEqual(turn.items.map((item) => item.kind), ['message', 'tool_call', 'tool_result', 'message'])
@@ -82,31 +83,30 @@ test('codex: parses a recorded --json turn', () => {
 
 test('pi: parses a recorded --mode json turn', () => {
   const turn = getAdapter('pi').parse(fixture('pi'))
-  assert.equal(turn.sessionId, '7a69514d-8215-42c1-90b8-90732a88f704')
+  assert.equal(turn.sessionId, '2bf541e9-9fc1-4ade-84ca-2b8e026ec867')
   assert.equal(turn.model, 'glm-5.2')
   assert.equal(turn.ended, true)
   assert.deepEqual(turn.result, {
     status: 'done',
-    summary: 'The file note.txt contains the message: "The secret fruit is mango." The fruit named is a mango.',
+    summary: 'Read note.txt; it names the fruit mango.',
   })
-  // Two model calls: input 806 + cache reads 50, then 32 + 855. The provider reports no cost.
-  assert.deepEqual(turn.usage, { inputTokens: 1743, outputTokens: 105, cachedTokens: 905, cacheWriteTokens: 0 })
+  // Two model calls, input and cache reads summed. The provider reports no cost.
+  assert.deepEqual(turn.usage, { inputTokens: 3014, outputTokens: 53, cachedTokens: 1542, cacheWriteTokens: 0 })
   assert.deepEqual(readCall(turn, 'read').arguments, { path: 'note.txt' })
   assertPaired(turn)
   assert.deepEqual(turn.items.map((item) => item.kind), ['message', 'tool_call', 'tool_result', 'message'])
   const [thought, , , final] = turn.items
   assert.ok(thought?.kind === 'message' && final?.kind === 'message')
-  assert.equal(thought.reasoning, 'Let me read the note.txt file first.')
+  assert.equal(thought.reasoning, 'Let me read the file.')
   assert.match(final.text, /```json/)
 })
 
 test('droid: parses a recorded stream-json turn', () => {
   const turn = getAdapter('droid').parse(fixture('droid'))
-  assert.equal(turn.sessionId, 'bca2cfbb-f912-45c7-b710-3b85f6c7393c')
+  assert.equal(turn.sessionId, 'b31ef143-a1e1-47ab-8090-8112d2b1a6a0')
   assert.equal(turn.ended, true)
-  assert.deepEqual(turn.result, { status: 'done', summary: 'Read note.txt; it names mango as the secret fruit.' })
-  // input_tokens 432 + cache reads 13184.
-  assert.deepEqual(turn.usage, { inputTokens: 13616, outputTokens: 101, cachedTokens: 13184, cacheWriteTokens: 0 })
+  assert.deepEqual(turn.result, { status: 'done', summary: 'Read note.txt; it names mango as the fruit.' })
+  assert.deepEqual(turn.usage, { inputTokens: 13692, outputTokens: 69, cachedTokens: 6720, cacheWriteTokens: 0 })
   assert.match((readCall(turn, 'Read').arguments as { file_path: string }).file_path, /\/note\.txt$/)
   assertPaired(turn)
   assert.deepEqual(turn.items.map((item) => item.kind), ['tool_call', 'tool_result', 'message'])

@@ -30,8 +30,8 @@ No sandbox (workers run as the user's own CLIs, in a git worktree or their own f
 no remote pushes or PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only
 reads runs for now; steering a run from it is #60.
 
-Related projects: **Taskweave** (`~/workspace/taskweave`) is the heavy, durable, evidence-oriented
-product; sous shares no code with it. **Orchy** (`~/workspace/orchy`) runs declared, fixed flows;
+Related projects: **Taskweave** is the heavy, durable, evidence-oriented
+product; sous shares no code with it. **Orchy** runs declared, fixed flows;
 sous focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
 engine can be tested without a lead.
 
@@ -123,7 +123,7 @@ their parsers take the last fence that holds a result, else a bare JSON object.
 ### Lead runner
 
 Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
-[the spike](../spikes/pi-durable/RESULTS.md)). Each lead node is one durable conversation, stored with the
+a spike that killed a lead in the middle of a spawn and reopened it without spawning anything twice). Each lead node is one durable conversation, stored with the
 JSONL backend in `.sous/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
 reopened lead continues where it stopped.
 
@@ -134,11 +134,20 @@ reopened lead continues where it stopped.
   extension. Each is `replay: "safe"`, keyed by the model's tool call ID. An orchestration tool **returns the
   original result on replay**: in the spike, a different replay result made the model stop early. A read
   changes nothing, so a replayed read simply reads again.
-- **Model:** the node's `model`, else its agent's, as `provider/model`, default `ollama-cloud/deepseek-v4.1-flash`
-  (cheap; passed the spike, as did `ollama-cloud/glm-5.3` and `openai-codex/gpt-5.5`). Credentials come
-  from the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes them (a
-  refresh rotates Pi's token; an expired login is refreshed by running `pi` once). Ollama Cloud needs a
-  small provider definition, because pi-ai has none built in.
+- **Model:** the node's `model`, else its agent's, as `provider/model`, else the default: the first provider in
+  `LEAD_PROVIDERS` (`src/types.ts`) with a credential, on that provider's default model, decided with availability
+  when the run starts and printed on the `agents:` line. The providers, in that order, are Ollama Cloud
+  (`ollama-cloud/deepseek-v4.1-flash`: cheap; passed the spike, as did `ollama-cloud/glm-5.3`), Anthropic
+  (`anthropic/claude-haiku-5-5`), OpenAI (`openai/gpt-6-luna`) and the ChatGPT login (`openai-codex/gpt-5.5`, which
+  passed the spike); the first keeps its place so that nothing changes for a person who has it. The Anthropic and
+  OpenAI leads have not been run live yet. The choice is recorded in `run.created.leadModel` and kept on resume (see
+  Agents). Credentials come from the environment (`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, as pi-ai
+  reads them) or the user's Pi login in `~/.pi/agent/auth.json`, read only: sous never refreshes the login (a refresh
+  rotates Pi's token; an expired login is refreshed by running `pi` once), so an OAuth token that has expired, or will
+  within pi-ai's refresh margin, is left out, and a key in the environment is used instead; a login file that is not
+  JSON is ignored and `sous doctor` says so. A lead that cannot run says what gets a credential for its provider. An
+  Anthropic or OpenAI key in the environment also reaches Claude Code and Codex workers, which inherit it (the README
+  says so). Ollama Cloud needs a small provider definition, because pi-ai has none built in; the others are pi-ai's.
 
 Its tools:
 
@@ -386,10 +395,18 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 
 - **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined. A graph file may define
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
-- **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
-  login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
+- **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when its model's
+  provider has a credential, or, for a lead agent with no model, when any lead provider has one; such an agent runs
+  on the first with a credential, see Lead runner). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  and printed (`agents: …; not available: …`, each lead agent with the model it runs on). The model chosen for lead
+  agents that name none is recorded in `run.created.leadModel`; a resumed run resolves such leads to it, whatever
+  credentials are present then (a lead whose recorded provider lost its credential is unavailable, with the fix,
+  rather than moved to another provider). `sous doctor` runs the same
+  check without a run and prints it (each harness on `PATH` with its `--version`, not whether it is logged in; the
+  lead credentials present, never their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
+  commit, uncommitted changes, which workers do not see, and whether the workspace is the top level), and exits 0
+  when a run could start: a lead, a worker, and a commit when in git. A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
   graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
   available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
@@ -573,7 +590,9 @@ the certification model) is required by the type checker.
   supervisor's stop (no result, nothing left running, resumes); a turn killed with SIGKILL (resumes); two siblings that
   settle a name with `send` and `receive` in a real `sous run` while an MCP canary configured in every project location
   a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; and a
-  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings. Pi reads a
+  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings (with the
+  home directory scrubbed from them). Every run writes `certified.json` beside them: CLI version, model, date, tests
+  passed and failed. Pi reads a
   project's MCP servers only in projects the person trusted; Codex records trust itself (see the isolation table), and
   so each certification adds entries for its temporary workspaces to `~/.codex/config.toml`.
 - **Merging a harness requires a passing certification**, its output in the PR. Isolation from the person's own setup
@@ -586,7 +605,12 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 
 ## Harness facts (spike, 2026-10-11)
 
-`spikes/resume-after-kill.sh` stops each CLI while it runs a foreground command, with SIGTERM and with
+Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
+stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
+tree, since the facts they established are written down here and `npm run certify` supersedes the second; they remain
+on the branch `archive/site-notes-and-spikes` (at 0.1.1).
+
+The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with
 SIGKILL, then resumes the session and asks for a codeword given before the stop. All six combinations
 passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike established:
 
@@ -618,7 +642,7 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   and a final `completion` with `finalText` and `usage` (`input_tokens` excludes cache reads; cache writes were 0 in
   every run seen, so whether it excludes them too is assumed; `factory_credits` are not a price). A failed exec
   writes `error` events (one ending early repeats its assistant message as one) and exits 1 without `completion`.
-- `spikes/resume-after-kill.sh droid` passed with SIGTERM and SIGKILL. On SIGTERM Droid sees its command killed,
+- The resume-after-kill spike on Droid passed with SIGTERM and SIGKILL. On SIGTERM Droid sees its command killed,
   may start it again, and exits 0 without `completion`. Like Pi, it runs tool commands in their own process group,
   with a watcher that kills that group once Droid is gone; on SIGTERM it stops the command itself.
 - No session ID up front: every event carries `session_id`. **Resume forks.** `exec -s <id>` loads the session

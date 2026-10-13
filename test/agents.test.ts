@@ -20,7 +20,7 @@ test('the integrator pick skips an agent that runs lead, even a defined integrat
   assert.equal(integratorAgent({ agents: { integrator: { runs: 'lead' } } }, nothing), 'codex')
 })
 
-test('checkAgents finds the commands missing from PATH and the lead providers the graph names without a credential', async () => {
+test('checkAgents finds the commands missing from PATH and the lead providers, known or named by the graph, without a credential', async () => {
   const path = process.env.PATH
   process.env.PATH = fakeBin(['pi'])
   try {
@@ -28,8 +28,11 @@ test('checkAgents finds the commands missing from PATH and the lead providers th
       agents: { planner: { runs: 'lead' as const, model: 'openai-codex/gpt-5.5' }, quick: { runs: 'pi' as const } },
       nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
     }
-    const unavailable = await checkAgents(graph, async (provider) => provider === 'ollama-cloud')
-    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['openai-codex', 'other'] })
+    const unavailable = await checkAgents(graph, async (provider) => (provider === 'ollama-cloud' ? 'OLLAMA_API_KEY' : undefined))
+    assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['anthropic', 'openai', 'openai-codex', 'other'], leadModel: 'ollama-cloud/deepseek-v4.1-flash' })
+    // A resumed run keeps the model recorded for it, whatever has a credential now.
+    const resumed = await checkAgents(graph, async () => 'fake', 'openai/gpt-6-luna')
+    assert.deepEqual(resumed, { commands: ['claude', 'codex', 'droid'], leadProviders: [], leadModel: 'openai/gpt-6-luna' })
   } finally {
     process.env.PATH = path
   }
