@@ -376,7 +376,8 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when the Pi
   login has a credential for its provider). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`). A run is refused before it exists, naming the node and the agent and
+  and printed (`agents: …; not available: …`; for a graph without lead nodes only the agents its work nodes use, as no
+  lead can pick another). A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
   graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
   available, or when no default worker is. What a lead decides at runtime cannot be checked then: an unavailable
@@ -416,7 +417,10 @@ run uses **folder mode** (below), with no setting either way.
 
 In git mode every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The
 workspace must be a git repository with at least one commit; when it is not, the run fails with that reason before the
-first work or check node starts.
+first work or check node starts. The workspace is the repository's top level even when sous starts in a subdirectory
+(worktrees cover the whole repository, so workers and checks work from the root, and `.sous/` lives there for every command to find);
+`sous run` says so. Workers and checks see `HEAD` only: at run start `sous run` prints
+`workspace has N uncommitted changes; workers see HEAD only` when `git status` shows any (a warning; `.sous/` does not count).
 
 1. **Integration branch.** Before the first work or check node starts (or the first split), the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`

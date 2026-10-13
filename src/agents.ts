@@ -41,6 +41,21 @@ export function agentNames(defs: AgentDefs): string[] {
   return [...new Set([...Object.keys(BUILTIN_AGENTS), ...Object.keys(defs?.agents ?? {})])]
 }
 
+/** The agents worth listing when a run starts: all of them when a lead may pick any (a goal run, or a graph with a lead
+ * node), else those the graph's work nodes will use. */
+export function startAgents(graph: (Definitions & { nodes?: NodeSpec[] }) | undefined, unavailable: Unavailable): string[] {
+  const nodes = graph?.nodes ?? []
+  if (!nodes.length || nodes.some((n) => n.kind === 'lead')) return agentNames(graph)
+  const used = new Set(nodes.filter((n) => n.kind !== 'check' && n.kind !== 'gate').map((n) => {
+    try {
+      return agentFor(graph, n, unavailable).name
+    } catch {
+      return n.agent
+    }
+  }))
+  return agentNames(graph).filter((name) => used.has(name))
+}
+
 /** The agent a lead defines with `d`: on `d.runs`, with `d.model` or the first model the run lists for that runtime,
  * and only `d`'s instructions. The caller has checked that the runtime has a list. */
 export function defineAgent(defs: Defs, d: NewAgent): AgentSpec {

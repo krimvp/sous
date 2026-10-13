@@ -43,6 +43,17 @@ export function inWorkTree(dir: string): boolean {
   return !r.error && r.status === 0 && r.stdout.trim() === 'true'
 }
 
+/** The top level of the git work tree that holds `dir`, if there is one. */
+export function repoRoot(dir: string): string | undefined {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' })
+  return !r.error && r.status === 0 ? r.stdout.trim() : undefined
+}
+
+/** How many paths `git status` reports as changed or untracked in the work tree, not counting `.sous/`. */
+export function dirtyChanges(workspace: string): number {
+  return git(workspace, ['status', '--porcelain', '--', '.', ':(exclude).sous']).split('\n').filter(Boolean).length
+}
+
 /** The workspace must be a git repository with at least one commit. Excludes `.sous/` from git. */
 export function ensureRepo(workspace: string): void {
   if (run(workspace, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']).status !== 0) {

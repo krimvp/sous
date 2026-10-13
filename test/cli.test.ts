@@ -58,7 +58,7 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
   // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\), droid \(droid not found\)$/m)
+  assert.match(run.output(), /^agents: codex$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
   assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)

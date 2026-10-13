@@ -6,16 +6,20 @@
 sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
 sous resume [run-id] [--workspace <dir>]
 sous status [run-id] [--workspace <dir>]
+sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
 sous answer <node> "text" [--workspace <dir>]
 sous approve <node> [--workspace <dir>]
 sous cancel <node> [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
+sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
-`run-id` defaults to the latest run. `--workspace` defaults to the current directory. An argument to `run` that
+`run-id` defaults to the latest run. `--workspace` defaults to the current directory, or in a git repository to its
+top level (sous says so on `run`). A command sous does not understand prints `sous: <what is wrong>` and the usage on
+stderr, exit 2. An argument to `run` that
 names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
