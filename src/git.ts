@@ -55,6 +55,14 @@ export function dirtyChanges(workspace: string): number {
   return git(workspace, ['--no-optional-locks', 'status', '--porcelain', '--', '.', ':(exclude).sous']).split('\n').filter(Boolean).length
 }
 
+/** The repository `dir` is in, for `sous doctor`: its top level, whether it has a commit (a run needs one), and how
+ * many entries `git status` lists as changed or untracked; undefined outside a work tree. */
+export function repoState(dir: string): { top: string; commit: boolean; changes: number } | undefined {
+  const top = repoRoot(dir)
+  if (top === undefined) return undefined
+  return { top, commit: run(dir, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']).status === 0, changes: dirtyChanges(dir) }
+}
+
 /** The workspace must be a git repository with at least one commit. Excludes `.sous/` from git. */
 export function ensureRepo(workspace: string): void {
   if (run(workspace, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']).status !== 0) {

@@ -5,6 +5,13 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- Leads run on Anthropic (`anthropic/claude-haiku-5-5`) and OpenAI (`openai/gpt-6-luna`) models with `ANTHROPIC_API_KEY`
+  or `OPENAI_API_KEY`, beside Ollama Cloud and the ChatGPT login through the Pi login. A lead that names no model gets
+  the first provider with a credential (Ollama Cloud first, so nothing changes for a person who has it), printed on the
+  `agents:` line and kept on resume; a run with no lead credential is refused with what to do. The Anthropic and OpenAI
+  leads have not been run live yet, and such a key in the environment also reaches Claude Code and Codex workers.
+  `sous doctor` reports each harness on PATH with its version (not its login), the lead credentials and model, and the
+  git state, and exits 0 when a run could start (#93, #99).
 - CLI: `-h`/`--help`/`help` (also `sous <command> --help`) print the usage and `--version`/`-v` the version; a command line
   sous cannot parse prints one `sous: ...` line before the usage and exits 2; `sous runs` lists the workspace's runs;
   `sous status` shows the first line of a multi-line goal; `sous export otlp` names the URL and cause of a failed post;

@@ -1,6 +1,7 @@
-// Model access for leads: Ollama Cloud and the ChatGPT login (openai-codex), with credentials read from the
-// user's Pi login. sous never refreshes or writes them: a refresh rotates the refresh token Pi itself
-// uses. An expired login is refreshed by running `pi` once.
+// Model access for leads: Ollama Cloud, Anthropic, OpenAI and the ChatGPT login (openai-codex), with credentials
+// from the environment (OLLAMA_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY; pi-ai reads them) or from the user's Pi
+// login. sous never refreshes or writes the login: a refresh rotates the refresh token Pi itself uses. An expired
+// login is refreshed by running `pi` once.
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,16 +10,43 @@ import type { Credential, CredentialStore } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { createModels, createProvider } from '@earendil-works/pi-ai/models'
 import type { MutableModels } from '@earendil-works/pi-ai/models'
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
+import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex'
 import type { ModelRef } from '@earendil-works/pi-durable'
+import { leadCredentialFix } from '../types.ts'
 
 const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
+/** pi-ai refreshes an OAuth token with less validity left than this; sous cannot, so such a token does not count. */
+const OAUTH_MARGIN_MS = 5 * 60 * 1000
 const OLLAMA = 'ollama-cloud'
 const OLLAMA_URL = 'https://ollama.com/v1'
 
-/** The lead providers, reading credentials from the Pi login at each use. */
+/** The Pi login's credentials, read at each use. An OAuth token that has expired, or is about to, is left out: pi-ai
+ * would refresh it, which sous cannot, so an expired login is invisible and a key in the environment is used instead.
+ * A file that is not an object of credentials by provider counts as empty, and `problem` says so. */
+function login(): { credentials: Record<string, Credential>; problem?: string } {
+  if (!existsSync(AUTH_FILE)) return { credentials: {} }
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(AUTH_FILE, 'utf8'))
+  } catch {
+    return { credentials: {}, problem: `${AUTH_FILE} is not valid JSON; the Pi login is ignored (run pi to log in again)` }
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { credentials: {}, problem: `${AUTH_FILE} is not an object of credentials by provider; the Pi login is ignored (run pi to log in again)` }
+  }
+  const live = Object.entries(raw as Record<string, Credential>)
+    .filter(([, c]) => typeof c === 'object' && c !== null && (c.type !== 'oauth' || (typeof c.expires === 'number' && c.expires > Date.now() + OAUTH_MARGIN_MS)))
+  return { credentials: Object.fromEntries(live) }
+}
+
+/** What is wrong with the Pi login file, if anything; its credentials are then ignored. */
+export const loginProblem = (): string | undefined => login().problem
+
+/** The lead providers, reading credentials from the environment and the Pi login at each use. */
 export function loginModels(): MutableModels {
-  const auth = (): Record<string, Credential> => existsSync(AUTH_FILE) ? JSON.parse(readFileSync(AUTH_FILE, 'utf8')) : {}
+  const auth = () => login().credentials
   const credentials: CredentialStore = {
     async read(id) { return auth()[id] },
     async list() { return Object.entries(auth()).map(([providerId, c]) => ({ providerId, type: c.type })) },
@@ -27,6 +55,8 @@ export function loginModels(): MutableModels {
   }
   const models = createModels({ credentials })
   models.setProvider(ollamaCloud([]))
+  models.setProvider(anthropicProvider())
+  models.setProvider(openaiProvider())
   models.setProvider(openaiCodexProvider())
   return models
 }
@@ -47,10 +77,14 @@ function ollamaCloud(ids: string[]) {
   })
 }
 
-/** Whether the Pi login has a credential for lead provider `provider`. */
-export async function hasLeadCredential(provider: string): Promise<boolean> {
+/** Where lead provider `provider` has a credential, if it has one: the environment variable, or `Pi login`. Never the
+ * credential itself. */
+export async function leadCredential(provider: string): Promise<string | undefined> {
   const models = loginModels()
-  return models.getProvider(provider) !== undefined && (await models.checkAuth(provider)) !== undefined
+  if (!models.getProvider(provider)) return undefined
+  const auth = await models.checkAuth(provider).catch(() => undefined)
+  if (!auth) return undefined
+  return auth.source === undefined || auth.source === 'OAuth' || auth.source === 'stored credential' ? 'Pi login' : auth.source
 }
 
 /** Resolve `provider/model` to a model the lead can use, or throw a clear error. */
@@ -67,9 +101,7 @@ export async function resolveModel(models: MutableModels, ref: string): Promise<
     models.setProvider(ollamaCloud([...models.getModels(OLLAMA).map((m) => m.id), modelId]))
   }
   if (!models.getModel(provider, modelId)) throw new Error(`unknown lead model "${ref}"`)
-  if (!(await models.checkAuth(provider))) {
-    throw new Error(`no credential for lead provider "${provider}" in ${AUTH_FILE}: log in with \`pi\``)
-  }
+  if (!(await models.checkAuth(provider))) throw new Error(`no credential for lead provider "${provider}": ${leadCredentialFix(provider)}`)
   return { provider, modelId }
 }
 

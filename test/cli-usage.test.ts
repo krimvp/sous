@@ -32,7 +32,7 @@ test('--help, -h, help and <command> --help print the usage and exit 0; --versio
   assert.equal(one.output.split('\n').filter((l) => l.startsWith('  sous ')).length, 1)
   assert.match(one.output, /sous export atif\|otlp/)
   const all = await ran(['--help'])
-  for (const command of ['run', 'resume', 'status', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
+  for (const command of ['run', 'resume', 'status', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'doctor', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
 
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   for (const flag of ['--version', '-v']) assert.deepEqual(await ran([flag]), { code: 0, output: `${version}\n` })
@@ -51,6 +51,7 @@ test('a command that was not understood prints one diagnosis line before the usa
     [['ui', 'extra'], 'ui takes no arguments'],
     [['status', 'a', 'b'], 'status takes at most one argument: a run id'],
     [['runs', 'a'], 'runs takes no arguments'],
+    [['doctor', 'a'], 'doctor takes no arguments'],
     [['answer', 'lead'], 'answer takes two arguments: a node and the answer'],
     [['approve'], 'approve takes one argument: a node'],
     [['status', '--watch'], "unknown option '--watch'"],
@@ -196,7 +197,7 @@ test('a graph run lists only the agents its work nodes use; a goal run lists eve
 
   const goal = sous(['run', complete('Anything.')], workspace, sessions, fakeBin(['claude']))
   assert.equal(await goal.exit, 0, goal.output())
-  assert.match(goal.output(), /^agents: claude, lead; not available: codex \(codex not found\), pi \(pi not found\), droid \(droid not found\)$/m)
+  assert.match(goal.output(), /^agents: claude, lead \(ollama-cloud\/deepseek-v4\.1-flash\); not available: codex \(codex not found\), pi \(pi not found\), droid \(droid not found\)$/m)
 })
 
 test('a graph that can merge also lists the agent that resolves conflicts, so a missing one shows', async () => {
