@@ -39,6 +39,12 @@ Every harness passes the same conformance suite, and a new one must pass it befo
 Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Certifying Codex adds an entry for each
 temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
 
+Every certification run writes `test/fixtures/conformance/<harness>/certified.json`: the output of `<cli> --version`,
+the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. The next
+`npm run certify` for a harness creates its file (none is committed yet, so until then the Certified column above
+is the only record). `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
+certified ones, so you can see when a harness has moved on and needs certifying again.
+
 ## What sous keeps out of workers
 
 Workers talk to the run's other agents only through sous, and get as little of your own setup as each harness allows.
