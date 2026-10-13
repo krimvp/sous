@@ -249,7 +249,8 @@ export interface LangfuseConfig {
 }
 
 export async function postOtlp(payload: object, { host, publicKey, secretKey }: LangfuseConfig): Promise<void> {
-  const res = await fetch(`${host.replace(/\/+$/, '')}/api/public/otel/v1/traces`, {
+  const url = `${host.replace(/\/+$/, '')}/api/public/otel/v1/traces`
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -257,6 +258,9 @@ export async function postOtlp(payload: object, { host, publicKey, secretKey }: 
       'x-langfuse-ingestion-version': '4',
     },
     body: JSON.stringify(payload),
+  }).catch((err: Error) => {
+    // undici's message is only "fetch failed"; the reason is the cause.
+    throw new Error(`cannot reach ${url}: ${(err.cause as Error | undefined)?.message ?? err.message}`)
   })
   if (!res.ok) throw new Error(`Langfuse OTLP export failed: ${res.status} ${res.statusText}: ${await res.text()}`)
 }

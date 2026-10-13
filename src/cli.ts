@@ -2,12 +2,12 @@
 // sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
 // running run.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentNames, agentSpec, checkAgents, defaultLeadModel, defines, unusableNodeAgents, whyUnavailable } from './agents.ts'
-import { inWorkTree } from './git.ts'
+import { agentSpec, checkAgents, defaultLeadModel, defines, startAgents, unusableNodeAgents, whyUnavailable } from './agents.ts'
+import { dirtyChanges, inWorkTree, repoRoot } from './git.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { doctor } from './doctor.ts'
@@ -27,14 +27,30 @@ const USAGE = `usage:
   sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
   sous resume [run-id] [--workspace <dir>]
   sous status [run-id] [--workspace <dir>]
+  sous runs [--workspace <dir>]  (the workspace's runs, newest first)
   sous answer <node> "text" [--workspace <dir>]
   sous approve <node> [--workspace <dir>]
   sous cancel <node> [--workspace <dir>]
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]
+  sous --help | --version        (sous <command> --help shows one command)
   sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)
   sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials, git state)`
+
+/** The usage lines of `command`, or all of them when it names none. */
+function usageOf(command?: string): string {
+  const own = USAGE.split('\n').filter((line) => line.startsWith(`  sous ${command} `))
+  return command !== undefined && own.length ? `usage:\n${own.join('\n')}` : USAGE
+}
+
+/** One line saying what was wrong, then the usage, on stderr; the exit code for a command that was not understood. */
+function usageError(problem?: string): number {
+  console.error(problem === undefined ? USAGE : `sous: ${problem}\n${USAGE}`)
+  return 2
+}
+
+const version = () => (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
 
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
@@ -51,11 +67,14 @@ export interface CliDeps {
 export async function main(argv: string[], deps: CliDeps): Promise<number> {
   // A worker's message is text, not options: `sous send b "--force is required now"`.
   if (argv[0] === 'send' || argv[0] === 'receive') {
-    const seconds = argv[0] === 'receive' && argv[1] !== undefined && /^\d+(\.\d+)?$/.test(argv[1]) ? Number(argv[1]) : argv[1] === undefined ? 0 : NaN
-    if (argv[0] === 'send' ? argv.length !== 3 : argv.length > 2 || !(seconds >= 0 && seconds <= MAX_WAIT_SECONDS)) {
-      console.error(USAGE)
-      return 2
+    if (argv.length === 2 && (argv[1] === '--help' || argv[1] === '-h')) {
+      console.log(usageOf(argv[0]))
+      return 0
     }
+    const seconds = argv[0] === 'receive' && argv[1] !== undefined && /^\d+(\.\d+)?$/.test(argv[1]) ? Number(argv[1]) : argv[1] === undefined ? 0 : NaN
+    if (argv[0] === 'send' && argv.length !== 3) return usageError('send takes a recipient and a text')
+    if (argv[0] === 'receive' && argv.length > 2) return usageError('receive takes at most one argument: the seconds to wait')
+    if (argv[0] === 'receive' && !(seconds >= 0 && seconds <= MAX_WAIT_SECONDS)) return usageError(`receive waits from 0 to ${MAX_WAIT_SECONDS} seconds`)
     const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
     if (!runDir || !node || !turn) {
       console.error(`sous: sous ${argv[0]} is for a worker inside a run: SOUS_RUN_DIR, SOUS_NODE and SOUS_TURN are not set`)
@@ -69,49 +88,66 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
       workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
-      port: { type: 'string' },
+      port: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
     } })
   } catch (err) {
-    console.error(`${(err as Error).message}\n${USAGE}`)
-    return 2
+    // Node's message goes on to explain `--`; keep the first sentence.
+    const [problem] = (err as Error).message.split('. ')
+    return usageError(problem[0].toLowerCase() + problem.slice(1))
   }
   const [command, ...args] = parsed.positionals
-  const workspace = resolve(parsed.values.workspace ?? process.cwd())
+  if (parsed.values.version) {
+    console.log(version())
+    return 0
+  }
+  if (parsed.values.help || command === 'help') {
+    console.log(usageOf(command === 'help' ? args[0] : command))
+    return 0
+  }
+  // An explicit --workspace is used as given; the default, the current directory, becomes the repository's top level.
+  const { workspace, from } = parsed.values.workspace === undefined ? repoWorkspace(process.cwd()) : { workspace: resolve(parsed.values.workspace), from: undefined }
   try {
     switch (command) {
       case 'run': {
-        if (args.length !== 1) break
+        if (args.length !== 1) return usageError('run takes one argument')
         const raw = parsed.values['max-depth']
         const maxDepth = raw === undefined ? undefined : Number(raw)
         if (maxDepth !== undefined && !(Number.isInteger(maxDepth) && maxDepth >= 1 && maxDepth <= 8)) {
-          console.error('sous: --max-depth must be a whole number from 1 to 8')
-          return 2
+          return usageError('--max-depth must be a whole number from 1 to 8')
         }
+        announceRoot(workspace, from)
         return await run(args[0], workspace, deps, { maxDepth, agentsFile: parsed.values.agents, approveSplits: parsed.values['approve-splits'] })
       }
       case 'resume':
-        if (args.length > 1) break
+        if (args.length > 1) return usageError('resume takes at most one argument: a run id')
         return await resumeRun(workspace, deps, args[0])
       case 'status':
-        if (args.length > 1) break
+        if (args.length > 1) return usageError('status takes at most one argument: a run id')
         return status(workspace, args[0])
+      case 'runs':
+        if (args.length) return usageError('runs takes no arguments')
+        return runs(workspace)
       case 'answer':
-        if (args.length !== 2 || !args[1].trim()) break
+        if (args.length !== 2) return usageError('answer takes two arguments: a node and the answer')
+        if (!args[1].trim()) return usageError('the answer is empty')
         return sendCommand(workspace, { type: 'answer', node: args[0], text: args[1] })
       case 'approve':
       case 'cancel':
-        if (args.length !== 1) break
+        if (args.length !== 1) return usageError(`${command} takes one argument: a node`)
         return sendCommand(workspace, { type: command, node: args[0] })
       case 'doctor':
-        if (args.length) break
+        if (args.length) return usageError('doctor takes no arguments')
+        announceRoot(workspace, from)
         return await doctor(workspace, deps.leadCredential, deps.loginProblem)
       case 'export':
-        if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
+        if (args.length < 1 || args.length > 2) return usageError('export takes an exporter (atif or otlp) and optionally a run id')
+        if (!['atif', 'otlp'].includes(args[0])) return usageError(`unknown exporter ${args[0]}`)
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
       case 'ui': {
-        const port = Number(parsed.values.port ?? 0)
-        if (args.length || !(Number.isInteger(port) && port >= 0 && port < 65536)) break
-        const ui = await startUi(workspace, (h, raw) => deps.getAdapter(h).parse(raw), port)
+        const port = parsed.values.port ?? '0'
+        if (args.length) return usageError('ui takes no arguments')
+        if (!/^\d+$/.test(port) || Number(port) > 65535) return usageError('--port must be a number from 0 to 65535')
+        const ui = await startUi(workspace, (h, raw) => deps.getAdapter(h).parse(raw), Number(port))
         console.log(`sous ui: ${ui.url}\n(Ctrl-C stops it)`)
         // Serves until the process is stopped.
         return await new Promise<number>(() => {})
@@ -121,8 +157,20 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
     console.error(`sous: ${(err as Error).message}`)
     return 1
   }
-  console.error(USAGE)
-  return 2
+  return usageError(command === undefined ? undefined : `unknown command ${command}`)
+}
+
+/** In a git repository the workspace is its top level, wherever sous was started: worktrees cover the whole repository,
+ * so workers and checks work from the root, and `.sous/` must be there too, or `sous status` from another folder would
+ * not find the run. `from` is the folder it moved from. */
+function repoWorkspace(dir: string): { workspace: string; from?: string } {
+  const root = existsSync(dir) ? repoRoot(dir) : undefined
+  return root === undefined || realpathSync(root) === realpathSync(dir) ? { workspace: dir } : { workspace: root, from: dir }
+}
+
+/** Say that the workspace is not where sous was started. */
+function announceRoot(workspace: string, from?: string): void {
+  if (from) console.log(`workspace is the git repository root ${workspace}, not ${from}: runs and .sous/ live there`)
 }
 
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
@@ -156,6 +204,10 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   // Decided once: a resumed run keeps the mode it was created with.
   const mode = inWorkTree(workspace) ? 'git' : 'folder'
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
+  else {
+    const changes = dirtyChanges(workspace)
+    if (changes) console.log(`workspace has ${changes} uncommitted change${changes === 1 ? '' : 's'}; workers see HEAD only`)
+  }
   const printEvent = printer()
   const log = openLog(runDir, printEvent)
   log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}) })
@@ -222,7 +274,7 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
     const spec = agentSpec(graph, name)!
     return spec.runs === 'lead' ? `${name} (${spec.model ?? defaultLeadModel(unavailable)})` : name
   }
-  const names = agentNames(graph)
+  const names = startAgents(graph, unavailable)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
   // Here rather than on a Codex worker's first turn, where it would hold up the supervisor.
@@ -326,7 +378,7 @@ function status(workspace: string, runId?: string): number {
   const events = readEvents(runDir)
   const state = fold(events)
   const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
-  console.log(`run ${id} ${live}: ${state.goal}`)
+  console.log(`run ${id} ${live}: ${firstLine(state.goal)}`)
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
   const result = resultOf(state, runDir)
   if (result) console.log(`  result: ${result}`)
@@ -353,6 +405,29 @@ function status(workspace: string, runId?: string): number {
   for (const n of children(undefined)) print(n, 1)
   printPending(state)
   if (live === 'stopped') console.log(`continue it with: sous resume ${id}`)
+  return 0
+}
+
+/** The workspace's runs, newest first. */
+function runs(workspace: string): number {
+  const { runsDir, ids } = listRuns(workspace)
+  if (!ids.length) console.log(`no runs in ${runsDir}`)
+  for (const id of ids.toReversed()) {
+    const runDir = join(runsDir, id)
+    try {
+      const events = readEvents(runDir)
+      // The log file exists before its first event is written.
+      if (events[0]?.type !== 'run.created') {
+        console.log(`${id}  starting`)
+        continue
+      }
+      const state = fold(events)
+      const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
+      console.log(`${id}  ${live.padEnd(9)}  ${events[0].at.slice(0, 19)}Z  ${firstLine(state.goal)}`)
+    } catch (err) {
+      console.log(`${id}  unreadable  ${oneLine((err as Error).message)}`)
+    }
+  }
   return 0
 }
 
@@ -407,6 +482,12 @@ function duration(ms: number): string {
 
 function lastLine(output: string): string {
   return output.trimEnd().split('\n').at(-1) ?? ''
+}
+
+/** The first line of a multi-line text, marked as cut when more follows. */
+function firstLine(text: string): string {
+  const [first, ...rest] = text.trim().split('\n')
+  return oneLine(rest.length ? `${first}...` : first)
 }
 
 function oneLine(text: string): string {

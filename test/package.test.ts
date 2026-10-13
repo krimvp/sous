@@ -24,6 +24,7 @@ test('the package runs from node_modules, and its MCP server and send command ar
 
   const usage = spawnSync(process.execPath, [bin], { encoding: 'utf8' })
   assert.match(usage.stderr + usage.stdout, /^usage:\n {2}sous run/m)
+  assert.equal(spawnSync(process.execPath, [bin, '--version'], { encoding: 'utf8' }).stdout, `${manifest.version}\n`)
   assert.equal(readFileSync(bin, 'utf8').split('\n')[0], '#!/usr/bin/env node')
 
   const { sousServer } = await import(pathToFileURL(join(pkg, 'dist', 'adapters', 'common.js')).href)
