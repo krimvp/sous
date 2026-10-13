@@ -117,6 +117,7 @@ inherit it.
 ```bash
 npm install          # the lead runner's Pi packages and the type checker
 npm run check        # type check and tests (SOUS_LIVE=1 adds a real lead run)
+npm run test:quick   # the pure, fast test files only (about 2 s); not a substitute for check
 npm run certify      # live harness certification, costs money: SOUS_HARNESS=droid npm run certify
 npm pack             # builds dist/ (prepack) and the tarball npm publish would upload; check it before publishing
 ```
