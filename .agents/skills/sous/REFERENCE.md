@@ -19,7 +19,7 @@ sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 
 ```
 
 `run-id` defaults to the latest run. `--workspace` defaults to the current directory, or when that is inside a git
-repository to the repository's top level (`sous run` says so); a `--workspace` you give is used exactly as given. A
+repository to the repository's top level (`sous run` and `sous doctor` say so); a `--workspace` you give is used exactly as given. A
 command line sous cannot parse (unknown command or option, wrong number of arguments, a bad `--port` or `--max-depth`)
 prints `sous: <what is wrong>` and the usage on stderr and exits 2; a refusal after that (a mistyped graph file, an empty
 goal, `--agents` with a graph file, a missing run) is one `sous: ...` line and exits 1. An argument to `run` that

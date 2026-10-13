@@ -69,14 +69,17 @@ test('sous doctor says when the workspace is below the top level, outside git, o
   const sub = join(workspace, 'sub')
   mkdirSync(sub)
   writeFileSync(join(sub, 'notes.md'), 'new\n')
+  // Workers see the whole repository's HEAD, so changes above the workspace count too.
+  writeFileSync(join(workspace, 'README.md'), 'edited\n')
+  writeFileSync(join(workspace, 'top.txt'), 'new\n')
   // Started there, a run uses the repository root; an explicit --workspace is taken as given.
   const moved = doctor(sub, bin, keys)
   assert.equal(moved.code, 0, moved.out + moved.err)
   assert.match(moved.out, new RegExp(`^workspace is the git repository root ${workspace}, not ${sub}: runs and .sous/ live there\n`))
-  assert.match(moved.out, new RegExp(`^workspace: ${workspace}, git repository at its top level, 1 uncommitted change \\(workers see HEAD only\\)$`, 'm'))
+  assert.match(moved.out, new RegExp(`^workspace: ${workspace}, git repository at its top level, 3 uncommitted changes \\(workers see HEAD only\\)$`, 'm'))
   const below = doctor(workspace, bin, keys, undefined, ['--workspace', sub])
   assert.equal(below.code, 0, below.out + below.err)
-  assert.match(below.out, new RegExp(`^workspace: ${sub}, inside git repository ${workspace}, not at its top level \\(--workspace is used as given: .sous/ lands here; workers and checks run at the top level\\), 1 uncommitted change \\(workers see HEAD only\\)$`, 'm'))
+  assert.match(below.out, new RegExp(`^workspace: ${sub}, inside git repository ${workspace}, not at its top level \\(--workspace is used as given: .sous/ lands here; workers and checks run at the top level\\), 3 uncommitted changes \\(workers see HEAD only\\)$`, 'm'))
   assert.doesNotMatch(below.out, /git repository root/)
   assert.match(below.out, /^codex: on PATH; --version exited 1 with nothing; login not checked$/m)
 

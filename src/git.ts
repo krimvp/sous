@@ -49,10 +49,11 @@ export function repoRoot(dir: string): string | undefined {
   return !r.error && r.status === 0 ? r.stdout.trim() : undefined
 }
 
-/** How many entries `git status` lists (changed paths and untracked files or folders), not counting `.sous/`. It takes
- * no index lock, so it cannot get in the way of the person's own git. */
+/** How many entries `git status` lists (changed paths and untracked files or folders) in the whole work tree, not only
+ * under `workspace`, as workers see the repository's HEAD; `.sous/` in the workspace does not count. It takes no index
+ * lock, so it cannot get in the way of the person's own git. */
 export function dirtyChanges(workspace: string): number {
-  return git(workspace, ['--no-optional-locks', 'status', '--porcelain', '--', '.', ':(exclude).sous']).split('\n').filter(Boolean).length
+  return git(workspace, ['--no-optional-locks', 'status', '--porcelain', '--', ':/', ':(exclude).sous']).split('\n').filter(Boolean).length
 }
 
 /** The repository `dir` is in, for `sous doctor`: its top level, whether it has a commit (a run needs one), and how
