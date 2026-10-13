@@ -268,7 +268,7 @@ test('an unknown provider or a missing credential fails the delivery with a clea
   assert.equal(res.status, 0, res.stderr)
   assert.deepEqual(JSON.parse(res.stdout), [
     'unknown lead provider "nope" in "nope/x" (known: ollama-cloud, anthropic, openai, openai-codex)',
-    'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY or log in with Pi (run pi)',
+    'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY',
   ])
 })
 
@@ -289,8 +289,8 @@ test('an API key in the environment is a lead credential for anthropic and opena
     'anthropic/claude-haiku-5-5': { credential: 'ANTHROPIC_API_KEY', model: 'ok' },
     'openai/gpt-6-luna': { credential: 'OPENAI_API_KEY', model: 'ok' },
     'anthropic/nope': { credential: 'ANTHROPIC_API_KEY', model: 'unknown lead model "anthropic/nope"' },
-    'ollama-cloud/deepseek-v4.1-flash': { credential: null, model: 'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY or log in with Pi (run pi)' },
-    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": log in with Pi (run pi) using ChatGPT' },
+    'ollama-cloud/deepseek-v4.1-flash': { credential: null, model: 'no credential for lead provider "ollama-cloud": set OLLAMA_API_KEY' },
+    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": run pi, then /login with ChatGPT' },
   })
   mkdirSync(join(home, '.pi', 'agent'), { recursive: true })
   writeFileSync(join(home, '.pi', 'agent', 'auth.json'), JSON.stringify({
@@ -301,10 +301,10 @@ test('an API key in the environment is a lead credential for anthropic and opena
   assert.deepEqual(login, {
     'anthropic/claude-haiku-5-5': { credential: 'Pi login', model: 'ok' },
     'openai-codex/gpt-5.5': { credential: 'Pi login', model: 'ok' },
-    'openai/gpt-6-luna': { credential: null, model: 'no credential for lead provider "openai": set OPENAI_API_KEY or log in with Pi (run pi)' },
+    'openai/gpt-6-luna': { credential: null, model: 'no credential for lead provider "openai": set OPENAI_API_KEY, or run pi, then /login' },
   })
-  // An expired login (or one about to expire, which pi-ai would refresh and sous cannot) does not count, so a key in
-  // the environment is used instead of it.
+  // A login with under five minutes left does not count (pi-ai would refresh it, which sous cannot), so a key in the
+  // environment is used instead of it; the login above, with an hour left, counts.
   writeFileSync(join(home, '.pi', 'agent', 'auth.json'), JSON.stringify({
     anthropic: { type: 'oauth', refresh: 'refresh-not-a-key', access: 'access-not-a-key', expires: Date.now() - 1 },
     'openai-codex': { type: 'oauth', refresh: 'refresh-not-a-key', access: 'access-not-a-key', expires: Date.now() + 60_000 },
@@ -312,7 +312,7 @@ test('an API key in the environment is a lead credential for anthropic and opena
   const expired = probe({ ...base, ANTHROPIC_API_KEY: 'test-not-a-key' }, ['anthropic/claude-haiku-5-5', 'openai-codex/gpt-5.5'])
   assert.deepEqual(expired, {
     'anthropic/claude-haiku-5-5': { credential: 'ANTHROPIC_API_KEY', model: 'ok' },
-    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": log in with Pi (run pi) using ChatGPT' },
+    'openai-codex/gpt-5.5': { credential: null, model: 'no credential for lead provider "openai-codex": run pi, then /login with ChatGPT' },
   })
 })
 

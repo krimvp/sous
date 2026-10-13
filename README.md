@@ -24,7 +24,7 @@ task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Re
 
 ```bash
 npm install -g @krimvp/sous    # Node 22.19+; from a checkout, `node src/cli.ts` works the same as `sous`
-pi                             # the lead's model access: log in with Pi once, or export OLLAMA_API_KEY=… instead
+export OLLAMA_API_KEY=…        # the lead's model access: an Ollama Cloud key, or a Pi login (below) for Anthropic or ChatGPT
 ```
 
 ```bash
@@ -55,11 +55,14 @@ interrupted more than 3 times fails.
 Workers run on a harness: Claude Code, Codex, Pi or Factory Droid, each certified by the same conformance suite
 ([docs/harnesses.md](docs/harnesses.md): what each needs, what sous keeps out of it, how to add one).
 
-Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, through your Pi login or `OLLAMA_API_KEY`),
-Anthropic (`anthropic/claude-haiku-5-5`, `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, `OPENAI_API_KEY`) or your
-ChatGPT subscription (`openai-codex/gpt-5.5`); any of them also through your Pi login (`~/.pi/agent/auth.json`; run
-`pi` once to log in or refresh; an expired login does not count). A lead that names no model runs on the first of
-these, in that order, that has a credential, and the run keeps that choice when resumed; the run prints it on its
+Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, with `OLLAMA_API_KEY`), Anthropic
+(`anthropic/claude-haiku-5-5`, with `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, with `OPENAI_API_KEY`) or your
+ChatGPT subscription (`openai-codex/gpt-5.5`). Anthropic, OpenAI and ChatGPT also work through your
+[Pi](https://github.com/earendil-works/pi) login (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`,
+then `/login` inside `pi`; it stores `~/.pi/agent/auth.json`, which sous reads and never refreshes: an expired login
+is refreshed by running `pi` once). Pi's login has no Ollama Cloud account: that provider needs the key. A lead that
+names no model runs on the first of these, in that order, that has a credential, and the run keeps that choice when
+resumed; the run prints it on its
 `agents:` line, as `lead (ollama-cloud/deepseek-v4.1-flash)`. A run with no credential for its lead is refused with
 what to do. Caution: an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment is also what Claude Code and Codex
 workers use (workers inherit your environment), so it moves Claude Code, and may move Codex, from your subscription
@@ -97,7 +100,7 @@ Or give it a fixed graph file:
 
 ```bash
 sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
-sous status                # latest run as a tree
+sous status                # latest run as a tree; a running turn shows its age and how long ago its output last grew
 sous runs                  # every run of the workspace, newest first: id, state, start, goal
 sous --help | --version    # the usage (also: sous <command> --help), the installed version
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
@@ -114,7 +117,10 @@ as its log grows, and lists what waits for you with the command that answers it.
 An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi`, `droid` or `lead`, with an optional
 `model` and standing `instructions` added to every brief it gets. The built-in agents `claude`, `codex`, `pi`,
 `droid` and `lead` need no definition; a node's `model` overrides its agent's. Workers run with full permissions in their
-worktree (see the design's harness facts).
+worktree (see the design's harness facts), as you. So a worker, or anything it runs, can also write the run's command
+files, where `sous answer`, `approve` and `cancel` put yours: an approval of a gate or a split, an answer or a cancel can
+be forged. Until workers are sandboxed ([#43](https://github.com/krimvp/sous/issues/43)), a gate protects only as far
+as you trust the agents you run.
 
 A lead may define a new agent for a child, `{ "name": "hr", "runs": "pi", "instructions": "…" }`, which later
 children may name, but only on a runtime the run lists `models` for, with one of those models (default: the
@@ -132,7 +138,7 @@ or `sous answer <lead> "<changes>"`. A subtree can have its own splitter: give a
 inherit it.
 
 ```bash
-npm install          # the lead runner's Pi packages and the type checker
+npm install          # the lead runner's Pi packages, the type checker, and the pre-push hook (scripts/pr-check.sh)
 npm run check        # type check and tests (SOUS_LIVE=1 adds a real lead run)
 npm run test:quick   # the pure, fast test files only (about 2 s); not a substitute for check
 npm run certify      # live harness certification, costs money: SOUS_HARNESS=droid npm run certify

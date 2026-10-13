@@ -73,7 +73,10 @@ test('two work nodes run in parallel in their own worktrees, both merge, and a c
   assert.equal(outcome, 'completed')
   const span = (node: string) => ['turn.started', 'turn.ended'].map((type) => events.find((e) => e.type === type && 'node' in e && e.node === node)!.seq)
   assert.ok(span('a')[0] < span('b')[1] && span('b')[0] < span('a')[1], 'the two turns overlap')
-  assert.match(prompts('a')[0], new RegExp(`Work in the directory ${join(runDir, 'worktrees', 'a')}\\.`))
+  assert.ok(prompts('a')[0].includes([
+    `Work in the directory ${join(runDir, 'worktrees', 'a')}, a git worktree on branch sous/r1.a; sous commits your changes there when you finish.`,
+    'Do not switch branches, commit elsewhere, stash, reset or push. Do only this task.',
+  ].join('\n')))
   assert.deepEqual(['a', 'b'].map((n) => mergeDone(events, n)?.by), ['supervisor', 'supervisor'])
   assert.equal(state.nodes.get('both')!.checks[0].output, 'a.txt\nb.txt\n')
   assert.equal(show(workspace, 'b.txt'), 'b.txt')
@@ -82,6 +85,63 @@ test('two work nodes run in parallel in their own worktrees, both merge, and a c
   // A node completes with its merge: a check that needs it starts after merge.done.
   const doneB = mergeDone(events, 'b')!.seq
   assert.ok(events.find((e) => e.type === 'check.ended' && e.node === 'both')!.seq > doneB)
+})
+
+test('a worker that switches its worktree to another branch fails its node, and nothing of it is committed or merged', async () => {
+  const { integration, outcome, events, state, runDir } = await runGraph([
+    work('stray', [{ write: { 'stray.txt': 'stray\n' }, sh: 'git switch -q -c other', result: done('wrote stray.txt') }]),
+  ])
+  assert.equal(outcome, 'failed')
+  const tree = join(runDir, 'worktrees', 'stray')
+  assert.equal(state.nodes.get('stray')!.reason,
+    `the worker left branch sous/r1.stray: its worktree ${tree} is on branch other, so its work is not committed or merged`)
+  assert.ok(!events.some((e) => e.type === 'merge.queued'))
+  assert.equal(git(tree, 'status', '--porcelain'), '?? stray.txt', 'sous committed nothing')
+  assert.equal(existsSync(join(integration, 'stray.txt')), false)
+})
+
+test('sous resume of a done worker that left its branch fails the node with that reason', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  // Node w reported done after switching its worktree to another branch; the supervisor stopped before committing.
+  const created = createIntegration(workspace, 'r1', runDir)
+  const tree = createNodeWorktree(workspace, 'r1', runDir, 'w', created.base!)
+  git(tree.path, 'switch', '-q', '-c', 'other')
+  writeFileSync(join(tree.path, 'w.txt'), 'w\n')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'w', agent: 'claude' }, by: 'graph' })
+  log.append({ type: 'worktree.created', node: 'w', branch: tree.branch, path: tree.path, base: created.base! })
+  const out = join(runDir, 'nodes', 'w', 'turn-1.jsonl')
+  log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', agent: 'claude', pid: 1, outFile: out, errFile: `${out}.err` })
+  log.append({ type: 'turn.ended', node: 'w', turn: 1, exitCode: 0, signal: null, result: done('wrote w.txt') })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  assert.equal(fold(readEvents(runDir)).nodes.get('w')!.reason,
+    `the worker left branch sous/r1.w: its worktree ${tree.path} is on branch other, so its work is not committed or merged`)
+  assert.equal(git(tree.path, 'status', '--porcelain'), '?? w.txt', 'sous committed nothing')
+})
+
+test('sous resume of a run whose integration worktree left its branch fails the run with that reason', async () => {
+  const workspace = gitWorkspace('sous-merge-')
+  const runDir = join(workspace, '.sous', 'runs', 'r1')
+  const created = createIntegration(workspace, 'r1', runDir)
+  git(created.path, 'switch', '-q', '-c', 'elsewhere')
+  mkdirSync(join(runDir, 'commands'), { recursive: true })
+  const log = openLog(runDir)
+  log.append({ type: 'run.created', goal: 'g', workspace })
+  log.append({ type: 'integration.created', branch: created.branch, path: created.path, base: created.base! })
+  log.append({ type: 'node.added', node: work('w', [{ write: { 'w.txt': 'w\n' }, result: done('wrote w.txt') }]), by: 'graph' })
+  log.close()
+  const resumed = sous(['resume'], workspace, join(workspace, 'sessions'))
+  assert.equal(await resumed.exit, 1, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.reason, `integration worktree ${created.path} is on branch elsewhere, not sous/r1`)
+  assert.equal(state.nodes.get('w')!.turns.length, 0)
+  assert.equal(git(workspace, 'rev-parse', 'sous/r1'), created.base)
 })
 
 test('a node with no changes merges by nothing', async () => {

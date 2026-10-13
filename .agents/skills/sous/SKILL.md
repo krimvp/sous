@@ -14,28 +14,38 @@ M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill 
                                          # three levels above this skill's folder)
 ```
 
+## Before the first run
+
+- Run `$M doctor` where the agents will work: each harness CLI on PATH with its version (not whether it is logged
+  in), the lead's credentials and model, the git state; it exits 0 when a run could start, else says what is missing.
+- The lead needs a model credential of its own (a worker CLI's login does not count). Prefer `OLLAMA_API_KEY` or a Pi
+  login (install Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, then run `pi`, then
+  `/login`; it covers Anthropic and ChatGPT, not Ollama Cloud). `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` also work (not
+  yet run live), but workers inherit the environment, so such a key moves Claude Code, and may move Codex, from the
+  user's subscription to API billing: ask the user first. A lead that names no model takes the first provider with a
+  credential, in a fixed order (Ollama Cloud, Anthropic, OpenAI, ChatGPT; `$M doctor` prints the choice), and keeps it
+  when resumed. With none, the run is refused with what to do.
+- In a git repository (it needs a commit) workers see the last commit (`HEAD`) only: commit what they need first (the
+  run prints `workspace has N uncommitted changes; workers see HEAD only`). From a subdirectory the workspace is the
+  repository root, which the run prints.
+- A run starts by printing `agents: claude, lead (ollama-cloud/deepseek-v4.1-flash); not available: codex (codex not
+  found), …`: the agents it can use (a lead with its model), then those it cannot, with why (`<cli> not found` means
+  not on PATH; `no lead provider has a credential`, `no credential for <provider>`). Leads are offered only the
+  available ones; one whose CLI is not logged in still fails its turns.
+
 ## Quick start
 
-Run from the directory the agents should work in: a git repository (with at least one commit) for code, or any
-folder (folder mode, automatic when it is not in a git repository):
+Run from the directory the agents should work in: a git repository for code, or any folder (folder mode, automatic
+when it is not in a git repository):
 
 ```bash
 $M run "Add a --precision N option to the CLI, with tests and a check that node --test passes"
 ```
 
-A lead splits the goal into workers, checks and sub-leads. It runs on the first provider with a credential, in this
-order: `ollama-cloud/deepseek-v4.1-flash` (a Pi login, `pi` run once, or `OLLAMA_API_KEY`), `anthropic/claude-haiku-5-5`
-(`ANTHROPIC_API_KEY`), `openai/gpt-6-luna` (`OPENAI_API_KEY`), `openai-codex/gpt-5.5` (a Pi ChatGPT login); each also
-through a Pi login. The run prints the choice on its `agents:` line and keeps it when resumed; a run without a lead
-credential is refused with what to do. Prefer the Pi login or `OLLAMA_API_KEY`: an `ANTHROPIC_API_KEY` or
-`OPENAI_API_KEY` in the environment is also what Claude Code and Codex workers use, so it moves Claude Code, and may
-move Codex, from the user's subscription to API billing. The
-result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
-`.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting. In folder
-mode, workers and checks run in their own folders with links `workspace/` (inputs) and `results/` (the output), so
-write checks such as `test -s results/report.md`. Workers see the last commit (`HEAD`) only, so commit what they
-need first (the run prints `workspace has N uncommitted changes` when you have not); from a subdirectory of a git
-repository the workspace is the repository root, which the run also prints.
+A lead splits the goal into workers, checks and sub-leads. The result lands on branch `sous/<run-id>` (the person's
+own branch is never touched), or in folder mode in `.sous/runs/<run-id>/output/` (the person's files are only read).
+Leads may read files before splitting. In folder mode, workers and checks run in their own folders with links
+`workspace/` (inputs) and `results/` (the output), so write checks such as `test -s results/report.md`.
 
 ## Workflow
 
@@ -50,7 +60,9 @@ repository the workspace is the repository root, which the run also prints.
 3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
    approvals, so a foreground run can block your shell).
 4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
-   `run.failed`; `$M status` prints the live tree and pending questions, `$M runs` lists the workspace's runs.
+   `run.failed`, and `turn.stalled` (a worker without output for 10 minutes: look before cancelling it, a long command
+   is silent too); `$M status` prints the live tree, each running turn's age and how long ago its output last grew, and
+   pending questions; `$M runs` lists the workspace's runs.
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
@@ -65,13 +77,14 @@ repository the workspace is the repository root, which the run also prints.
 
 ## Rules that save time
 
-- Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. The run prints
-  `agents: …; not available: …` at start; a CLI must be on PATH and logged in. A graph whose node names an
-  unavailable agent is refused before anything runs. `$M doctor` says up front whether a run could start here (each
-  harness on PATH with its version, not whether it is logged in; the lead's credentials and model; the git state) and
-  what is missing.
-- Workers run with full permissions inside their own worktree or folder. Say so if the user has not accepted that.
-- Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead.
+- Agents that exist: built-ins `claude`, `codex`, `pi`, `droid`, `lead`, plus what the run defines. A graph whose node
+  names an unavailable agent is refused before anything runs.
+- Workers run as the user with full permissions inside their own worktree or folder, and can write the run's command
+  files: a worker, or anything it runs, could forge an approval, an answer or a cancel. Until workers are sandboxed,
+  gates protect only as far as the user trusts the agents. Say so if the user has not accepted that.
+- Leads nest 3 deep unless `--max-depth <n>` (1–8). At most 12 children per lead in total; at most 4 workers and
+  checks run at a time in a run, the rest wait.
+- A failed worker turn's stderr is in `.sous/runs/<id>/nodes/<node>/turn-<k>.err`, its raw output in `turn-<k>.jsonl`.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.
 - Prefer cheap models for experiments (`pi` on Ollama models, the default lead).
 - A failing check is often a wrong command in the goal, not wrong code: read its output in `.sous/runs/<id>/events.jsonl`

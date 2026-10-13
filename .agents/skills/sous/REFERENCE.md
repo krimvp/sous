@@ -87,7 +87,7 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 
 ## Events worth grepping
 
-`turn.started`/`turn.ended` (worker turns), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
+`turn.started`/`turn.ended` (worker turns; an `error` names the turn's `.err` file and ends with its stderr), `turn.stalled` (no output for 10 minutes; the turn goes on), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done` (with `files`; in folder mode a collection)/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
 `person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
 `run.completed`/`run.failed`.

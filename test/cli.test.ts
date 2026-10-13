@@ -168,6 +168,20 @@ test('SIGINT stops the running turn group, a SIGTERM-ignoring grandchild include
   assert.match(run.output(), /continue with: sous resume /)
 })
 
+test("sous status shows a running turn's age and the age of its last output", async () => {
+  const { workspace, graph, sessions } = setup([{ sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
+  const run = sous(['run', graph], workspace, sessions)
+  const session = await waitFor(workspace, (e) => e.type === 'turn.session' && e.node === 'write')
+  const file = join(sessions, `${session.type === 'turn.session' ? session.sessionId : ''}.json`)
+  for (let i = 0; i < 200 && !existsSync(file); i++) await sleep(25)
+  await sleep(1100)
+  const status = sous(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(status.output(), /\n  write running on claude turns 1 \(turn 1 running for [1-9]\d*s, last output [1-9]\d*s ago\)\n  test pending\n/)
+})
+
 test('a second SIGINT while stopping kills a group that ignores SIGTERM at once', async () => {
   const { workspace, graph, sessions } = setup([{ spawnSleeper: 'ignore-term', sleepMs: 60_000, result: { status: 'done', summary: 'late' } }])
   const run = sous(['run', graph], workspace, sessions)
@@ -363,6 +377,36 @@ test('a resumed run keeps the lead model chosen when it was created, for leads r
   assert.equal(fold(readEvents(runDir)).summary, 'all done')
 })
 
+test('a run from before the lead model was recorded resumes on the fixed default, not on whatever has a credential now', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const goal = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'escalate', question: 'Go on?' }] }, { calls: [{ tool: 'complete', summary: 'done' }] }])}`
+  const run = sous(['run', goal], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  // An older log: run.created without leadModel.
+  const runDir = runDirOf(workspace)!
+  const lines = readFileSync(join(runDir, 'events.jsonl'), 'utf8').trimEnd().split('\n')
+  const { leadModel, ...created } = JSON.parse(lines[0])
+  assert.equal(leadModel, 'ollama-cloud/deepseek-v4.1-flash')
+  writeFileSync(join(runDir, 'events.jsonl'), [JSON.stringify(created), ...lines.slice(1)].join('\n') + '\n')
+
+  // Resumed when only OpenAI has a credential: the lead stays on the default it started on, and so cannot run.
+  process.env.FAKE_LEAD_CREDENTIALS = 'openai'
+  const resumed = sous(['resume'], workspace, sessions)
+  delete process.env.FAKE_LEAD_CREDENTIALS
+  try {
+    for (let i = 0; i < 200 && !/^agents: /m.test(resumed.output()); i++) await sleep(50)
+    assert.match(resumed.output(), /^agents: .*; not available: lead \(no credential for ollama-cloud\)$/m)
+    await waitFor(workspace, (e) => e.type === 'node.failed' && e.node === 'lead')
+  } finally {
+    resumed.child.kill('SIGINT') // a run that picked a fresh default would wait for an answer instead of failing
+    await resumed.exit
+  }
+  assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.reason, 'agent lead is not available (no credential for ollama-cloud)')
+})
+
 test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
@@ -384,7 +428,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi \(run pi\), or name a lead model \(--agents, or the node's model\)$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

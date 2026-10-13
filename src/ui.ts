@@ -5,7 +5,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { listRuns, lockHolder, readEvents } from './log.ts'
 import { awaitsSplitApproval, fold, isFinal } from './state.ts'
 import type { RunState } from './state.ts'
@@ -224,6 +224,7 @@ function runDetail(runDir: string) {
       const s = state.nodes.get(n.spec.id)
       const final = s && isFinal(s) ? n.endedAt : undefined
       const checks = n.events.filter((e): e is Extract<Event, { type: 'check.ended' }> => e.type === 'check.ended')
+      const last = s?.turns.at(-1)
       return {
         id: n.spec.id,
         kind: n.spec.kind,
@@ -242,8 +243,22 @@ function runDetail(runDir: string) {
         refused: n.events.filter((e) => e.type === 'lead.call' && !e.ok).length,
         checks: checks.map((c) => ({ at: c.at, exitCode: c.exitCode })),
         spans: spansOf(n, final),
+        // A running turn, with when its output last grew (its output file's last change), so a hung turn shows.
+        turn: status === 'running' && last && !last.ended
+          ? { number: last.number, startedAt: n.turns.get(last.number)?.startedAt, outputAt: outputAt(resolve(runDir, last.outFile)) }
+          : undefined,
       }
     }),
+  }
+}
+
+/** When a turn's output file last changed, if it has any output. */
+function outputAt(file: string): string | undefined {
+  try {
+    const out = statSync(file)
+    return out.size ? out.mtime.toISOString() : undefined
+  } catch {
+    return undefined
   }
 }
 
