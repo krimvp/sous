@@ -38,10 +38,10 @@ export const runDirOf = (workspace: string) => {
   return ids.length ? join(runs, ids[0]) : undefined
 }
 
-/** Polls the run's log until `found` matches an event; returns that event. */
-export async function waitFor(workspace: string, found: (e: Event) => boolean): Promise<Event> {
+/** Polls the run's log (by default the workspace's only run) until `found` matches an event; returns that event. */
+export async function waitFor(workspace: string, found: (e: Event) => boolean, runDirNow = () => runDirOf(workspace)): Promise<Event> {
   for (let i = 0; i < 200; i++) {
-    const runDir = runDirOf(workspace)
+    const runDir = runDirNow()
     const event = runDir && existsSync(join(runDir, 'events.jsonl')) ? readEvents(runDir).find(found) : undefined
     if (event) return event
     await sleep(50)

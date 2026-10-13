@@ -5,7 +5,7 @@ import { basename, join } from 'node:path'
 import { mock, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { main } from '../src/cli.ts'
-import { readEvents, writeCommand } from '../src/log.ts'
+import { listRuns, openLog, readEvents, writeCommand } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { gitWorkspace } from './fixtures/git-repo.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
@@ -269,6 +269,66 @@ test('sous answer delivers to a lead that asked the person, and sous status list
   assert.deepEqual(message.type === 'message' && [message.from, message.to, message.body], ['person', 'lead', 'Postgres.'])
   const last = events.findLast((e) => e.type === 'lead.delivered')!
   assert.deepEqual(last.type === 'lead.delivered' && [last.requestId, last.text], [`evt-${message.seq}`, 'Message from person:\nPostgres.'])
+})
+
+const asks = (question: string) => `Pick.\n${fakeLeadPlan([
+  { calls: [{ tool: 'escalate', question }] },
+  { calls: [{ tool: 'complete', summary: 'picked' }] },
+])}`
+
+test('sous answer, approve and cancel go to the run that is running, not the newest one; with none running they say so', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const run = sous(['run', asks('Which database?')], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  const running = runDirOf(workspace)!
+  // A newer run that is not running, with a node of the same id: as when the person resumed an older run.
+  const newer = join(workspace, '.sous', 'runs', '29991231T235959Z-0000')
+  mkdirSync(newer)
+  const log = openLog(newer)
+  log.append({ type: 'run.created', goal: 'another goal', workspace })
+  log.append({ type: 'node.added', node: { id: 'lead', kind: 'lead', brief: 'Another.' }, by: 'goal' })
+  log.close()
+
+  const answer = sous(['answer', 'lead', 'Postgres.'], workspace, sessions)
+  assert.equal(await answer.exit, 0, answer.output())
+  assert.equal(answer.output(), `answer for lead sent to run ${basename(running)}\n`)
+  assert.equal(await run.exit, 0, run.output())
+  assert.equal(fold(readEvents(running)).summary, 'picked')
+  const approve = sous(['approve', 'lead'], workspace, sessions)
+  assert.equal(await approve.exit, 1)
+  assert.match(approve.output(), /^sous: no run is running in \S+; the newest, 29991231T235959Z-0000, is stopped/)
+})
+
+test('with two runs running, a command without a run id is refused and names both; with one it goes there, and hints name the run', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const runsDir = join(workspace, '.sous', 'runs')
+  const first = sous(['run', asks('Which database?')], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  const a = basename(runDirOf(workspace)!)
+  const second = sous(['run', asks('Which queue?')], workspace, sessions)
+  const other = () => listRuns(workspace).ids.filter((id) => id !== a).map((id) => join(runsDir, id))[0]
+  await waitFor(workspace, (e) => e.type === 'lead.turn', other)
+  const b = basename(other())
+  const status = sous(['status', b], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), new RegExp(`\nquestions for you \\(sous answer <node> "<answer>" ${b}\\):\n  lead: Which queue\\?\n$`))
+
+  const unnamed = sous(['answer', 'lead', 'Postgres.'], workspace, sessions)
+  assert.equal(await unnamed.exit, 1)
+  assert.equal(unnamed.output(), `sous: 2 runs are running (${[a, b].sort().join(', ')}): name one, as in sous answer <node> "text" <run-id>\n`)
+  const answer = sous(['answer', 'lead', 'Postgres.', a], workspace, sessions)
+  assert.equal(await answer.exit, 0, answer.output())
+  const cancel = sous(['cancel', 'lead', b], workspace, sessions)
+  assert.equal(await cancel.exit, 0, cancel.output())
+  assert.equal(await first.exit, 0, first.output())
+  assert.equal(await second.exit, 1, second.output())
+  assert.equal(fold(readEvents(join(runsDir, a))).summary, 'picked')
+  assert.equal(fold(readEvents(join(runsDir, b))).nodes.get('lead')!.reason, 'cancelled by person')
+  // The first run asked while it was the only run; the second while there were two.
+  assert.match(first.output(), /\nAnswer with: sous answer lead "<answer>"\n/)
+  assert.match(second.output(), new RegExp(`\nAnswer with: sous answer lead "<answer>" ${b}\n`))
 })
 
 test('sous answer refuses a check up front; a command the supervisor refuses is printed by the run and listed by sous status', async () => {

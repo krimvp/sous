@@ -26,9 +26,9 @@ const USAGE = `usage:
   sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
   sous resume [run-id] [--workspace <dir>]
   sous status [run-id] [--workspace <dir>]
-  sous answer <node> "text" [--workspace <dir>]
-  sous approve <node> [--workspace <dir>]
-  sous cancel <node> [--workspace <dir>]
+  sous answer <node> "text" [run-id] [--workspace <dir>]
+  sous approve <node> [run-id] [--workspace <dir>]
+  sous cancel <node> [run-id] [--workspace <dir>]
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]
@@ -92,12 +92,12 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         if (args.length > 1) break
         return status(workspace, args[0])
       case 'answer':
-        if (args.length !== 2 || !args[1].trim()) break
-        return sendCommand(workspace, { type: 'answer', node: args[0], text: args[1] })
+        if (args.length < 2 || args.length > 3 || !args[1].trim()) break
+        return sendCommand(workspace, { type: 'answer', node: args[0], text: args[1] }, args[2])
       case 'approve':
       case 'cancel':
-        if (args.length !== 1) break
-        return sendCommand(workspace, { type: command, node: args[0] })
+        if (args.length < 1 || args.length > 2) break
+        return sendCommand(workspace, { type: command, node: args[0] }, args[1])
       case 'export':
         if (args.length < 1 || args.length > 2 || !['atif', 'otlp'].includes(args[0])) break
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
@@ -149,7 +149,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   // Decided once: a resumed run keeps the mode it was created with.
   const mode = inWorkTree(workspace) ? 'git' : 'folder'
   if (mode === 'folder') console.log(`folder mode (not a git repository): results go to ${join(runDir, 'output')}`)
-  const printEvent = printer()
+  const printEvent = printer([], () => runRef(workspace, id))
   const log = openLog(runDir, printEvent)
   log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
@@ -174,8 +174,8 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
   console.log(`resuming run ${id} (${runDir})`)
   const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps)
-  printPending(state)
-  const printEvent = printer(events)
+  printPending(state, runRef(workspace, id))
+  const printEvent = printer(events, () => runRef(workspace, id))
   let outcome: SupervisorOutcome | undefined
   try {
     outcome = await runSupervisor({
@@ -215,8 +215,9 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
 }
 
 /** Prints one line per event, every message to the person as a question to answer, and every gate's or proposed
- * split's request. `past` are the events already in the log, which this does not print. */
-function printer(past: Event[] = []): (e: Event) => void {
+ * split's request. `past` are the events already in the log, which this does not print. `ref` is what the commands in
+ * those requests name the run with (see `runRef`). */
+function printer(past: Event[], ref: () => string): (e: Event) => void {
   const nodes = new Map<string, { parent?: string; kind: string }>()
   // Leads whose proposed split came before their brief: their message to the person asks for its approval.
   const proposed = new Set<string>()
@@ -232,17 +233,22 @@ function printer(past: Event[] = []): (e: Event) => void {
     printEvent(e)
     const m = eventMessage(e, (id) => nodes.get(id)?.parent)
     if (m?.to !== PERSON) return
-    if (nodes.get(m.from)?.kind === 'gate') console.log(`\n${approvalText(m.from, m.body)}\n`)
-    else if (proposed.has(m.from)) console.log(`\n${splitApprovalText(m.from, m.body)}\n`)
-    else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: sous answer ${m.from} "<answer>"\n`)
+    const r = ref()
+    if (nodes.get(m.from)?.kind === 'gate') console.log(`\n${approvalText(m.from, m.body, r)}\n`)
+    else if (proposed.has(m.from)) console.log(`\n${splitApprovalText(m.from, m.body, r)}\n`)
+    else console.log(`\nQuestion from ${m.from}:\n${m.body}\nAnswer with: sous answer ${m.from} "<answer>"${r}\n`)
   }
 }
 
-const approvalText = (gate: string, body: string) =>
-  `Approval requested by ${gate}:\n${body}\nApprove with: sous approve ${gate}, or reject with: sous cancel ${gate}`
+const approvalText = (gate: string, body: string, r: string) =>
+  `Approval requested by ${gate}:\n${body}\nApprove with: sous approve ${gate}${r}, or reject with: sous cancel ${gate}${r}`
 
-const splitApprovalText = (lead: string, body: string) =>
-  `${body}\nApprove with: sous approve ${lead}, or give ${lead} changes with: sous answer ${lead} "<changes>"`
+const splitApprovalText = (lead: string, body: string, r: string) =>
+  `${body}\nApprove with: sous approve ${lead}${r}, or give ${lead} changes with: sous answer ${lead} "<changes>"${r}`
+
+/** How `sous answer`, `approve` and `cancel` name run `id` in the commands sous prints: by its id when the workspace has
+ * more than one run, else not at all. */
+const runRef = (workspace: string, id: string) => (listRuns(workspace).ids.length > 1 ? ` ${id}` : '')
 
 function printEvent(e: Event): void {
   const time = e.at.slice(11, 19)
@@ -322,7 +328,7 @@ function status(workspace: string, runId?: string): number {
     for (const c of children(n.spec.id)) print(c, depth + 1)
   }
   for (const n of children(undefined)) print(n, 1)
-  printPending(state)
+  printPending(state, runRef(workspace, id))
   const refused = events.flatMap((e) => (e.type === 'command.refused' ? [e] : [])).slice(-3)
   if (refused.length) console.log('commands not applied (latest last):')
   for (const e of refused) console.log(`  ${e.at.slice(11, 19)} ${oneLine(e.reason)}`)
@@ -330,31 +336,43 @@ function status(workspace: string, runId?: string): number {
   return 0
 }
 
-/** Questions, gate approvals and proposed splits waiting for the person. */
-function printPending(state: RunState): void {
+/** Questions, gate approvals and proposed splits waiting for the person; `r` names the run in the commands (`runRef`). */
+function printPending(state: RunState, r: string): void {
   const open = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
   const isGate = (q: { from: string }) => state.nodes.get(q.from)?.spec.kind === 'gate'
   const isSplit = (q: { from: string }) => awaitsSplitApproval(state.nodes.get(q.from)!)
   const questions = open.filter((q) => !isGate(q) && !isSplit(q))
   const gates = open.filter(isGate)
   const splits = open.filter(isSplit)
-  if (questions.length) console.log('questions for you (sous answer <node> "<answer>"):')
+  if (questions.length) console.log(`questions for you (sous answer <node> "<answer>"${r}):`)
   for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
-  if (gates.length) console.log('approvals for you (sous approve <node>, or sous cancel <node> to reject):')
+  if (gates.length) console.log(`approvals for you (sous approve <node>${r}, or sous cancel <node>${r} to reject):`)
   for (const q of gates) console.log(`  ${q.from}: ${oneLine(q.body)}`)
-  if (splits.length) console.log('splits for you to approve (sous approve <lead>, or sous answer <lead> "<changes>"):')
+  if (splits.length) console.log(`splits for you to approve (sous approve <lead>${r}, or sous answer <lead> "<changes>"${r}):`)
   for (const q of splits) console.log(`  ${q.from}: ${oneLine(q.body)}`)
 }
 
-/** Hand a person's answer, approval or cancel to the run's supervisor through a command file. */
-function sendCommand(workspace: string, cmd: Exclude<PersonCommand, { type: 'send' | 'receive' }>): number {
-  const { id, runDir } = findRun(workspace)
+/** Hand a person's answer, approval or cancel to a running run's supervisor through a command file: run `runId`, or
+ * else the workspace's one run with a live supervisor (not the newest, which may be another). */
+function sendCommand(workspace: string, cmd: Exclude<PersonCommand, { type: 'send' | 'receive' }>, runId?: string): number {
+  const { id, runDir } = runId === undefined ? runningRun(workspace, cmd.type) : findRun(workspace, runId)
   const why = commandRefusal(fold(readEvents(runDir)), cmd)
   if (why) throw new Error(`run ${id}: ${why}`)
   if (lockHolder(runDir) === undefined) throw new Error(`run ${id} is not running`)
   writeCommand(runDir, cmd)
   console.log(`${cmd.type} for ${cmd.node} sent to run ${id}`)
   return 0
+}
+
+function runningRun(workspace: string, command: string): { id: string; runDir: string } {
+  const { runsDir, ids } = listRuns(workspace)
+  const running = ids.filter((id) => lockHolder(join(runsDir, id)) !== undefined)
+  if (running.length === 1) return { id: running[0], runDir: join(runsDir, running[0]) }
+  if (running.length > 1) throw new Error(`${running.length} runs are running (${running.join(', ')}): name one, as in sous ${command} <node>${command === 'answer' ? ' "text"' : ''} <run-id>`)
+  const newest = ids.at(-1)
+  if (!newest) throw new Error(`no runs in ${runsDir}`)
+  const status = fold(readEvents(join(runsDir, newest))).status
+  throw new Error(`no run is running in ${runsDir}; the newest, ${newest}, is ${status === 'running' ? `stopped (continue it with sous resume ${newest})` : status}`)
 }
 
 function lastSummary(n: NodeState): string {
