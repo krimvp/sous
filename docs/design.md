@@ -191,8 +191,9 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   write a command file `{type: "send", from, to, text}`; the supervisor checks it again when it applies it and appends
   a `message` with `sent: true`. It stays the only writer.
 - **Identity.** The supervisor starts each worker turn of the tree with `SOUS_RUN_DIR`, `SOUS_NODE` and `SOUS_TURN`
-  (`TurnSpec.env`), which both ways read; no other `SOUS_*` variable of the supervisor's environment reaches a turn, so
-  a standing node, which gets none, does not take on the identity of an outer run's worker when sous runs inside one.
+  (`TurnSpec.env`), which both ways read; no other `SOUS_*` variable of the supervisor's environment reaches a turn or a
+  check, so a standing node, which gets none, or a check does not take on the identity of an outer run's worker when
+  sous runs inside one.
   This is attribution, not authentication: workers run as the person.
 - **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the

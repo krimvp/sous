@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { withoutIdentity } from '../send.ts'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../types.ts'
 
@@ -20,10 +21,8 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
   const err = openSync(spec.errFile, 'w')
   let child
   try {
-    // A worker's identity comes from its own turn alone: an outer run's SOUS_* (sous running inside a sous worker) never
-    // reaches it, also when the turn has none of its own (a standing node).
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SOUS_')))
-    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...env, ...spec.env } })
+    // Also a turn without an identity of its own (a standing node) gets none of an outer run's.
+    child = spawn(cmd, args, { cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...withoutIdentity(), ...spec.env } })
   } finally {
     // The child holds its own copies of the descriptors.
     closeSync(out)
