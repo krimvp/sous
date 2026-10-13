@@ -1,4 +1,0 @@
-{"type":"thread.started","thread_id":"01a12eb0-968c-72c3-9560-393868cc602e"}
-{"type":"turn.started"}
-{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"status\":\"needs_input\",\"summary\":\"Waiting for your colour choice.\",\"question\":\"Which colour should I paint the button?\",\"note_for_parent\":null}"}}
-{"type":"turn.completed","usage":{"input_tokens":12846,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":41,"reasoning_output_tokens":0}}
