@@ -2,7 +2,7 @@
 // sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
 // running run.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
