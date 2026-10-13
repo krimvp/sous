@@ -29,7 +29,7 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   const repo = repoState(workspace)
   const changes = repo && (repo.changes ? `${repo.changes} uncommitted change${repo.changes === 1 ? '' : 's'} (workers see HEAD only)` : 'no uncommitted changes')
   const where = repo && (realpathSync(workspace) === realpathSync(repo.top) ? 'git repository at its top level'
-    : `inside git repository ${repo.top}, not at its top level (.sous/ lands here; workers and checks run at the top level)`)
+    : `inside git repository ${repo.top}, not at its top level (--workspace is used as given: .sous/ lands here; workers and checks run at the top level)`)
   console.log(`workspace: ${workspace}, ${repo ? `${where}${repo.commit ? '' : ', without a commit'}, ${changes}` : 'not a git repository (folder mode)'}`)
 
   const problems = [

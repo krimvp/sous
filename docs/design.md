@@ -407,13 +407,13 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   provider has a credential, or, for a lead agent with no model, when any lead provider has one; such an agent runs
   on the first with a credential, see Lead runner). A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`, each lead agent with the model it runs on). The model chosen for lead
+  and printed (`agents: …; not available: …`, each lead agent with the model it runs on; for a graph without lead nodes only the agents its work nodes use, as no lead can pick another). The model chosen for lead
   agents that name none is recorded in `run.created.leadModel`; a resumed run resolves such leads to it, whatever
   credentials are present then (a lead whose recorded provider lost its credential is unavailable, with the fix,
   rather than moved to another provider). `sous doctor` runs the same
   check without a run and prints it (each harness on `PATH` with its `--version`, not whether it is logged in; the
   lead credentials present, never their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
-  commit, uncommitted changes, which workers do not see, and whether the workspace is the top level), and exits 0
+  commit, uncommitted changes, which workers do not see, and whether an explicit `--workspace` is below the top level, which `sous run` would take as given), and exits 0
   when a run could start: a lead, a worker, and a commit when in git. A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
   graph's `agent` or first available worker for work, `lead` for a lead, a goal run's root lead included) is not
@@ -454,7 +454,11 @@ run uses **folder mode** (below), with no setting either way.
 
 In git mode every `work` node runs in its own git worktree, so work nodes run in parallel (up to 4 at a time). The
 workspace must be a git repository with at least one commit; when it is not, the run fails with that reason before the
-first work or check node starts.
+first work or check node starts. The workspace is the repository's top level even when sous starts in a subdirectory
+(an explicit `--workspace` is used as given)
+(worktrees cover the whole repository, so workers and checks work from the root, and `.sous/` lives there for every command to find);
+`sous run` says so. Workers and checks see `HEAD` only: at run start `sous run` prints
+`workspace has N uncommitted changes; workers see HEAD only` when `git status` shows any (a warning; `.sous/` does not count).
 
 1. **Integration branch.** Before the first work or check node starts (or the first split), the supervisor creates branch
    `sous/<run>` from the workspace's `HEAD` and its worktree in `.sous/runs/<run>/integration/`

@@ -13,11 +13,11 @@ const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 
 /** Runs `sous doctor` in `cwd` with harness stand-ins `bin` on PATH (and the real git), no Pi login, no provider key
  * but those in `keys`. */
-function doctor(cwd: string, bin: string, keys: Record<string, string> = {}, home = mkdtempSync(join(tmpdir(), 'sous-home-'))) {
+function doctor(cwd: string, bin: string, keys: Record<string, string> = {}, home = mkdtempSync(join(tmpdir(), 'sous-home-')), args: string[] = []) {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: bin, HOME: home, ...keys }
   for (const name of ['OLLAMA_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'OPENAI_API_KEY']) if (!(name in keys)) delete env[name]
   const started = Date.now()
-  const res = spawnSync(process.execPath, [CLI, 'doctor'], { cwd, env, encoding: 'utf8', timeout: 60_000 })
+  const res = spawnSync(process.execPath, [CLI, 'doctor', ...args], { cwd, env, encoding: 'utf8', timeout: 60_000 })
   return { code: res.status, out: res.stdout, err: res.stderr, ms: Date.now() - started }
 }
 
@@ -69,9 +69,18 @@ test('sous doctor says when the workspace is below the top level, outside git, o
   const sub = join(workspace, 'sub')
   mkdirSync(sub)
   writeFileSync(join(sub, 'notes.md'), 'new\n')
-  const below = doctor(sub, bin, keys)
+  // Workers see the whole repository's HEAD, so changes above the workspace count too.
+  writeFileSync(join(workspace, 'README.md'), 'edited\n')
+  writeFileSync(join(workspace, 'top.txt'), 'new\n')
+  // Started there, a run uses the repository root; an explicit --workspace is taken as given.
+  const moved = doctor(sub, bin, keys)
+  assert.equal(moved.code, 0, moved.out + moved.err)
+  assert.match(moved.out, new RegExp(`^workspace is the git repository root ${workspace}, not ${sub}: runs and .sous/ live there\n`))
+  assert.match(moved.out, new RegExp(`^workspace: ${workspace}, git repository at its top level, 3 uncommitted changes \\(workers see HEAD only\\)$`, 'm'))
+  const below = doctor(workspace, bin, keys, undefined, ['--workspace', sub])
   assert.equal(below.code, 0, below.out + below.err)
-  assert.match(below.out, new RegExp(`^workspace: ${sub}, inside git repository ${workspace}, not at its top level \\(.sous/ lands here; workers and checks run at the top level\\), 1 uncommitted change \\(workers see HEAD only\\)$`, 'm'))
+  assert.match(below.out, new RegExp(`^workspace: ${sub}, inside git repository ${workspace}, not at its top level \\(--workspace is used as given: .sous/ lands here; workers and checks run at the top level\\), 3 uncommitted changes \\(workers see HEAD only\\)$`, 'm'))
+  assert.doesNotMatch(below.out, /git repository root/)
   assert.match(below.out, /^codex: on PATH; --version exited 1 with nothing; login not checked$/m)
 
   const folder = doctor(mkdtempSync(join(tmpdir(), 'sous-doctor-')), bin, keys)
@@ -84,5 +93,5 @@ test('sous doctor says when the workspace is below the top level, outside git, o
 
   const usage = spawnSync(process.execPath, [CLI, 'doctor', 'extra'], { cwd: workspace, env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` }, encoding: 'utf8' })
   assert.equal(usage.status, 2)
-  assert.match(usage.stderr, /^usage:\n[\s\S]*sous doctor \[--workspace <dir>\]/)
+  assert.match(usage.stderr, /^sous: doctor takes no arguments\nusage:\n[\s\S]*sous doctor \[--workspace <dir>\]/)
 })

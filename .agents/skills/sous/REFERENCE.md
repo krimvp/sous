@@ -6,10 +6,12 @@
 sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
 sous resume [run-id] [--workspace <dir>]
 sous status [run-id] [--workspace <dir>]
+sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
 sous answer <node> "text" [run-id] [--workspace <dir>]
 sous approve <node> [run-id] [--workspace <dir>]
 sous cancel <node> [run-id] [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
+sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
@@ -19,7 +21,11 @@ sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 
 `run-id` defaults to the latest run; for `answer`, `approve` and `cancel`, to the one run that is running (with several
 running, name one). A command the run cannot apply is refused: up front, or as `command.refused` when it no longer
 applies by the time the run reads it (shown by the run and `sous status`). The integrator and splitters are not
-cancelled: cancel the node they work for. `--workspace` defaults to the current directory. An argument to `run` that
+cancelled: cancel the node they work for. `--workspace` defaults to the current directory, or when that is inside a git
+repository to the repository's top level (`sous run` and `sous doctor` say so); a `--workspace` you give is used exactly as given. A
+command line sous cannot parse (unknown command or option, wrong number of arguments, a bad `--port` or `--max-depth`)
+prints `sous: <what is wrong>` and the usage on stderr and exits 2; a refusal after that (a mistyped graph file, an empty
+goal, `--agents` with a graph file, a missing run) is one `sous: ...` line and exits 1. An argument to `run` that
 names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or

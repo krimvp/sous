@@ -52,6 +52,28 @@ export function agentNames(defs: AgentDefs): string[] {
   return [...new Set([...Object.keys(BUILTIN_AGENTS), ...Object.keys(defs?.agents ?? {})])]
 }
 
+/** The agents worth listing when a run starts: all of them when a lead may pick any (a goal run, or a graph with a lead
+ * node), else those the graph's work nodes will use and, with more than one work node, whoever resolves merge conflicts. */
+export function startAgents(graph: (Definitions & { nodes?: NodeSpec[] }) | undefined, unavailable: Unavailable): string[] {
+  const nodes = graph?.nodes ?? []
+  if (!nodes.length || nodes.some((n) => n.kind === 'lead')) return agentNames(graph)
+  const work = nodes.filter((n) => n.kind !== 'check' && n.kind !== 'gate')
+  const used = new Set(work.map((n) => {
+    try {
+      return agentFor(graph, n, unavailable).name
+    } catch {
+      return n.agent
+    }
+  }))
+  if (work.length > 1) {
+    if (defines(graph, INTEGRATOR)) used.add(INTEGRATOR)
+    // With no integrator available, list the candidates so that what is missing shows.
+    const integrator = integratorAgent(graph, unavailable)
+    for (const name of integrator ? [integrator] : INTEGRATOR_AGENT_PREFERENCE) used.add(name)
+  }
+  return agentNames(graph).filter((name) => used.has(name))
+}
+
 /** The agent a lead defines with `d`: on `d.runs`, with `d.model` or the first model the run lists for that runtime,
  * and only `d`'s instructions. The caller has checked that the runtime has a list. */
 export function defineAgent(defs: Defs, d: NewAgent): AgentSpec {
