@@ -4,6 +4,9 @@
 # (.githooks/pre-push, installed by `npm install`) and by hand. Paste the last line into the PR as "head SHA checked".
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# As a hook in a linked worktree, git hands these down, and every `git init` the tests run in a temporary directory
+# would then act on this repository instead.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 sha=$(git rev-parse HEAD)
 note=""
 if [ -n "$(git status --porcelain)" ]; then note=" (the working tree has uncommitted changes, which the SHA does not cover)"; fi
