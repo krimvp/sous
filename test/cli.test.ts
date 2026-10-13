@@ -137,7 +137,7 @@ test("a lead whose node model is on another provider runs when that provider, no
   const code = await main(['run', graph, '--workspace', workspace], {
     getAdapter: () => { throw new Error('no workers in this run') },
     createLeadRunner: fakeLeadRunner,
-    hasLeadCredential: async (provider) => provider === 'openai-codex',
+    leadCredential: async (provider) => (provider === 'openai-codex' ? 'Pi login' : undefined),
   })
   assert.equal(code, 0)
   assert.equal(fold(readEvents(runDirOf(workspace)!)).nodes.get('planner')!.summary, 'planned')
@@ -271,7 +271,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
     const log = mock.method(console, 'log', () => {})
     try {
       const code = await main(['run', arg, '--workspace', workspace], {
-        getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, hasLeadCredential: async () => false,
+        getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, leadCredential: async () => undefined,
       })
       return { code, error: error.mock.calls.map((c) => c.arguments.join(' ')).join('\n') }
     } finally {

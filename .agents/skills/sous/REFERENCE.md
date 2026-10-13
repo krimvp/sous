@@ -34,7 +34,9 @@ Agents the person defines are not limited by `models`. An agent with no `model` 
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
 Droid model IDs (`claude-sonnet-5`, or a custom model `custom:…`),
-and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `openai-codex/gpt-5.5`).
+and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`,
+`openai-codex/gpt-5.5`; a lead's provider needs its API key in the environment, `OLLAMA_API_KEY`, `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY`, or a Pi login).
 
 ## Nodes (graph files)
 

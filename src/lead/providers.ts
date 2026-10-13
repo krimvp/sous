@@ -1,6 +1,7 @@
-// Model access for leads: Ollama Cloud and the ChatGPT login (openai-codex), with credentials read from the
-// user's Pi login. sous never refreshes or writes them: a refresh rotates the refresh token Pi itself
-// uses. An expired login is refreshed by running `pi` once.
+// Model access for leads: Ollama Cloud, Anthropic, OpenAI and the ChatGPT login (openai-codex), with credentials
+// from the environment (OLLAMA_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY; pi-ai reads them) or from the user's Pi
+// login. sous never refreshes or writes the login: a refresh rotates the refresh token Pi itself uses. An expired
+// login is refreshed by running `pi` once.
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,8 @@ import type { Credential, CredentialStore } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { createModels, createProvider } from '@earendil-works/pi-ai/models'
 import type { MutableModels } from '@earendil-works/pi-ai/models'
+import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
+import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex'
 import type { ModelRef } from '@earendil-works/pi-durable'
 import { leadCredentialFix } from '../types.ts'
@@ -17,7 +20,7 @@ const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
 const OLLAMA = 'ollama-cloud'
 const OLLAMA_URL = 'https://ollama.com/v1'
 
-/** The lead providers, reading credentials from the Pi login at each use. */
+/** The lead providers, reading credentials from the environment and the Pi login at each use. */
 export function loginModels(): MutableModels {
   const auth = (): Record<string, Credential> => existsSync(AUTH_FILE) ? JSON.parse(readFileSync(AUTH_FILE, 'utf8')) : {}
   const credentials: CredentialStore = {
@@ -28,6 +31,8 @@ export function loginModels(): MutableModels {
   }
   const models = createModels({ credentials })
   models.setProvider(ollamaCloud([]))
+  models.setProvider(anthropicProvider())
+  models.setProvider(openaiProvider())
   models.setProvider(openaiCodexProvider())
   return models
 }
@@ -48,10 +53,14 @@ function ollamaCloud(ids: string[]) {
   })
 }
 
-/** Whether the Pi login has a credential for lead provider `provider`. */
-export async function hasLeadCredential(provider: string): Promise<boolean> {
+/** Where lead provider `provider` has a credential, if it has one: the environment variable, or `Pi login`. Never the
+ * credential itself. */
+export async function leadCredential(provider: string): Promise<string | undefined> {
   const models = loginModels()
-  return models.getProvider(provider) !== undefined && (await models.checkAuth(provider)) !== undefined
+  if (!models.getProvider(provider)) return undefined
+  const auth = await models.checkAuth(provider).catch(() => undefined)
+  if (!auth) return undefined
+  return auth.source === undefined || auth.source === 'OAuth' || auth.source === 'stored credential' ? 'Pi login' : auth.source
 }
 
 /** Resolve `provider/model` to a model the lead can use, or throw a clear error. */

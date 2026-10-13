@@ -28,7 +28,7 @@ test('checkAgents finds the commands missing from PATH and the lead providers th
       agents: { planner: { runs: 'lead' as const, model: 'openai-codex/gpt-5.5' }, quick: { runs: 'pi' as const } },
       nodes: [{ id: 'l', kind: 'lead' as const, brief: 'b', model: 'other/m' }],
     }
-    const unavailable = await checkAgents(graph, async (provider) => provider === 'ollama-cloud')
+    const unavailable = await checkAgents(graph, async (provider) => (provider === 'ollama-cloud' ? 'OLLAMA_API_KEY' : undefined))
     assert.deepEqual(unavailable, { commands: ['claude', 'codex', 'droid'], leadProviders: ['openai-codex', 'other'] })
   } finally {
     process.env.PATH = path

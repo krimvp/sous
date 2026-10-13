@@ -3,17 +3,31 @@
 //   crash: deliver the brief; SIGKILL inside the second spawn, after the host recorded the call
 //   resume: resume, redeliver the brief, wait for its report; again: resume and report nothing
 //   models: print the errors of deliveries with an unknown provider and with no credential (real providers)
+//   credentials <provider/model>...: for each, print where its provider has a credential and whether the model
+//     resolves (real providers, no delivery, never a credential's value)
 // The fake host appends every act and settled call to <runDir>/calls.jsonl and settled.jsonl.
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import { createLeadRunner } from '../../src/lead/index.ts'
+import { leadCredential, loginModels, resolveModel } from '../../src/lead/providers.ts'
 import { openLeadRunner } from '../../src/lead/runner.ts'
 import type { LeadHost } from '../../src/types.ts'
 
 const [runDir, phase] = process.argv.slice(2)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+if (phase === 'credentials') {
+  const models = loginModels()
+  const out: Record<string, { credential: string | null; model: string }> = {}
+  for (const ref of process.argv.slice(4)) {
+    const credential = (await leadCredential(ref.split('/')[0])) ?? null
+    out[ref] = { credential, model: await resolveModel(models, ref).then(() => 'ok', (err) => err.message) }
+  }
+  console.log(JSON.stringify(out))
+  process.exit(0)
+}
 
 if (phase === 'models') {
   const runner = createLeadRunner({ runDir, host: { act: () => '', read: () => '', settled: () => {} } })

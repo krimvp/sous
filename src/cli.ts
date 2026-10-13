@@ -37,8 +37,8 @@ const USAGE = `usage:
 export interface CliDeps {
   getAdapter: SupervisorOptions['getAdapter']
   createLeadRunner?: SupervisorOptions['createLeadRunner']
-  /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
-  hasLeadCredential: (provider: string) => Promise<boolean>
+  /** Where lead agents on `provider` get their credential (an environment variable, or the Pi login), if anywhere. */
+  leadCredential: (provider: string) => Promise<string | undefined>
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -193,7 +193,7 @@ function resultOf(state: RunState, runDir: string): string | undefined {
 
 /** Check which agents can run, once per run start, and print it. */
 async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps): Promise<Unavailable> {
-  const unavailable = await checkAgents(graph, deps.hasLeadCredential)
+  const unavailable = await checkAgents(graph, deps.leadCredential)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
   const names = agentNames(graph)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
@@ -362,6 +362,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential })
+  const [{ getAdapter }, { createLeadRunner, leadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, leadCredential })
 }

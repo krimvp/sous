@@ -24,7 +24,7 @@ task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Re
 
 ```bash
 npm install -g @krimvp/sous    # Node 22.19+; from a checkout, `node src/cli.ts` works the same as `sous`
-export OLLAMA_API_KEY=…        # the lead's model access (Ollama Cloud), or log in with Pi: run `pi` once
+export OLLAMA_API_KEY=…        # the lead's model access: this, ANTHROPIC_API_KEY or OPENAI_API_KEY, or a Pi login (run `pi` once)
 ```
 
 ```bash
@@ -52,10 +52,12 @@ interrupted more than 3 times fails.
 Workers run on a harness: Claude Code, Codex, Pi or Factory Droid, each certified by the same conformance suite
 ([docs/harnesses.md](docs/harnesses.md): what each needs, what sous keeps out of it, how to add one).
 
-Leads use the model `ollama-cloud/deepseek-v4.1-flash` with `OLLAMA_API_KEY` or your Pi login (`~/.pi/agent/auth.json`;
-run `pi` once to log in or refresh); a run with no lead credential is refused with what to do. Another lead model, as
-`provider/model`, goes in an agents file (`--agents`, `{ "agents": { "lead": { "runs": "lead", "model": "openai-codex/gpt-5.5" } } }`)
-or on a graph's lead node. Their workers default to the first agent whose CLI is on your `PATH`: Claude
+Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, with `OLLAMA_API_KEY`), Anthropic
+(`anthropic/claude-haiku-5-5`, with `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, with `OPENAI_API_KEY`) or
+your ChatGPT subscription (`openai-codex/gpt-5.5`); any of them also through your Pi login (`~/.pi/agent/auth.json`;
+run `pi` once to log in or refresh). The default is `ollama-cloud/deepseek-v4.1-flash`; a run with no credential for
+its lead is refused with what to do. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
+`{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. Their workers default to the first agent whose CLI is on your `PATH`: Claude
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 

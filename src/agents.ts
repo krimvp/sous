@@ -62,13 +62,13 @@ export function modelError(defs: Defs, runs: AgentRuntime, model: string): strin
 }
 
 /** Check which harness commands are on PATH, and which lead providers the run's agents and lead nodes name have a
- * credential. */
-export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, hasLeadCredential: (provider: string) => Promise<boolean>): Promise<Unavailable> {
+ * credential (`leadCredential` says where one is, or that none is). */
+export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, leadCredential: (provider: string) => Promise<string | undefined>): Promise<Unavailable> {
   const leads = agentNames(graph).map((name) => agentSpec(graph, name)!).filter((spec) => spec.runs === 'lead')
   const models = [...leads.map((spec) => spec.model), ...(graph?.nodes ?? []).filter((n) => n.kind === 'lead').map((n) => n.model)]
   const leadProviders: string[] = []
   for (const provider of new Set([DEFAULT_LEAD_MODEL, ...models].map(providerOf))) {
-    if (!(await hasLeadCredential(provider))) leadProviders.push(provider)
+    if ((await leadCredential(provider)) === undefined) leadProviders.push(provider)
   }
   return { commands: HARNESSES.filter((command) => !onPath(command)), leadProviders }
 }

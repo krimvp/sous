@@ -6,5 +6,5 @@ import { fakeLeadRunner } from './fake-lead.ts'
 
 const adapter = fakeAdapter(process.env.FAKE_SESSIONS!)
 process.exitCode = await main(process.argv.slice(2), {
-  getAdapter: () => adapter, createLeadRunner: fakeLeadRunner, hasLeadCredential: async () => true,
+  getAdapter: () => adapter, createLeadRunner: fakeLeadRunner, leadCredential: async () => 'fake',
 })
