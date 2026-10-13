@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { main } from '../src/cli.ts'
 import { readEvents } from '../src/log.ts'
@@ -46,24 +46,75 @@ test('sous run completes a work then check graph and sous status shows it', asyn
   assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
 })
 
-test('sous run checks the agents on PATH: a node without an agent falls back to codex; a node naming claude fails', async () => {
+test('sous run checks the agents on PATH: a node without an agent falls back to the first available worker', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   writeFileSync(graph, JSON.stringify({
-    goal: 'write two files',
+    goal: 'write a file',
     nodes: [
       { id: 'any', kind: 'work', brief: `Write a.\n${fakePlan([{ write: { 'a.txt': 'a' }, result: { status: 'done', summary: 'wrote a' } }])}` },
-      { id: 'pinned', kind: 'work', agent: 'claude', brief: `Write b.\n${fakePlan([{ result: { status: 'done', summary: 'wrote b' } }])}` },
     ],
   }))
   // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
-  assert.equal(await run.exit, 1, run.output())
+  assert.equal(await run.exit, 0, run.output())
   assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\), droid \(droid not found\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
-  assert.equal(state.nodes.get('pinned')!.reason, 'agent claude is not available (claude not found)')
   assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
+})
+
+test('sous run refuses a graph whose node names an unavailable agent, or defaults to one, before the run exists', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const graph = join(workspace, 'graph.json')
+  const sessions = join(workspace, 'sessions')
+  const write = (raw: object) => writeFileSync(graph, JSON.stringify(raw))
+  const brief = `Do it.\n${fakePlan([{ result: { status: 'done', summary: 'done' } }])}`
+  write({
+    goal: 'review', agents: { reviewer: { runs: 'codex' } },
+    nodes: [{ id: 'write', kind: 'work', brief }, { id: 'review', kind: 'work', agent: 'reviewer', needs: ['write'], brief }, { id: 'ship', kind: 'gate', needs: ['write'], brief: 'Ship?' }],
+  })
+  const named = sous(['run', graph], workspace, sessions, fakeBin(['claude']))
+  assert.equal(await named.exit, 1, named.output())
+  assert.match(named.output(), /^sous: node review: agent reviewer is not available \(codex not found\): install codex or change the agent$/m)
+  assert.doesNotMatch(named.output(), /^run /m)
+  assert.equal(runDirOf(workspace), undefined, 'no run was created')
+
+  write({ goal: 'g', agent: 'droid', nodes: [{ id: 'a', kind: 'work', brief }, { id: 'b', kind: 'work', agent: 'claude', brief }, { id: 't', kind: 'check', command: 'true' }] })
+  const defaulted = sous(['run', graph], workspace, sessions, fakeBin(['claude']))
+  assert.equal(await defaulted.exit, 1, defaulted.output())
+  assert.match(defaulted.output(), /^sous: node a: agent droid is not available \(droid not found\): install droid or change the agent$/m)
+  assert.doesNotMatch(defaulted.output(), /node b/)
+
+  write({ goal: 'g', nodes: [{ id: 'a', kind: 'work', brief }, { id: 'b', kind: 'work', brief }] })
+  const none = sous(['run', graph], workspace, sessions, fakeBin([]))
+  assert.equal(await none.exit, 1, none.output())
+  assert.match(none.output(), /^sous: node a: no worker agent is available \(not found: claude, codex, pi, droid\): install one or name an agent\nnode b: no worker agent/m)
+  assert.equal(runDirOf(workspace), undefined)
+
+  // A goal run is not refused for what its lead may decide at runtime.
+  const goal = sous(['run', `Do it.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'done' }] }])}`], workspace, sessions, fakeBin([]))
+  assert.equal(await goal.exit, 0, goal.output())
+})
+
+test('sous run refuses an argument that looks like a missing file instead of running it as a goal', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  for (const arg of ['missing.json', 'graphs/missing', './missing']) {
+    const run = sous(['run', arg], workspace, sessions)
+    assert.equal(await run.exit, 1, run.output())
+    assert.match(run.output(), new RegExp(`^sous: no such file: ${arg.replace(/[./]/g, '\\$&')}; if it is a goal, write it as a sentence$`, 'm'))
+  }
+  mkdirSync(join(workspace, 'graphs'))
+  const directory = sous(['run', 'graphs/'], workspace, sessions)
+  assert.equal(await directory.exit, 1, directory.output())
+  assert.match(directory.output(), /^sous: not a file: graphs\/; /m)
+  assert.equal(runDirOf(workspace), undefined, 'no run was created')
+  // Words are a goal, whatever characters they hold, and so is a URL.
+  const url = sous(['run', `https://example.com/issues/86\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'done' }] }])}`], workspace, sessions)
+  assert.equal(await url.exit, 0, url.output())
+  const goal = sous(['run', `fix the CI/CD pipeline or config.json\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'done' }] }])}`], workspace, sessions)
+  assert.equal(await goal.exit, 0, goal.output())
 })
 
 test("a graph that shadows a built-in with a lead agent: a work node's default skips it for the next worker agent", async () => {
@@ -257,4 +308,30 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   const bad = sous(['run', 'g', '--agents', file], workspace, sessions)
   assert.equal(await bad.exit, 1)
   assert.match(bad.output(), /sous: agents file: unknown field nodes/)
+})
+
+test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const graph = join(workspace, 'graph.json')
+  const brief = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
+  writeFileSync(graph, JSON.stringify({ goal: 'plan', nodes: [{ id: 'planner', kind: 'lead', brief }] }))
+  const refused = async (arg: string) => {
+    const error = mock.method(console, 'error', () => {})
+    const log = mock.method(console, 'log', () => {})
+    try {
+      const code = await main(['run', arg, '--workspace', workspace], {
+        getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, hasLeadCredential: async () => false,
+      })
+      return { code, error: error.mock.calls.map((c) => c.arguments.join(' ')).join('\n') }
+    } finally {
+      error.mock.restore()
+      log.mock.restore()
+    }
+  }
+  for (const arg of [graph, brief]) {
+    const { code, error } = await refused(arg)
+    assert.equal(code, 1)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no Pi login credential for ollama-cloud\): log in with Pi \(run pi\) or set OLLAMA_API_KEY, or change the agent$/)
+    assert.equal(runDirOf(workspace), undefined, 'no run was created')
+  }
 })

@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto'
 import { TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, sousServer, spawnTurn, textOf, toTurnResult } from './common.ts'
+import { jsonLines, num, sousServer, spawnTurn, str, textOf, toTurnResult } from './common.ts'
 
 function run(spec: TurnSpec, session: string[], sessionId: string) {
   const server = sousServer(spec)
@@ -57,8 +57,9 @@ export const claude: WorkerAdapter = {
             }
             if (block.type === 'text') item.text = join(item.text, block.text)
             else item.reasoning = join(item.reasoning, block.thinking)
-          } else if (block?.type === 'tool_use') {
-            turn.items.push({ kind: 'tool_call', id: block.id, name: block.name, arguments: block.input, at })
+          } else if (block?.type === 'tool_use' && typeof block.id === 'string') {
+            // A call without an ID cannot be paired with its result; it is left out.
+            turn.items.push({ kind: 'tool_call', id: block.id, name: str(block.name), arguments: block.input, at })
           }
         }
       } else if (event.type === 'user') {
@@ -66,7 +67,7 @@ export const claude: WorkerAdapter = {
         if (typeof content === 'string') turn.items.push({ kind: 'message', role: 'user', text: content, at })
         for (const block of Array.isArray(content) ? content : []) {
           if (block?.type === 'tool_result') {
-            turn.items.push({ kind: 'tool_result', callId: block.tool_use_id, content: textOf(block.content), isError: block.is_error === true, at })
+            turn.items.push({ kind: 'tool_result', callId: str(block.tool_use_id), content: textOf(block.content), isError: block.is_error === true, at })
           } else if (block?.type === 'text') {
             // Text Claude Code itself injects mid-turn; the prompt is not echoed without --replay-user-messages.
             turn.items.push({ kind: 'message', role: 'user', text: block.text, at })
@@ -92,11 +93,11 @@ function join(a: string | undefined, b: unknown): string {
 function usageOf(event: Record<string, any>): Usage | undefined {
   const usage = event.usage
   if (!usage) return undefined
-  const read = usage.cache_read_input_tokens ?? 0
-  const write = usage.cache_creation_input_tokens ?? 0
+  const read = num(usage.cache_read_input_tokens)
+  const write = num(usage.cache_creation_input_tokens)
   return {
-    inputTokens: (usage.input_tokens ?? 0) + read + write,
-    outputTokens: usage.output_tokens ?? 0,
+    inputTokens: num(usage.input_tokens) + read + write,
+    outputTokens: num(usage.output_tokens),
     cachedTokens: read,
     cacheWriteTokens: write,
     ...(typeof event.total_cost_usd === 'number' ? { costUsd: event.total_cost_usd } : {}),

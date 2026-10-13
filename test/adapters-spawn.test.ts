@@ -62,15 +62,42 @@ test('the prompt arrives on stdin and output reaches outFile after the starting 
   await until(() => readFileSync(spec.errFile, 'utf8') === 'oops\n')
 })
 
+test("a turn's SOUS_* identity is its own: an outer run's never reaches it, also when it has none", async () => {
+  const cwd = tempDir()
+  const spec = (turn: number, env?: Record<string, string>) =>
+    ({ nodeId: 'n', turn, cwd, prompt: '', outFile: join(cwd, `${turn}.out`), errFile: join(cwd, `${turn}.err`), ...(env ? { env } : {}) })
+  // sous running inside a worker of another run: that worker's identity is in the supervisor's environment.
+  const outer = { SOUS_RUN_DIR: '/outer/run', SOUS_NODE: 'outer', SOUS_TURN: '3', SOUS_OTHER: 'x' }
+  const saved = { ...process.env }
+  Object.assign(process.env, outer, { NOT_SOUS: 'kept' })
+  try {
+    const standing = spawnTurn('sh', ['-c', 'env'], spec(1))
+    const worker = spawnTurn('sh', ['-c', 'env'], spec(2, { SOUS_RUN_DIR: '/inner/run', SOUS_NODE: 'a', SOUS_TURN: '1' }))
+    await Promise.all([standing.exit, worker.exit])
+  } finally {
+    for (const key of [...Object.keys(outer), 'NOT_SOUS']) {
+      if (key in saved) process.env[key] = saved[key]
+      else delete process.env[key]
+    }
+  }
+  const env = (turn: number) => readFileSync(join(cwd, `${turn}.out`), 'utf8').split('\n').filter((l) => /^(SOUS_|NOT_SOUS=)/.test(l)).sort()
+  assert.deepEqual(env(1), ['NOT_SOUS=kept'])
+  assert.deepEqual(env(2), ['NOT_SOUS=kept', 'SOUS_NODE=a', 'SOUS_RUN_DIR=/inner/run', 'SOUS_TURN=1'])
+})
+
 test('workers load no MCP server but sous\'s and none of the person\'s own instructions; the project\'s stay', async () => {
   const bin = tempDir()
   const rec = join(bin, 'rec.jsonl')
   // Stand-ins that record their arguments and the identity in their environment; a Codex stand-in also lists the
-  // user's MCP servers, as `codex mcp list --json` does.
+  // user's MCP servers, as `codex mcp list --json` does, two of them with names no override can address.
   const script = `#!${process.execPath}
 const { appendFileSync } = require('node:fs')
 const argv = process.argv.slice(2)
-if (argv[0] === 'mcp') { console.log(JSON.stringify([{ name: 'comitia' }, { name: 'docs' }])); process.exit(0) }
+if (argv[0] === 'mcp') {
+  appendFileSync(${JSON.stringify(join(bin, 'listed'))}, 'listed\\n')
+  console.log(JSON.stringify([{ name: 'comitia' }, { name: 'my server' }, { name: 'docs' }, { name: 'a.b' }]))
+  process.exit(0)
+}
 appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path').basename(process.argv[1]), argv, node: process.env.SOUS_NODE ?? null }) + '\\n')
 `
   for (const name of ['claude', 'codex', 'pi', 'droid']) writeFileSync(join(bin, name), script, { mode: 0o755 })
@@ -91,6 +118,19 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
   try {
     const m = await import('../src/adapters/index.ts')
     const [claude, codex, pi, droid] = (['claude', 'codex', 'pi', 'droid'] as const).map(m.getAdapter)
+    // As at run start: the servers are listed once, and the names that cannot be disabled are reported.
+    const said: unknown[] = []
+    const error = console.error
+    console.error = (...args: unknown[]) => said.push(...args)
+    try {
+      await m.listCodexServers()
+    } finally {
+      console.error = error
+    }
+    assert.deepEqual(said, [
+      'sous: cannot disable Codex\'s MCP server "my server"; Codex workers may load it',
+      'sous: cannot disable Codex\'s MCP server "a.b"; Codex workers may load it',
+    ])
     const cwd = tempDir()
     writeFileSync(join(cwd, 'AGENTS.md'), '# Project rules\n')
     write(join(cwd, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp', args: [] } } }))
@@ -111,6 +151,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
       await turn.exit
       await until(() => readFileSync(rec, 'utf8').trim().split('\n').length > i)
     }
+    assert.equal(readFileSync(join(bin, 'listed'), 'utf8'), 'listed\n', 'no turn lists the servers again')
     // The turns run at once, so their records come in any order.
     const recs = readFileSync(rec, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
     const of = (cmd: string, node: string | null) => recs.find((r) => r.cmd === cmd && r.node === node)
