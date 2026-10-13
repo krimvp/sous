@@ -13,8 +13,8 @@ import {
 import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
 import {
-  abortMerge, changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto,
-  mergeInProgress, resetTo, withConflictMarkers,
+  changedFiles, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, hasUncommitted, head, merge, mergedOnto, mergeInProgress,
+  resetTo, withConflictMarkers,
 } from './git.ts'
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
@@ -692,9 +692,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     let onto = conflict?.onto
     try {
       if (conflict) return await integrate(spec, conflict.onto)
-      // A merge a stopped supervisor left in progress never reached the integrator: start it again.
-      if (mergeInProgress(path)) abortMerge(path)
+      // A clean tree at its head: a merge a stopped supervisor left in progress never reached the integrator, so it
+      // starts again, and what the last check run here left behind (changed or new files) would refuse this merge.
       let commit = head(path)
+      resetTo(path, commit)
       onto = mergedOnto(path, branch) // the merge finished before the stop
       // Messages that arrived while it waited come first: it leaves the queue and its worker resumes with them.
       if (onto === undefined && n.inbox.length) return void log.append({ type: 'merge.withdrawn', node: spec.id })
@@ -711,6 +712,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (spec.command) {
         const c = await check(spec.id, spec.command, path)
         if (stopping) return
+        resetTo(path, commit) // what the check left behind is not part of the merge
         if (c.exitCode !== 0) {
           log.append({ type: 'merge.conflict', node: spec.id, reason: `check failed after the merge (exit ${c.exitCode})`, files: [], onto })
           return await integrate(spec, onto)
@@ -779,7 +781,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
       let why = !result ? 'your last turn ended without the required structured result'
         : mergeInProgress(path) ? 'the merge is still in progress: resolve every conflict and commit the merge'
-        : hasUncommitted(path) ? 'changes to tracked files are not committed'
+        : hasUncommitted(path) ? 'uncommitted changes remain (new files included)'
         : hasChanges(path, nodeBranch) ? `branch ${nodeBranch} is not merged`
         : undefined
       const marked = why ? [] : withConflictMarkers(path, conflict!.files)
@@ -787,6 +789,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!why && spec.command) {
         const c = await check(id, spec.command, path)
         if (stopping) return
+        resetTo(path, head(path)) // what the check left behind is not part of the merge
         if (c.exitCode !== 0) why = `its check still fails (exit code ${c.exitCode}):\n${c.output.trimEnd()}`
       }
       if (isFinal(nodeNow(id))) continue

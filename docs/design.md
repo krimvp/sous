@@ -427,7 +427,10 @@ first work or check node starts.
    supervisor commits any uncommitted changes there and queues the branch (`merge.queued`). Merges happen one
    at a time, in queue order, in the integration worktree, by plain `git merge --no-ff`. A branch with no
    changes is `merge.done` by `nothing`. After a clean merge the node's acceptance command (if any) runs
-   again in the integration worktree; if it passes, `merge.done` by `supervisor`. A message to a queued node
+   again in the integration worktree; if it passes, `merge.done` by `supervisor`. The worktree is reset to its
+   head (`git reset --hard`, `git clean -fd`; ignored files stay) before each merge and after each check run
+   there, so what a check leaves behind (a formatter's edits, a generated file) never refuses the next merge
+   or counts as the integrator's. A message to a queued node
    waits until its turn to merge; if its inbox is not empty then, it leaves the queue (`merge.withdrawn`) and
    its worker resumes its session in its own worktree with the messages, and it queues again when done. Once
    its merge has started, a message waits; after `merge.done` the node is completed, and messages to it are
@@ -441,7 +444,7 @@ first work or check node starts.
    session for later requests. Each request is a message in its inbox naming the node, its branch, the
    conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
    It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
-   verified: no merge in progress, no uncommitted change to tracked files, the node's branch is an ancestor of
+   verified: no merge in progress, no uncommitted change and no untracked file (ignored files aside), the node's branch is an ancestor of
    the integration branch, no conflict marker lines left in the files that conflicted, and the node's check
    passes in the integration worktree; then `merge.done` by `integrator`. A failed verification goes back to the integrator
    once. `blocked`, `needs_input` or a second failed verification is `merge.failed`: the integration branch
