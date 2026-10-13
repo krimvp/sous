@@ -58,7 +58,7 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
   // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /^agents: codex, pi, lead; not available: claude \(claude not found\), droid \(droid not found\)$/m)
+  assert.match(run.output(), /^agents: codex, pi, lead \(ollama-cloud\/deepseek-v4.1-flash\); not available: claude \(claude not found\), droid \(droid not found\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
   assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
@@ -137,7 +137,7 @@ test("a lead whose node model is on another provider runs when that provider, no
   const code = await main(['run', graph, '--workspace', workspace], {
     getAdapter: () => { throw new Error('no workers in this run') },
     createLeadRunner: fakeLeadRunner,
-    hasLeadCredential: async (provider) => provider === 'openai-codex',
+    leadCredential: async (provider) => (provider === 'openai-codex' ? 'Pi login' : undefined),
   })
   assert.equal(code, 0)
   assert.equal(fold(readEvents(runDirOf(workspace)!)).nodes.get('planner')!.summary, 'planned')
@@ -235,7 +235,7 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   ])}`
   const run = sous(['run', goal, '--agents', file], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead, hr$`, 'm'))
+  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead \\(ollama-cloud/deepseek-v4.1-flash\\), hr$`, 'm'))
   const runDir = runDirOf(workspace)!
   const events = readEvents(runDir)
   const created = events[0]
@@ -261,6 +261,59 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   assert.match(bad.output(), /sous: agents file: unknown field nodes/)
 })
 
+test('a lead that names no model gets the first lead provider with a credential, printed on the agents line', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const goal = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
+  const log = mock.method(console, 'log', () => {})
+  try {
+    const code = await main(['run', goal, '--workspace', workspace], {
+      getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner,
+      leadCredential: async (provider) => (provider === 'openai' ? 'OPENAI_API_KEY' : undefined),
+    })
+    assert.equal(code, 0)
+    const lines = log.mock.calls.map((c) => c.arguments.join(' '))
+    assert.ok(lines.some((line) => /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/.test(line)), lines.join('\n'))
+  } finally {
+    log.mock.restore()
+  }
+  const runDir = runDirOf(workspace)!
+  const delivered = fakeLeadRecords(runDir).find((r) => r.op === 'deliver')!
+  assert.equal(delivered.op === 'deliver' && delivered.model, 'openai/gpt-6-luna')
+  assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.summary, 'planned')
+})
+
+test('a resumed run keeps the lead model chosen when it was created, for leads resolved later too', async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const sub = { id: 'sub', kind: 'lead' as const, brief: `Finish.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'sub done' }] }])}` }
+  const goal = `Plan.\n${fakeLeadPlan([
+    { calls: [{ tool: 'escalate', question: 'Go on?' }] },
+    { calls: [{ tool: 'spawn', children: [sub] }] },
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ])}`
+  // Created when only OpenAI has a credential; resumed when every provider has one.
+  process.env.FAKE_LEAD_CREDENTIALS = 'openai'
+  const run = sous(['run', goal], workspace, sessions)
+  delete process.env.FAKE_LEAD_CREDENTIALS
+  await waitFor(workspace, (e) => e.type === 'lead.turn')
+  run.child.kill('SIGINT')
+  assert.equal(await run.exit, 1, run.output())
+  assert.match(run.output(), /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/m)
+  const runDir = runDirOf(workspace)!
+  const created = readEvents(runDir)[0]
+  assert.equal(created.type === 'run.created' && created.leadModel, 'openai/gpt-6-luna')
+
+  const resumed = sous(['resume'], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'run.resumed')
+  const answer = sous(['answer', 'lead', 'Yes.'], workspace, sessions)
+  assert.equal(await answer.exit, 0, answer.output())
+  assert.equal(await resumed.exit, 0, resumed.output())
+  assert.match(resumed.output(), /^agents: .*\blead \(openai\/gpt-6-luna\)(;|$)/m)
+  const delivered = fakeLeadRecords(runDir).filter((r) => r.op === 'deliver' && r.node === 'sub')
+  assert.deepEqual(delivered.map((r) => r.op === 'deliver' && r.model), ['openai/gpt-6-luna'])
+  assert.equal(fold(readEvents(runDir)).summary, 'all done')
+})
+
 test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
@@ -271,7 +324,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
     const log = mock.method(console, 'log', () => {})
     try {
       const code = await main(['run', arg, '--workspace', workspace], {
-        getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, hasLeadCredential: async () => false,
+        getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, leadCredential: async () => undefined,
       })
       return { code, error: error.mock.calls.map((c) => c.arguments.join(' ')).join('\n') }
     } finally {
@@ -282,7 +335,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no Pi login credential for ollama-cloud\): log in with Pi \(run pi\) or set OLLAMA_API_KEY, or change the agent$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or log in with Pi \(run pi\), or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

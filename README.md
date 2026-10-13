@@ -24,6 +24,7 @@ task. Fixed graph files of `work`, `check`, `lead` and `gate` nodes also run. Re
 
 ```bash
 npm install -g @krimvp/sous    # Node 22.19+; from a checkout, `node src/cli.ts` works the same as `sous`
+pi                             # the lead's model access: log in with Pi once, or export OLLAMA_API_KEY=… instead
 ```
 
 ```bash
@@ -51,8 +52,18 @@ interrupted more than 3 times fails.
 Workers run on a harness: Claude Code, Codex, Pi or Factory Droid, each certified by the same conformance suite
 ([docs/harnesses.md](docs/harnesses.md): what each needs, what sous keeps out of it, how to add one).
 
-Leads use the model `ollama-cloud/deepseek-v4.1-flash` through your Pi login (`~/.pi/agent/auth.json`; run
-`pi` once to log in or refresh). Their workers default to the first agent whose CLI is on your `PATH`: Claude
+Leads run on a model of Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, through your Pi login or `OLLAMA_API_KEY`),
+Anthropic (`anthropic/claude-haiku-5-5`, `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`, `OPENAI_API_KEY`) or your
+ChatGPT subscription (`openai-codex/gpt-5.5`); any of them also through your Pi login (`~/.pi/agent/auth.json`; run
+`pi` once to log in or refresh; an expired login does not count). A lead that names no model runs on the first of
+these, in that order, that has a credential, and the run keeps that choice when resumed; the run prints it on its
+`agents:` line, as `lead (ollama-cloud/deepseek-v4.1-flash)`. A run with no credential for its lead is refused with
+what to do. Caution: an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment is also what Claude Code and Codex
+workers use (workers inherit your environment), so it moves Claude Code, and may move Codex, from your subscription
+to API billing; prefer the Pi login or `OLLAMA_API_KEY` when your workers run on a subscription. Anthropic and OpenAI
+leads have not been run live yet. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
+`{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. `sous doctor`
+shows what a run here would find (it does not check that a harness is logged in), and says what is missing. Their workers default to the first agent whose CLI is on your `PATH`: Claude
 Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
 every work child". Each run prints which agents are available.
 
@@ -87,6 +98,7 @@ sous status                # latest run as a tree
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
 sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 sous ui                    # a local page with every run, live or finished (--port <n>)
+sous doctor                # could a run start here? harnesses on PATH with versions, lead credentials and model, git state
 ```
 
 `sous ui` prints a `127.0.0.1` address with a random token and serves one page: the workspace's runs, each run's tree

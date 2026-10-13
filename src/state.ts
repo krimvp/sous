@@ -122,6 +122,8 @@ export interface RunState {
   workspace: string
   mode: RunMode
   graph?: GraphFile
+  /** The model of lead agents that name none, from `run.created`. */
+  leadModel?: string
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
   /** The agent definitions the person wrote (the graph's, or the agents file's), without those leads defined. */
@@ -255,7 +257,7 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
+        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
         state.agents = { agent, agents: registry(agents), models }
         state.definitions = { agent, agents: registry(agents), models }
         break
