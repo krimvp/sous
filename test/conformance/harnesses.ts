@@ -34,6 +34,9 @@ export type Recording = (typeof RECORDINGS)[number]
 export const recordingUrl = (harness: HarnessName, name: Recording) =>
   new URL(`../fixtures/conformance/${harness}/${name}.jsonl`, import.meta.url)
 
+/** Written by every live certification: the CLI version, model, date and the tests that passed. */
+export const certifiedUrl = (harness: HarnessName) => new URL(`../fixtures/conformance/${harness}/certified.json`, import.meta.url)
+
 export const recording = (harness: HarnessName, name: Recording) => readFileSync(recordingUrl(harness, name), 'utf8')
 
 export const NOTE = 'The secret fruit is mango.'
