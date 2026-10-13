@@ -160,7 +160,17 @@ export function mergedOnto(path: string, branch: string): string | undefined {
 /** The paths with changes not committed: tracked files changed, or files added but not committed (ignored files do
  * not count). */
 export function uncommitted(path: string): string[] {
-  return git(path, ['status', '--porcelain']).split('\n').filter(Boolean).map((line) => line.slice(3))
+  // Not through `git()`: it trims, which eats the leading space of ` M path`. -z: paths unquoted, NUL-separated.
+  const r = run(path, ['status', '--porcelain', '-z'])
+  if (r.status !== 0) throw new Error(`git status failed in ${path}: ${r.stderr}`)
+  const fields = r.stdout.split('\0')
+  const paths: string[] = []
+  for (let i = 0; i < fields.length; i++) {
+    if (!fields[i]) continue
+    paths.push(fields[i].slice(3))
+    if (/[RC]/.test(fields[i].slice(0, 2))) i++ // a rename or copy carries its source as the next field
+  }
+  return paths
 }
 
 /** Move the worktree to `commit`, dropping a merge in progress, every uncommitted change and every untracked file
