@@ -405,15 +405,23 @@ test("a worker's question reaches its lead and the lead's answer resumes the sam
 
 test('an interrupt send stops a running worker and resumes it with the message', async () => {
   const started = Date.now()
+  let outFile = ''
   const { outcome, state, sessions } = await runLead([
     { calls: [{ tool: 'spawn', children: [{ id: 'w', kind: 'work', brief: `Slow.\n${fakePlan([
       { sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
     ])}` }] }] },
     { calls: [{ tool: 'complete', summary: 'ok' }] },
   ], (e, host) => {
-    if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) {
-      setTimeout(() => host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' }), 100)
-    }
+    if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) outFile = e.outFile // <workspace>/run/nodes/w/turn-1.jsonl
+    if (e.type !== 'turn.session' || e.node !== 'w' || e.turn !== 1) return
+    // Interrupt only once the worker has saved its session, which holds the plan (then it sleeps inside it);
+    // stopped earlier, the resumed turn would find no plan and end without a result.
+    const session = join(outFile, '../../../../sessions', `${e.sessionId}.json`)
+    const poll = setInterval(() => {
+      if (!existsSync(session)) return
+      clearInterval(poll)
+      host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
+    }, 10)
   })
   assert.equal(outcome, 'completed')
   assert.ok(Date.now() - started < 20_000)
@@ -422,6 +430,7 @@ test('an interrupt send stops a running worker and resumes it with the message',
   assert.deepEqual(w.turns.map((t) => [t.mode, t.result?.summary]), [['start', undefined], ['resume', 'redirected']])
   const session = JSON.parse(readFileSync(join(sessions, `${w.turns[0].sessionId}.json`), 'utf8'))
   assert.match(session.prompts[1], /Message from lead:\nChange of plan\./)
+  assert.deepEqual([w.status, w.summary], ['completed', 'redirected']) // the resumed turn ran the plan's second step, not a reminder
 })
 
 test('an idle lead gets two reminders and then fails', async () => {
