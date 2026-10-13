@@ -39,6 +39,8 @@ export interface CliDeps {
   createLeadRunner?: SupervisorOptions['createLeadRunner']
   /** Whether lead agents on `provider` can run: the Pi login has a credential for it. */
   hasLeadCredential: (provider: string) => Promise<boolean>
+  /** Lists the person's Codex MCP servers for the Codex adapter, at run start when Codex is available. */
+  listCodexServers?: () => Promise<void>
 }
 
 /** Run the CLI; returns the process exit code. */
@@ -198,6 +200,8 @@ async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps
   const names = agentNames(graph)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
+  // Here rather than on a Codex worker's first turn, where it would hold up the supervisor.
+  if (!unavailable.commands.includes('codex')) await deps.listCodexServers?.()
   return unavailable
 }
 
@@ -362,6 +366,6 @@ function oneLine(text: string): string {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [{ getAdapter }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
-  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential })
+  const [{ getAdapter, listCodexServers }, { createLeadRunner, hasLeadCredential }] = await Promise.all([import('./adapters/index.ts'), import('./lead/index.ts')])
+  process.exitCode = await main(process.argv.slice(2), { getAdapter, createLeadRunner, hasLeadCredential, listCodexServers })
 }
