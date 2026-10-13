@@ -33,7 +33,9 @@ move Codex, from the user's subscription to API billing. The
 result lands on branch `sous/<run-id>` (the person's own branch is never touched), or in folder mode in
 `.sous/runs/<run-id>/output/` (the person's files are only read). Leads may read files before splitting. In folder
 mode, workers and checks run in their own folders with links `workspace/` (inputs) and `results/` (the output), so
-write checks such as `test -s results/report.md`.
+write checks such as `test -s results/report.md`. Workers see the last commit (`HEAD`) only, so commit what they
+need first (the run prints `workspace has N uncommitted changes` when you have not); from a subdirectory of a git
+repository the workspace is the repository root, which the run also prints.
 
 ## Workflow
 
@@ -48,7 +50,7 @@ write checks such as `test -s results/report.md`.
 3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
    approvals, so a foreground run can block your shell).
 4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
-   `run.failed`; `$M status` prints the live tree and pending questions.
+   `run.failed`; `$M status` prints the live tree and pending questions, `$M runs` lists the workspace's runs.
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
