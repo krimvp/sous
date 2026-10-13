@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { openLog, readEvents } from '../src/log.ts'
+import { openLog, readEvents, writeCommand } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { runSupervisor } from '../src/supervisor.ts'
 import type { SupervisorOptions } from '../src/supervisor.ts'
 import { toAtif } from '../src/trace/atif.ts'
 import { toOtlp } from '../src/trace/otlp.ts'
 import { loadRun } from '../src/trace/run.ts'
-import { SPLITTER } from '../src/types.ts'
+import { PERSON, SPLITTER } from '../src/types.ts'
 import type { ChildSpec, Definitions, Event, EventBody, NodeSpec } from '../src/types.ts'
 import { checkAtif } from './atif-checker.ts'
 import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
@@ -33,18 +33,23 @@ const task = (id: string, steps: FakeStep[]): ChildSpec => ({ id, kind: 'work', 
 const lead = (steps: FakeLeadStep[], id = 'lead'): NodeSpec => ({ id, kind: 'lead', brief: `Lead the test goal.\n${fakeLeadPlan(steps)}` })
 
 /** Runs `nodes` in a git workspace whose first commit holds `files`, with the definitions `defs`. */
-async function runGraph(nodes: NodeSpec[], defs: Definitions, opts: { files?: Record<string, string>; more?: EventBody[] } & Partial<SupervisorOptions> = {}) {
-  const workspace = gitWorkspace('sous-split-', opts.files)
+async function runGraph(nodes: NodeSpec[], defs: Definitions, opts: {
+  files?: Record<string, string>; more?: EventBody[]; approveSplits?: boolean; onEvent?: (e: Event, runDir: string) => void
+} & Omit<Partial<SupervisorOptions>, 'onEvent'> = {}) {
+  const { files, more, approveSplits, onEvent, ...rest } = opts
+  const workspace = gitWorkspace('sous-split-', files)
   const runDir = join(workspace, '.sous', 'runs', 'r1')
   mkdirSync(runDir, { recursive: true })
   const log = openLog(runDir)
-  log.append({ type: 'run.created', goal: 'test goal', workspace, graph: { goal: 'test goal', ...defs, nodes } })
+  log.append({ type: 'run.created', goal: 'test goal', workspace, graph: { goal: 'test goal', ...defs, nodes }, ...(approveSplits ? { approveSplits } : {}) })
   for (const node of nodes) log.append({ type: 'node.added', node, by: 'graph' })
-  for (const body of opts.more ?? []) log.append(body)
+  for (const body of more ?? []) log.append(body)
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: () => adapter, createLeadRunner: fakeLeadRunner, ...opts })
+  const outcome = await runSupervisor({
+    workspace, runDir, getAdapter: () => adapter, createLeadRunner: fakeLeadRunner, ...rest, onEvent: onEvent && ((e) => onEvent(e, runDir)),
+  })
   const events = readEvents(runDir)
   const state = fold(events)
   const prompts = (node: string) => {
@@ -343,6 +348,31 @@ test('with --approve-splits the person may answer with changes instead; without 
   const plain = sous(['run', 'Ship it.', '--approve-splits'], other, sessions)
   assert.equal(await plain.exit, 1)
   assert.match(plain.output(), /--approve-splits needs a splitter: define an agent named splitter/)
+})
+
+test("with --approve-splits a lead is neither reminded nor abandoned while its child lead's split waits for the person", async () => {
+  // Only the child has a splitter: the parent gets its brief at once, spawns the child, and then has nothing to do but wait.
+  const subParts = [task('sub-w', [{ result: done('w') }])]
+  const sub: ChildSpec = { id: 'sub', kind: 'lead', roles: { splitter: 'planner' }, brief: `Do sub.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: subParts }] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'sub done' }] },
+  ])}` }
+  const { outcome, events, state } = await runGraph([lead([
+    { calls: [{ tool: 'spawn', children: [sub] }] },
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ])], { agents: { planner: { runs: 'codex', instructions: fakePlan([{ write: propose('sub', subParts), result: done('one part') }]) } } }, {
+    approveSplits: true,
+    // The person takes a moment to approve: long enough for two reminders to go out and the parent to be abandoned.
+    onEvent: (e, runDir) => {
+      if (e.type === 'message' && e.from === 'sub' && e.to === PERSON) setTimeout(() => writeCommand(runDir, { type: 'approve', node: 'sub' }), 500)
+    },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual(events.flatMap((e) => (e.type === 'lead.delivered' && e.node === 'lead' ? [e.text.split('\n')[0]] : [])), [
+    'You are lead lead, one part of a larger goal.', 'Child sub completed: sub done',
+  ])
+  assert.equal(state.summary, 'all done')
 })
 
 test('a splitter turn cut short by a SIGKILL is resumed with a recovery note, and its proposal reaches the lead once', async () => {

@@ -375,8 +375,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
     for (const i of fresh) deliver(lead, agent, `evt-${i.seq}`, i.text, i.mode)
     if (fresh.length || !lead.idle || lead.escalated) return
-    // A waiting child with messages is about to resume, and a gate waits for the person, so both still count as working.
-    const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && c.spec.kind !== 'gate').map((c) => c.spec.id)
+    // A waiting child with messages is about to resume, and one whose open question is to the person (a gate, a lead
+    // whose split awaits approval) waits for them, not for this lead, so both still count as working.
+    const asksPerson = (c: NodeState) => state.questions.some((q) => q.from === c.spec.id)
+    const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && !asksPerson(c)).map((c) => c.spec.id)
     if (children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))) return
     if (lead.reminders >= MAX_REMINDERS) return abandon(state, id, `idle after ${MAX_REMINDERS} reminders`)
     deliver(lead, agent, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')

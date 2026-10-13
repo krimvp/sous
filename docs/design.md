@@ -290,7 +290,8 @@ The supervisor stays the only writer of the log.
 no command. Once its `needs` complete, the supervisor sends its brief to `person` as a message; `sous run` prints
 it as an approval request and `sous status` lists it. `sous approve <gate>` completes it with summary "approved
 by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes that need it fail, and its lead is
-told). A gate takes no messages, and a lead waiting only on a gate is not reminded.
+told). A gate takes no messages, and a lead waiting only on a gate (or on a child lead whose split awaits the person's
+approval) is not reminded.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
 several top-level nodes its summary names each top-level lead that completed with failed checks.
@@ -355,7 +356,8 @@ Without a splitter, leads split on their own, as before.
   proposed split goes to the person as a message from its lead, and the lead is `waiting` until the person
   answers: `sous approve <lead>` sends "The person approved the proposed split.", `sous answer <lead> "…"` sends
   changes. Either releases the brief, followed by the person's message; `sous cancel <lead>` cancels the lead. A
-  failed split needs no approval.
+  failed split needs no approval. Its parent lead waits for the person with it: like a lead waiting only on a gate,
+  it is not reminded.
 - **Recovery** is the integrator's: a splitter turn a supervisor stop cut short resumes its session with a recovery
   note that repeats the split's request (the cut turn may have stopped before the splitter read it); a turn that ended
   before the stop is settled from its result and its file without running again. Cancelling a lead stops the
