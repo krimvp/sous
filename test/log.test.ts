@@ -51,7 +51,7 @@ test('only one of many concurrent supervisors gets the lock', async () => {
   for (let round = 0; round < 5; round++) {
     const runDir = tempRun()
     const exits = Array.from({ length: 16 }, (_, id) => {
-      const child = spawn(process.execPath, [taker, runDir, String(id)], { stdio: 'ignore' })
+      const child = spawn(process.execPath, [taker, runDir, String(id), '16'], { stdio: 'ignore' })
       return new Promise((resolve) => child.on('exit', resolve))
     })
     while (readdirSync(runDir).filter((f) => f.startsWith('ready-')).length < 16) await sleep(10)

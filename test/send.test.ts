@@ -210,6 +210,7 @@ test('a receive from a turn that is over takes nothing, and messages read in a t
 test("sous's MCP server offers send to a worker's lead and siblings, and writes the same command", async () => {
   const runDir = runWithTree()
   const server = spawn(process.execPath, [MCP], { env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: 'a', SOUS_TURN: '1' }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const exited = once(server, 'exit') // made now, so a child that is already gone cannot leave the finally waiting
   const lines = createInterface({ input: server.stdout })[Symbol.asyncIterator]()
   const call = async (id: number, method: string, params?: object) => {
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
@@ -240,13 +241,16 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
     assert.deepEqual(JSON.parse((await lines.next()).value).error, { code: -32600, message: 'invalid request' })
     assert.equal((await call(6, 'ping')).result && 'still serving', 'still serving')
   } finally {
-    server.kill()
+    // Closing stdin ends it as a harness does; a killed process writes no coverage.
+    server.stdin.end()
+    await exited
   }
 })
 
 test("sous's MCP server refuses arguments of the wrong type instead of converting them", async () => {
   const runDir = runWithTree()
   const server = spawn(process.execPath, [MCP], { env: { ...process.env, SOUS_RUN_DIR: runDir, SOUS_NODE: 'a', SOUS_TURN: '1' }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const exited = once(server, 'exit') // made now, so a child that is already gone cannot leave the finally waiting
   const lines = createInterface({ input: server.stdout })[Symbol.asyncIterator]()
   const call = async (id: number, name: string, args: object) => {
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }) + '\n')
@@ -262,7 +266,7 @@ test("sous's MCP server refuses arguments of the wrong type instead of convertin
     assert.deepEqual(await call(5, 'receive', {}), { content: [{ type: 'text', text: 'No messages.' }], isError: false })
   } finally {
     server.stdin.end()
-    await once(server, 'exit')
+    await exited
   }
 })
 

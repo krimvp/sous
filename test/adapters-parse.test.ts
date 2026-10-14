@@ -161,6 +161,30 @@ test('codex: a failed turn ends without a result, even after an assistant JSON m
   assert.deepEqual(turn.items.at(-1), { kind: 'message', role: 'system', text: 'interrupted' })
 })
 
+test("codex: a turn that searches the web, calls sous's MCP server and changes files pairs every call with its result", () => {
+  // Hand-built after the item shapes of `codex exec --json`: the recording has only a command.
+  const turn = getAdapter('codex').parse(readFileSync(new URL('./fixtures/codex/tools.jsonl', import.meta.url), 'utf8'))
+  assertPaired(turn)
+  assert.equal(turn.ended, true)
+  assert.deepEqual(turn.result, { status: 'done', summary: 'Wrote greet.js.' })
+  const calls = turn.items.flatMap((item, at) => {
+    if (item.kind !== 'tool_call') return []
+    const result = turn.items.find((r) => r.kind === 'tool_result' && r.callId === item.id)
+    assert.ok(result?.kind === 'tool_result')
+    return [[at, item.id, item.name, item.arguments, result.content, result.isError]]
+  })
+  assert.deepEqual(calls.map(([, ...rest]) => rest), [
+    ['item_0', 'web_search', { query: 'node test runner coverage flag' }, '', false],
+    // The call is named by server and tool; its result is what the server answered, or the error it gave.
+    ['item_1', 'sous.send', { to: 'b', body: 'Use greet(name).' }, '{"content":[{"type":"text","text":"Sent to b."}],"structured_content":null}', false],
+    ['item_2', 'sous.send', { to: 'c', body: 'hi' }, '{"message":"user cancelled MCP tool call"}', true],
+    ['item_3', 'file_change', { changes: [{ path: '/work/greet.js', kind: 'add' }, { path: '/work/old.js', kind: 'delete' }] }, 'completed', false],
+    ['item_4', 'file_change', { changes: [{ path: '/work/locked.js', kind: 'update' }] }, 'failed', true],
+  ])
+  // A call is shown once however many of its events there are.
+  assert.equal(turn.items.filter((item) => item.kind === 'tool_call').length, 5)
+})
+
 test('pi: an agent_end that will retry is not the end; the result comes from the final attempt', () => {
   // Pi's shape for a failed attempt it retries (agent-session.js adds willRetry to agent_end).
   const failed = { role: 'assistant', content: [{ type: 'text', text: '```json\n{"status":"done","summary":"stale"}\n```' }], stopReason: 'error', errorMessage: '429 rate limited' }
