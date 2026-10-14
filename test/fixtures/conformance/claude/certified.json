@@ -1,0 +1,16 @@
+{
+  "cli": "claude",
+  "version": "2.1.296 (Claude Code)",
+  "model": "haiku",
+  "date": "2026-10-14",
+  "passed": [
+    "reads a file with one paired tool call and ends done",
+    "ends needs_input with a question",
+    "a resumed session, resumed again, remembers the first turn",
+    "stopped mid-command by the supervisor: no result, nothing left running, and the session resumes",
+    "killed mid-command: the session resumes",
+    "two siblings settle a name through sous; no project MCP server starts",
+    "a supervisor killed mid-turn: sous resume completes the run"
+  ],
+  "failed": []
+}

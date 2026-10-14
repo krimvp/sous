@@ -30,12 +30,15 @@ async function run(nodes: NodeSpec[], opts: { adapter?: (sessions: string) => Wo
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = opts.adapter?.(sessions)
+  // Stop a run that never ends as a person would, so a regression fails its assertions instead of leaving the
+  // supervisor polling after the test's timeout.
+  const stop = setTimeout(() => process.emit('SIGTERM'), 20_000)
   const outcome = await runSupervisor({
     workspace, runDir, graceMs: 200,
     getAdapter: (name) => adapter ?? getAdapter(name),
     ...(opts.lead ? { createLeadRunner: () => opts.lead! } : {}),
     onEvent: opts.onEvent && ((e) => opts.onEvent!(e, workspace)),
-  })
+  }).finally(() => clearTimeout(stop))
   const events = readEvents(runDir)
   return { workspace, runDir, outcome, events, state: fold(events) }
 }
