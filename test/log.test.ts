@@ -56,7 +56,9 @@ test('a live process keeps its start time when the time zone changes, so its loc
   })
   process.env.TZ = 'America/New_York'
   const runDir = tempRun()
-  writeFileSync(join(runDir, 'lock'), JSON.stringify({ pid: live.pid, startTime: procStartTime(live.pid!) }))
+  const startTime = procStartTime(live.pid!)
+  assert.ok(startTime, 'the live process has a start time')
+  writeFileSync(join(runDir, 'lock'), JSON.stringify({ pid: live.pid, startTime }))
   process.env.TZ = 'Europe/Madrid'
   assert.throws(() => openLog(runDir, undefined, { takeOver: true }), /locked by a live supervisor/)
 })
