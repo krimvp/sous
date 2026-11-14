@@ -57,8 +57,7 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 - `sous ui` takes a run's state and its view from one reading of the log, so on a live run a node no longer shows,
   for a moment, a status newer than its events.
 - `sous export` and `sous ui` read the event log with the supervisor's own reader. A log with a gap in `seq`, or a
-  corrupt line before the last, is refused with the log's message (`events.jsonl line <n> ...`), and a run directory
-  without a log says `no event log in <dir>`.
+  corrupt line before the last, is refused with the log's message (`events.jsonl line <n> ...`).
 - The sources are organised into modules under `src/`, each with one interface, its `index.ts`;
   `test/structure.test.ts` checks which module may import which, and `docs/architecture.md` is the map of the code.
   `node src/cli.ts` and the package's `sous` command are unchanged.
