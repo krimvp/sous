@@ -77,13 +77,27 @@ every work child". Each run prints which agents are available.
 In a git repository (it needs at least one commit), each work node runs in its own git worktree, in parallel
 with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
 (Codex, else Claude, else Pi, else Droid; or a graph agent named `integrator`) that resolves it in the integration worktree.
-Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you.
+Your own checkout is not touched: `sous status` names the result branch, and merging it is up to you. At the end
+`sous run` and `sous status` print the next steps in one line:
+
+```bash
+sous diff [--stat]         # what the run changed: git diff from where sous/<run-id> started to its head (so far, while it runs)
+git merge sous/<run-id>    # take it into your branch
+sous clean                 # remove the finished run's worktrees and merged node branches; keep sous/<run-id> and the log
+sous clean --branches      # also delete sous/<run-id>, once your HEAD contains it
+```
+
+`sous clean` refuses a run that is running or stopped (resume needs its worktrees); `--all` cleans every finished run
+and `--dry-run` shows what would go. It removes only what the run's log records creating. Work no result holds is
+kept and listed: a failed node's branch with commits not in `sous/<run-id>`, a worktree with uncommitted changes
+(`--unmerged` removes those too). `status`, `ui` and `export` still work on a cleaned run.
 
 Anywhere else, or without git, sous uses folder mode on its own; good for research and summaries of many
 documents. Each worker and check runs in a folder of its own where `workspace/` (your files) and `results/` (the
 results so far) are links, the same names the lead reads by. Workers write their files at the top of their folder,
 and these are collected into `.sous/runs/<run-id>/output/` one at a time. A file of the same name and different content is kept beside the
-first as `<name>.<node>.<ext>` (or `<name>.<node>-2.<ext>`, …); nothing in the results is replaced. Your files are only read; `sous status` names the output folder. A lead may
+first as `<name>.<node>.<ext>` (or `<name>.<node>-2.<ext>`, …); nothing in the results is replaced. Your files are only read; `sous status` names the output folder, `sous diff` lists its files and `sous clean` removes
+the per-node folders (`work/`), keeping `output/`. A lead may
 complete over a failed check, and then `sous run` and `sous status` say "completed with failed checks: …".
 
 Or give it a fixed graph file:

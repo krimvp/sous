@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
-// running run.
+// running run, show what a run changed and clean up after it.
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { agentSpec, checkAgents, defaultLeadModel, defines, startAgents, unusableNodeAgents, whyUnavailable } from './agents.ts'
-import { dirtyChanges, inWorkTree, repoRoot } from './git.ts'
+import { branchExists, commitsNotIn, dirtyChanges, inWorkTree, repoRoot, showDiff } from './git.ts'
+import { cleanRefusal, cleanRun, filesIn } from './clean.ts'
+import type { CleanOptions } from './clean.ts'
 import type { Unavailable } from './agents.ts'
 import { loadDefinitions, loadGraph } from './graph.ts'
 import { doctor } from './doctor.ts'
@@ -34,6 +36,8 @@ const USAGE = `usage:
   sous send <to> 'text'          (a worker of a running run, to a sibling or its lead)
   sous receive [seconds]         (a worker: the messages waiting for it, waiting up to 60 seconds for one)
   sous export atif|otlp [run-id] [--workspace <dir>]
+  sous diff [run-id] [--stat] [--workspace <dir>]  (what the run changed: git diff of its branch, or its output files)
+  sous clean [run-id] [--all] [--branches] [--unmerged] [--dry-run] [--workspace <dir>]  (remove a finished run's worktrees)
   sous --help | --version        (sous <command> --help shows one command)
   sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)
   sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials, git state)`
@@ -89,6 +93,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
       workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
       port: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
+      stat: { type: 'boolean' }, all: { type: 'boolean' }, branches: { type: 'boolean' }, unmerged: { type: 'boolean' }, 'dry-run': { type: 'boolean' },
     } })
   } catch (err) {
     // Node's message goes on to explain `--`; keep the first sentence.
@@ -143,6 +148,15 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         if (args.length < 1 || args.length > 2) return usageError('export takes an exporter (atif or otlp) and optionally a run id')
         if (!['atif', 'otlp'].includes(args[0])) return usageError(`unknown exporter ${args[0]}`)
         return await exportRun(args[0] as 'atif' | 'otlp', workspace, deps, args[1])
+      case 'diff':
+        if (args.length > 1) return usageError('diff takes at most one argument: a run id')
+        return diff(workspace, args[0], parsed.values.stat ?? false)
+      case 'clean': {
+        if (args.length > 1) return usageError('clean takes at most one argument: a run id')
+        if (parsed.values.all && args.length) return usageError('clean takes a run id or --all, not both')
+        const { all, branches, unmerged } = parsed.values
+        return clean(workspace, all ? undefined : args, { branches, unmerged, dryRun: parsed.values['dry-run'] })
+      }
       case 'ui': {
         const port = parsed.values.port ?? '0'
         if (args.length) return usageError('ui takes no arguments')
@@ -220,7 +234,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
       workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
     })
   } finally {
-    printEnd(id, runDir)
+    printEnd(workspace, id, runDir)
   }
   return outcome === 'completed' ? 0 : 1
 }
@@ -243,7 +257,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
       resume: true, unavailable,
     })
   } finally {
-    printEnd(id, runDir)
+    printEnd(workspace, id, runDir)
   }
   return outcome === 'completed' ? 0 : 1
 }
@@ -251,19 +265,38 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
 /** After the supervisor: where the run's results are (the branch that holds its merged work, once it has one, or its
  * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. Nothing
  * when another supervisor holds the run (this one never ran it), and never an error over the supervisor's own. */
-function printEnd(id: string, runDir: string): void {
+function printEnd(workspace: string, id: string, runDir: string): void {
   try {
     if (lockHolder(runDir) !== undefined) return
     const state = fold(readEvents(runDir))
     const result = resultOf(state, runDir)
     if (result) console.log(`result: ${result}`)
     if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+    const next = nextSteps(state, workspace, runDir, runRef(workspace, id))
+    if (next) console.log(next)
   } catch {}
+}
+
+/** For a finished git-mode run, the one line naming what the person may do next: look at the result, merge it, clean
+ * up; each only while it still applies. */
+function nextSteps(state: RunState, workspace: string, runDir: string, r: string): string | undefined {
+  if (state.mode === 'folder' || state.status === 'running' || !state.integration) return undefined
+  const { branch } = state.integration
+  const exists = branchExists(workspace, branch)
+  const merged = exists && commitsNotIn(workspace, branch, ['HEAD']) === 0
+  const leftovers = readEvents(runDir).some((e) => (e.type === 'integration.created' || e.type === 'worktree.created') && existsSync(e.path))
+  const steps = [
+    ...(exists ? [`sous diff${r}`] : []),
+    ...(exists && !merged && state.status === 'completed' ? [`git merge ${branch}`] : []),
+    ...(merged ? [`sous clean --branches${r}`] : leftovers ? [`sous clean${r}`] : []),
+  ]
+  return steps.length ? `next: ${steps.join(', then ')}` : undefined
 }
 
 function resultOf(state: RunState, runDir: string): string | undefined {
   if (state.mode === 'folder') return existsSync(join(runDir, 'output')) ? `folder ${join(runDir, 'output')}` : undefined
-  return state.integration && `branch ${state.integration.branch}`
+  if (!state.integration) return undefined
+  return `branch ${state.integration.branch}${branchExists(state.workspace, state.integration.branch) ? '' : ' (deleted)'}`
 }
 
 /** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
@@ -416,7 +449,66 @@ function status(workspace: string, runId?: string): number {
   if (refused.length) console.log('commands not applied (latest last):')
   for (const e of refused) console.log(`  ${e.at.slice(11, 19)} ${oneLine(e.reason)}`)
   if (live === 'stopped') console.log(`continue it with: sous resume ${id}`)
+  const next = nextSteps(state, workspace, runDir, runRef(workspace, id))
+  if (next) console.log(next)
   return 0
+}
+
+/** What the run changed so far: in git mode `git diff` from the commit its branch started at to the branch's head
+ * (what is merged; a merge in progress is not), in folder mode the files of its output folder. */
+function diff(workspace: string, runId: string | undefined, stat: boolean): number {
+  const { id, runDir } = findRun(workspace, runId)
+  const events = readEvents(runDir)
+  if (fold(events).mode === 'folder') {
+    const output = join(runDir, 'output')
+    const files = existsSync(output) ? filesIn(output) : []
+    if (!files.length) {
+      console.log(`run ${id} has no files in ${output} yet`)
+      return 0
+    }
+    let total = 0
+    console.log(`${output}:`)
+    for (const file of files) {
+      const size = lstatSync(join(output, file)).size
+      total += size
+      console.log(`${String(size).padStart(10)}  ${file}`)
+    }
+    console.log(`${files.length} file${files.length === 1 ? '' : 's'}, ${total} bytes`)
+    return 0
+  }
+  const created = events.find((e) => e.type === 'integration.created')
+  if (!created) throw new Error(`run ${id} has no branch yet: nothing is merged`)
+  if (!branchExists(workspace, created.branch)) throw new Error(`branch ${created.branch} of run ${id} no longer exists`)
+  const code = showDiff(workspace, created.base, created.branch, stat)
+  if (code === false) console.log(`no changes on ${created.branch} since ${created.base.slice(0, 12)}`)
+  return code || 0
+}
+
+/** Clean run `ids[0]` (the latest without one), or with `ids` undefined every finished run, printing what was removed
+ * and kept. A run that may not be cleaned is refused (skipped with --all). */
+function clean(workspace: string, ids: string[] | undefined, opts: CleanOptions): number {
+  const all = ids === undefined
+  const runs = all ? listRuns(workspace).ids.map((id) => ({ id, runDir: join(listRuns(workspace).runsDir, id) })) : [findRun(workspace, ids[0])]
+  if (all && !runs.length) console.log(`no runs in ${listRuns(workspace).runsDir}`)
+  let code = 0
+  for (const { id, runDir } of runs) {
+    const events = readEvents(runDir)
+    const why = cleanRefusal(id, runDir, events)
+    if (why && !all) throw new Error(why)
+    if (why) {
+      console.log(`skipped ${why}`)
+      continue
+    }
+    const report = cleanRun(workspace, id, runDir, events, opts)
+    console.log(`run ${id} (${fold(events).status})${opts.dryRun ? ', dry run' : ''}:`)
+    if (!report.removed.length) console.log('  nothing to remove')
+    for (const line of [...report.removed, ...report.kept]) console.log(`  ${line}`)
+    if (report.refused) {
+      console.error(`sous: ${report.refused}`)
+      code = 1
+    }
+  }
+  return code
 }
 
 /** The workspace's runs, newest first. */

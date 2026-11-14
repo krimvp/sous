@@ -70,7 +70,11 @@ Leads may read files before splitting. In folder mode, workers and checks run in
    - `$M resume`: continue after Ctrl-C or a crash; finished turns, spawns and merges are not repeated, and
      recorded check results are kept (a check still running when the supervisor stopped runs again).
 6. **Check the result yourself** on `sous/<run-id>` or in the output folder (run the tests, try the program,
-   read the files) before telling the user it works. Merging that branch into their branch is the user's decision.
+   read the files) before telling the user it works. `$M diff` (or `$M diff --stat`) shows what the run changed
+   (in folder mode, lists the output files). Merging that branch into their branch is the user's decision.
+   Once they have what they need, `$M clean` removes the finished run's worktrees and merged node branches (it keeps
+   `sous/<run-id>`, the log and unmerged work, and lists what it kept; `--dry-run` first, `--branches` also deletes
+   the result once merged into `HEAD`). It refuses a running or stopped run: never clean a run the user may resume.
 7. **Export traces** if asked: `$M export atif` (writes `.sous/runs/<id>/trace.atif.json`) or `$M export otlp`
    (needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`). For the user to watch or revisit runs in
    a browser, start `$M ui` in the background and give them the address it prints (it serves until stopped).

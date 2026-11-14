@@ -42,8 +42,9 @@ test('sous run completes a work then check graph and sous status shows it', asyn
   const status = sous(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
   const id = runDir.split('/').at(-1)
-  assert.match(run.output(), new RegExp(`^result: branch sous/${id}$`, 'm'))
+  assert.match(run.output(), new RegExp(`^result: branch sous/${id}\nnext: sous diff, then git merge sous/${id}, then sous clean$`, 'm'))
   assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
+  assert.match(status.output(), new RegExp(`\nnext: sous diff, then git merge sous/${id}, then sous clean\n$`))
 })
 
 test('sous run checks the agents on PATH: a node without an agent falls back to the first available worker', async () => {
