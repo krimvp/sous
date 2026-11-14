@@ -1,13 +1,17 @@
 # Instructions for agents working on sous
 
 Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries and roadmap.
+[docs/architecture.md](docs/architecture.md) maps the code: where each part lives and what may import what.
 [CONTRIBUTING.md](CONTRIBUTING.md) gives the commands to build and test.
 
 - **Few dependencies.** Use Node built-ins. Only the lead runner may use the pinned Pi packages
   (`@earendil-works/pi-durable`, `pi-ai`, `chord`). Ask before you add any other package.
 - **Keep it small.** Implement the current roadmap step. Add no speculative options, plugins or abstractions.
-- **Contracts live in `src/types.ts`.** A change to a contract changes a boundary: update every side and the design in
+- **Contracts live in `src/contracts/`.** A change to a contract changes a boundary: update every side and the design in
   the same change.
+- **One interface per module.** Each directory under `src/` is a module whose `index.ts` is its only interface. Which
+  module may import which is the table in `test/structure.test.ts`, which `npm run check` enforces; see
+  [docs/architecture.md](docs/architecture.md#the-module-rule).
 - **Test behaviour, not internals.** Test observable behaviour at the strongest practical boundary (real processes, real
   files). Do not test private helpers or copied constants. A regression test must fail before its fix.
 - **Live checks are separate from unit tests.** Tests that run a real model cost money and run only when asked: the

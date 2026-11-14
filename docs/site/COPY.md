@@ -134,4 +134,4 @@ sous · runs on your machine · docs · harnesses · changelog · npm · github.
   docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service.
 - `@krimvp/sous`: package.json `name`.
-- Documentation links: docs/README.md lists the same documents; docs/architecture.md is written by a later change.
+- Documentation links: docs/README.md lists the same documents.

@@ -88,8 +88,9 @@ running turn has run and when its output last grew, and a turn without output fo
 
 ## Adding a harness
 
-1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
-   to the worker and integrator preference lists, in `src/types.ts`.
+1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`. Add its name to `HARNESSES` in
+   `src/contracts/workers.ts`, and to `WORKER_AGENT_PREFERENCE` and `INTEGRATOR_AGENT_PREFERENCE` in
+   `src/contracts/agents.ts`. [The code map](architecture.md#adapters) says what an adapter shares with the others.
 2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one.
 3. Record its conformance fixtures and pass certification: `SOUS_HARNESS=<name> SOUS_RECORD=1 npm run certify`, then
    `npm run check`.

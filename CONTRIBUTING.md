@@ -1,7 +1,8 @@
 # Contributing to sous
 
 Read [docs/design.md](docs/design.md) before you change the code. It defines the concepts, the boundaries and the
-roadmap. Agents that work in this repository also follow [AGENTS.md](AGENTS.md).
+roadmap. [docs/architecture.md](docs/architecture.md) maps the code: where each part lives, what may import what, and
+which files a given change touches. Agents that work in this repository also follow [AGENTS.md](AGENTS.md).
 
 ## Set up
 
@@ -20,7 +21,7 @@ npm install
 | Command | What it does |
 |---|---|
 | `npm run check` | Type check and all tests. Run it before each push. |
-| `npm run test:quick` | Only the fast, pure test files (about 2 seconds). It does not replace `check`. |
+| `npm run test:quick` | A few fast test files that start no `sous` process: parsers, agents, graphs, git, traces and the module structure (about 2 seconds). They run `git` and a local HTTP server. It does not replace `check`. |
 | `SOUS_LIVE=1 npm run check` | Adds a run with a real lead model. This costs money. |
 | `SOUS_HARNESS=<name> npm run certify` | Certifies one worker CLI against the conformance suite. This costs money. |
 | `npm pack` | Builds `dist/` and the package that `npm publish` would upload. |
@@ -34,8 +35,11 @@ npm install
   version.
 - **Keep it small.** Implement the current roadmap step. Do not add options, plugins or abstractions for a possible
   future need.
-- **Contracts are in `src/types.ts`.** A change to a contract changes a boundary. Update every side and the design in
+- **Contracts are in `src/contracts/`.** A change to a contract changes a boundary. Update every side and the design in
   the same change.
+- **One interface per module.** Each directory under `src/` is a module, and its `index.ts` is its only interface. The
+  table in `test/structure.test.ts` says which module may import which, and `npm run check` fails on an import that
+  breaks it. See [docs/architecture.md](docs/architecture.md#the-module-rule).
 - **Test behaviour, not internals.** Test at the strongest boundary that is practical: real processes and real files.
   Do not test private helpers or copied constants. A regression test must fail before its fix.
 - **Keep live tests separate.** Tests that call a real model cost money. They run only when you ask for them, never in
