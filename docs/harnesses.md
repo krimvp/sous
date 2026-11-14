@@ -1,9 +1,9 @@
 # Harnesses
 
 A harness is the coding-agent CLI that a worker runs on. For each turn, sous starts the CLI in the worker's own git
-worktree (or folder), reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
-same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
-also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
+worktree (or folder), reads its output, and resumes its session when messages arrive. Four harnesses are built in.
+Each is an agent of the same name (`claude`, `codex`, `pi`, `droid`). An agent is available when its CLI is on your
+`PATH`. The CLI must also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
 
 | Harness | CLI | Login | Messages between workers | Certified |
 |---|---|---|---|---|

@@ -8,7 +8,7 @@ sous runs a goal to completion on your machine with a tree of AI agents.
 
 You give it a goal. A **lead** agent splits the goal into parts. **Workers** (Claude Code, Codex, Pi or Factory
 Droid) do the parts. **Checks** test the result. Plain code, not a model, starts every process, delivers every
-message, merges the work and recovers after a crash.
+message, merges the work and recovers after a crash. Only merge conflicts go to an agent.
 
 The name comes from the kitchen brigade: the sous chef splits an order across the stations, and each plate is
 inspected before it leaves the kitchen.
@@ -30,7 +30,7 @@ flowchart TD
   sub --> w3[Worker]
   sub --> c1{{Check}}
   w1 & w2 & w3 --> queue[Merge queue]
-  queue --> result[("Branch sous/run-id")]
+  queue --> result[("Branch sous/run-id, or output folder")]
   c1 -. tests .-> result
   lead -- questions --> you
 ```
@@ -74,7 +74,8 @@ To run from a clone instead, use `node src/cli.ts` in place of `sous`. Node runs
    ```
 
 2. Go to the repository the agents must work in, and commit the files they need. Workers see only your last
-   commit (`HEAD`).
+   commit (`HEAD`). sous warns you when the checkout has uncommitted changes. When you start it in a subdirectory,
+   it uses the repository root and tells you so.
 
 3. Make sure that a run can start:
 
@@ -106,11 +107,11 @@ To run from a clone instead, use `node src/cli.ts` in place of `sous`. Node runs
 | `sous approve <node>` | Approves a gate, or a proposed split. |
 | `sous cancel <node>` | Stops a node and its subtree, or rejects a gate. |
 | `sous resume [run-id]` | Continues a run after Ctrl-C or a crash. |
-| `sous ui [--port <n>]` | Serves a local web page that shows the runs, live or finished. |
+| `sous ui [--port <n>]` | Serves a local web page that shows the runs, live or finished. It listens on `127.0.0.1` only, needs the token in the address it prints, and only reads the runs. |
 | `sous export atif` | Writes `.sous/runs/<run-id>/trace.atif.json`. |
 | `sous export otlp` | Sends the trace to Langfuse. Needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. |
 | `sous doctor` | Shows if a run could start here, and what is missing. |
-| `sous --help`, `sous --version` | Shows the usage, or the installed version. |
+| `sous --help`, `sous --version` | Shows the usage, or the installed version. `sous <command> --help` shows one command. |
 
 Send `answer`, `approve` and `cancel` from a second terminal while the run is active. When more than one run is
 active, add the run id at the end.
@@ -119,9 +120,11 @@ Useful options for `sous run`:
 
 - `--max-depth <n>`: how deep leads can nest, from 1 to 8. The default is 3.
 - `--agents <file>`: agent definitions and model limits for a goal run. See [Agents](#agents).
-- `--approve-splits`: each split that a splitter proposes waits for your approval. See [Splitter](#splitter).
-- `--workspace <dir>`: the directory to work in. The default is the current directory, or the repository root when
-  you are inside a git repository.
+- `--approve-splits`: each split that a splitter proposes waits for your approval. It needs an agent named
+  `splitter`. See [Splitter](#splitter).
+
+Every command also accepts `--workspace <dir>`: the directory to work in. The default is the current directory, or
+the repository root when you are inside a git repository.
 
 ## Lead models
 
@@ -158,8 +161,9 @@ An **agent** is a named way to do work. Each agent runs on one runtime: `claude`
 An agent can also have a `model` and standing `instructions`, which sous adds to every brief the agent gets.
 
 - The built-in agents `claude`, `codex`, `pi`, `droid` and `lead` need no definition.
-- A work node that names no agent uses the first worker CLI on your `PATH`, in this order: Claude Code, Codex, Pi,
-  Droid. Each uses its own default model.
+- A work node that names no agent uses the run's `agent`, when the graph or agents file sets one. If not, it uses
+  the first worker CLI on your `PATH`, in this order: Claude Code, Codex, Pi, Droid. Each uses its own default model.
+- A node's `model` overrides its agent's model.
 - A goal can ask for an agent, for example "use agent pi for every work child".
 - Merge conflicts go to the **integrator**, an agent that resolves them. By default it is the first available of
   Codex, Claude Code, Pi and Droid. To choose it, define an agent named `integrator`.
@@ -178,7 +182,9 @@ Define agents in a file and give it to `sous run --agents agents.json "..."`:
 
 `models` sets which models a lead can choose for each runtime. A lead can also define a new agent for a child, for
 example `{ "name": "hr", "runs": "pi", "instructions": "..." }`. It can do this only on a runtime that `models`
-lists, and only with one of the listed models. Agents that you define have no such limit.
+lists, and only with one of the listed models. When the lead names no model, the agent gets the first listed model.
+The lists also limit the model that a lead sets on a child. When a runtime has no list, a lead cannot define agents on
+it or choose a model for it. The agents and models that you write yourself have no such limit.
 
 ## Fixed graphs
 
@@ -224,16 +230,18 @@ sub-leads use the same splitter.
 
 ## Where the result goes
 
-sous selects the mode when the run starts.
+sous selects the mode when the run starts. In both modes, work nodes run in parallel, and at most 4 workers and
+checks run at the same time.
 
-**Git mode** (the workspace is in a git repository with at least one commit):
+**Git mode** (the workspace is in a git repository). The repository must have at least one commit. If it has none,
+the run fails.
 
-- Each work node runs in its own git worktree, in parallel. At most 4 workers and checks run at the same time.
+- Each work node runs in its own git worktree.
 - When a node is done, sous merges its branch into the run's branch `sous/<run-id>`, one merge at a time.
 - A conflict, or a check that fails after a merge, goes to the integrator.
 - Your checkout does not change. `sous status` names the result branch.
 
-**Folder mode** (no git, or the workspace is not in a git repository). Use it for research, writing and summaries:
+**Folder mode** (git is not installed, or the workspace is not in a git repository). Use it for research, writing and summaries:
 
 - Each worker runs in its own folder. The folder has two links: `workspace/` (your files) and `results/` (the
   results so far). Workers are told to read these and write only at the top of their own folder.
@@ -250,9 +258,12 @@ A lead can complete even when a check failed. Then `sous run` and `sous status` 
 - **Workers can talk.** A worker can tell a sibling or its lead something the others must know, such as an interface
   it settled. It uses the `send` and `receive` tools of sous's MCP server, or the commands `sous send` and
   `sous receive`. The lead sees every message, and the event log records it.
-- **Workers are kept apart from your setup.** Workers load no MCP server other than sous's, and as little of your
-  personal configuration as each CLI allows. The project's own instruction files still apply.
-  [docs/harnesses.md](docs/harnesses.md) gives the details for each CLI.
+- **Workers are kept apart from your setup.** Workers get sous's MCP server, and as few of your own MCP servers,
+  skills, hooks and settings as each CLI allows. Some parts still load: for example, Codex reads your global
+  `~/.codex/AGENTS.md`, and Claude Code reads the `CLAUDE.md` files above the worktree. The project's own instruction
+  files apply. [docs/harnesses.md](docs/harnesses.md) gives the details for each CLI.
+- **Leads can look first.** Before it splits its task, a lead can list and read the files of the workspace and the
+  results so far. It cannot change them.
 - **You can watch.** `sous status` shows each running turn's age and the last time its output grew. A turn with no
   output for 10 minutes is reported once as `turn.stalled`. `sous ui` shows the tree, a timeline, each lead's decisions
   and each worker's turns.
@@ -277,6 +288,7 @@ worker can forge an approval, an answer or a cancel. Until workers are sandboxed
 - [.agents/skills/sous](.agents/skills/sous/SKILL.md): a skill that teaches a coding agent to start, watch, steer and
   export runs. Claude Code finds it through `.claude/skills`.
 - [CHANGELOG.md](CHANGELOG.md): the changes in each release.
+- [krimvp.github.io/sous](https://krimvp.github.io/sous/): the landing page.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to build, test and send changes.
 
 ## License

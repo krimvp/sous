@@ -28,7 +28,7 @@ npm install
 
 ## Rules for changes
 
-- **Few dependencies.** Use Node built-ins. Only the lead runner uses packages: the pinned
+- **Few dependencies.** Use Node built-ins. Only the lead runner has runtime dependencies: the pinned
   `@earendil-works/pi-durable`, `pi-ai` and `chord`. Ask before you add a package. Pin each dependency to an exact
   version.
 - **Keep it small.** Implement the current roadmap step. Do not add options, plugins or abstractions for a possible
@@ -48,7 +48,8 @@ npm install
 1. Make sure that `scripts/pr-check.sh` passes on the commit you push.
 2. Run the changed path for real when it is practical.
 3. Fill in every section of [the template](.github/PULL_REQUEST_TEMPLATE.md): the issues it closes, what changed,
-   the head SHA that pr-check passed on, and what you verified and did not verify.
+   the head SHA that pr-check passed on, what you verified and did not verify, and the review (its link and the SHA
+   it reviewed).
 4. Add each change that users can see under "Unreleased" in [CHANGELOG.md](CHANGELOG.md).
 
 Each code pull request gets one independent review of its exact head commit. The reviewer, a person or an agent, did

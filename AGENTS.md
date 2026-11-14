@@ -8,7 +8,7 @@ Read [docs/design.md](docs/design.md) first. It defines the concepts, boundaries
 - **Keep it small.** Implement the current roadmap step. Add no speculative options, plugins or abstractions.
 - **Contracts live in `src/types.ts`.** A change to a contract changes a boundary: update every side and the design in
   the same change.
-- **Tests earn their place.** Test observable behaviour at the strongest practical boundary (real processes, real
+- **Test behaviour, not internals.** Test observable behaviour at the strongest practical boundary (real processes, real
   files). Do not test private helpers or copied constants. A regression test must fail before its fix.
 - **Live checks are separate from unit tests.** Tests that run a real model cost money and run only when asked: the
   live lead run with `SOUS_LIVE=1`, and the harness certification with `npm run certify`. Never add them to

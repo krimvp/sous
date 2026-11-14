@@ -10,7 +10,7 @@ work (workers), and each plate is inspected before it leaves (merges and checks)
 
 This document is the reference for contributors. It uses "the person" for the human who runs sous.
 
-**Contents:** [Principles](#principles) · [Concepts](#concepts) · [Architecture](#architecture) ·
+**Contents:** [Principles](#principles) · [Out of scope](#out-of-scope-for-now) · [Concepts](#concepts) · [Architecture](#architecture) ·
 [Messaging across levels](#messaging-across-levels) · [Leads](#leads) · [Roles](#roles) · [Splitting](#splitting) ·
 [Agents](#agents) · [Merging](#merging) · [Recovery](#recovery) · [Harness conformance](#harness-conformance) ·
 [Harness facts](#harness-facts-spike-2026-10-11) · [Traces](#traces-atif-and-langfuse) · [The UI](#the-ui) ·
@@ -645,8 +645,8 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 
 ## Harness facts (spike, 2026-10-11)
 
-Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
-stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
+Two spikes fed the decisions in this document: the pi-durable lead runner and a script that
+stops each harness CLI mid-command and resumes it. Both have been removed from the
 tree, since the facts they established are written down here and `npm run certify` supersedes the second.
 
 The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with

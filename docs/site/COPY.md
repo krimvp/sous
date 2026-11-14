@@ -111,5 +111,5 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 - Requirements and the Pi login for leads: README; package.json `engines`.
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
-- Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
+- Order #0142: site/index.html §A real service.
 - `@krimvp/sous`: package.json `name`.
