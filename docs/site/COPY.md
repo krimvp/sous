@@ -103,10 +103,10 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 - Checks: a shell command, exit 0 passes, check nodes run in the integration worktree: docs/design.md §Node kinds, §Merging 5.
 - Bell: a work part completes on `merge.done`; every work part in #0143 has a check (scene note): docs/design.md §Merging 5; FACTS-3.
 - `--agents`, `models` binds what leads choose: REFERENCE.md §Definitions; docs/design.md §Agents.
-- `approve`/`answer`/`cancel`: README; REFERENCE.md §Commands.
-- Resume without repeating finished turns: README; SKILL.md step 5; docs/design.md §Recovery.
+- `approve`/`answer`/`cancel`: README §Watching and steering; docs/usage.md §Commands; REFERENCE.md §Commands.
+- Resume without repeating finished turns: README; docs/usage.md §Watching and steering; SKILL.md step 5; docs/design.md §Recovery.
 - ATIF and Langfuse (OTLP) export: docs/design.md §Traces. No sandbox, full permissions: §Out of scope, §Harness facts.
-- Requirements and the Pi login for leads: README; package.json `engines`.
+- Requirements and the Pi login for leads: README §Quickstart; docs/usage.md §Install, §Where leads run; package.json `engines`.
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
