@@ -3,7 +3,7 @@
 Releases of `@krimvp/sous`. Each release is a PR titled "Release x.y.z" and a `vx.y.z` git tag on its merge commit.
 Add changes under Unreleased as they merge; the release PR renames that heading.
 
-## Unreleased
+## 0.2.1 (2026-11-14)
 
 - **A logged-in Claude Code is all a run needs.** With no lead credential (`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`,
   `OPENAI_API_KEY` or a Pi login), `sous run "goal"` now runs its lead on Claude Code, on `haiku`, through Claude's own
