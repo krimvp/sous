@@ -61,8 +61,10 @@ Leads may read files before splitting. In folder mode, workers and checks run in
    approvals, so a foreground run can block your shell).
 4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
    `run.failed`, and `turn.stalled` (a worker without output for 10 minutes: look before cancelling it, a long command
-   is silent too); `$M status` prints the live tree, each running turn's age and how long ago its output last grew, and
-   pending questions; `$M runs` lists the workspace's runs.
+   is silent too); `$M status` prints the live tree, each running turn's age and how long ago its output last grew,
+   pending questions and a `usage:` line (tokens in, cached and out, and the cost the harnesses reported; Ollama reports
+   none, so it may be partial, and it says how many turns reported no cost), also printed when the run ends; `$M runs`
+   lists the workspace's runs.
 5. **Steer from another shell** when needed:
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).

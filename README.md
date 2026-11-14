@@ -102,6 +102,7 @@ Or give it a fixed graph file:
 ```bash
 sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
 sous status                # latest run as a tree; a running turn shows its age and how long ago its output last grew
+                           # and the run's tokens and reported cost, also printed when `sous run` ends
 sous runs                  # every run of the workspace, newest first: id, state, start, goal
 sous --help | --version    # the usage (also: sous <command> --help), the installed version
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
