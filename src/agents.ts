@@ -3,7 +3,7 @@
 // or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, DEFAULT_WORKER_MODELS, HARNESS_DEFAULT_MODEL, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, LEAD_PROVIDERS, leadCredentialFix, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
+import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, DEFAULT_WORKER_MODELS, HARNESS_DEFAULT_MODEL, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, LEAD_HARNESSES, LEAD_PROVIDERS, leadCredentialFix, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
 import type { AgentRuntime, AgentSpec, Definitions, HarnessName, NewAgent, NodeSpec } from './types.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
@@ -21,8 +21,12 @@ export interface Unavailable {
   commands: string[]
   leadProviders: string[]
   /** The model of lead agents that name none: the one recorded for the run, else the first lead provider with a
-   * credential; absent when there is neither (`defaultLeadModel`). */
+   * credential; absent when there is neither (`defaultLeadModel`). With `leadRuns`, the harness's model (absent: its
+   * own default). */
   leadModel?: string
+  /** Lead agents that name no model run on this lead-certified harness: the one recorded for the run, else, when no lead
+   * provider has a credential, the first of LEAD_HARNESSES on PATH (`checkAgents`). */
+  leadRuns?: HarnessName
   /** The model of work nodes on each harness when nothing names one: the table recorded for the run
    * (`run.created.workerModels`), else DEFAULT_WORKER_MODELS for a new run; absent: none (the harness's own default). */
   workerModels?: Partial<Record<HarnessName, string>>
@@ -36,12 +40,23 @@ export const RUNTIMES: readonly AgentRuntime[] = [...HARNESSES, 'lead']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
 const providerOf = (model: string) => model.split('/')[0]
 
-/** The model of a lead that names none: the run's, when `unavailable` carries one, else the first lead provider, in
- * `LEAD_PROVIDERS` order, with a credential. */
+/** The model of an in-process lead that names none: the run's, when `unavailable` carries one, else the first lead
+ * provider, in `LEAD_PROVIDERS` order, with a credential; none when leads that name none run on a harness. */
 export function defaultLeadModel(unavailable: Unavailable): string | undefined {
+  if (unavailable.leadRuns) return undefined
   if (unavailable.leadModel !== undefined) return unavailable.leadModel
   const p = LEAD_PROVIDERS.find((p) => !unavailable.leadProviders.includes(p.id))
   return p && `${p.id}/${p.model}`
+}
+
+/** Whether a lead may run on harness `runs`: it is certified to lead. */
+export const leadsOn = (runs: AgentRuntime): boolean => runs !== 'lead' && LEAD_HARNESSES.includes(runs)
+
+/** Why an agent on `runs` cannot do a lead node, if it cannot: only `lead` agents and lead-certified harnesses lead. */
+export function leadRuntimeError(name: string, runs: AgentRuntime): string | undefined {
+  if (runs === 'lead' || leadsOn(runs)) return undefined
+  return `agent ${name} runs ${runs}, which is not certified to lead (leads run on lead, or on ${LEAD_HARNESSES.join(', ')}); ` +
+    `a harness leads once its adapter has a lead mode and SOUS_HARNESS=${runs} npm run certify passes its lead tests`
 }
 
 /** The model a work node on harness `runs` is started with when its node and agent name `named` (or nothing): that model,
@@ -55,7 +70,9 @@ export function workerModel(runs: HarnessName, named: string | undefined, unavai
 /** The model agent `spec` runs a node on (a work node for a CLI harness, or a standing one), as the `agents:` line,
  * `sous doctor` and a lead's brief show it; undefined: its harness's own default. */
 export function agentModel(spec: AgentSpec, unavailable: Unavailable, standing = false): string | undefined {
-  return spec.runs === 'lead' ? spec.model ?? defaultLeadModel(unavailable) : workerModel(spec.runs, spec.model, unavailable, standing)
+  if (spec.runs !== 'lead') return workerModel(spec.runs, spec.model, unavailable, standing)
+  // A lead that names no model on a harness: `<model> on <harness>`.
+  return spec.model ?? (unavailable.leadRuns ? `${unavailable.leadModel ?? 'harness default'} on ${unavailable.leadRuns}` : defaultLeadModel(unavailable))
 }
 
 /** The definition of agent `name`: the run's, else the built-in one. */
@@ -116,8 +133,8 @@ export function modelError(defs: Defs, runs: AgentRuntime, model: string): strin
  * `leadModel`, the model of its lead agents without one, kept even when its provider has no credential now (such a lead
  * is then unavailable rather than moved to another provider), and `workerModels`, its work nodes' default models
  * (default: DEFAULT_WORKER_MODELS, for a new run). */
-export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, leadCredential: (provider: string) => Promise<string | undefined>, recorded: { leadModel?: string; workerModels?: Partial<Record<HarnessName, string>> } = {}): Promise<Unavailable> {
-  const { leadModel, workerModels = DEFAULT_WORKER_MODELS } = recorded
+export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?: NodeSpec[] }) | undefined, leadCredential: (provider: string) => Promise<string | undefined>, recorded: { leadModel?: string; leadRuns?: HarnessName; workerModels?: Partial<Record<HarnessName, string>> } = {}): Promise<Unavailable> {
+  const { leadModel, leadRuns, workerModels = DEFAULT_WORKER_MODELS } = recorded
   const leads = agentNames(graph).map((name) => agentSpec(graph, name)!).filter((spec) => spec.runs === 'lead')
   const models = [...leads.map((spec) => spec.model), ...(graph?.nodes ?? []).filter((n) => n.kind === 'lead').map((n) => n.model)]
   const leadProviders: string[] = []
@@ -125,12 +142,21 @@ export async function checkAgents(graph: (Pick<Definitions, 'agents'> & { nodes?
     if ((await leadCredential(provider)) === undefined) leadProviders.push(provider)
   }
   const unavailable: Unavailable = { commands: HARNESSES.filter((command) => !onPath(command)), leadProviders, workerModels }
+  // A run keeps the runtime its leads started on; a new one runs them in process when a lead provider has a credential,
+  // else on the first lead-certified harness on PATH, on that harness's default worker model.
+  const harness = leadRuns ?? (leadModel === undefined && defaultLeadModel(unavailable) === undefined
+    ? LEAD_HARNESSES.find((h) => !unavailable.commands.includes(h)) : undefined)
+  if (harness) {
+    const model = leadRuns ? leadModel : workerModels[harness]
+    return { ...unavailable, leadRuns: harness, ...(model === undefined ? {} : { leadModel: model }) }
+  }
   const model = leadModel ?? defaultLeadModel(unavailable)
   return model === undefined ? unavailable : { ...unavailable, leadModel: model }
 }
 
 /** Why an agent that runs `runs` on `model` (for a lead without one: on the default) cannot run, if it cannot. */
 export function whyUnavailable(runs: AgentRuntime, model: string | undefined, unavailable: Unavailable): string | undefined {
+  if (runs === 'lead' && model === undefined && unavailable.leadRuns) runs = unavailable.leadRuns
   if (runs !== 'lead') return unavailable.commands.includes(runs) ? `${runs} not found` : undefined
   const chosen = model ?? defaultLeadModel(unavailable)
   if (chosen === undefined) return 'no lead provider has a credential'
@@ -187,7 +213,10 @@ export function roleChoices(person: AgentDefs, unavailable: Unavailable): string
 export function childAgents(defs: Defs, unavailable: Unavailable) {
   const specs = agentNames(defs).filter((name) => !(ROLES as readonly string[]).includes(name)).map((name) => [name, agentSpec(defs, name)!] as const)
     .filter(([, spec]) => !whyUnavailable(spec.runs, spec.model, unavailable))
-  const names = (lead: boolean) => specs.filter(([, spec]) => (spec.runs === 'lead') === lead).map(([name]) => name)
+  // A defined agent on a lead-certified harness can do both: work, and a lead child. The built-in harness agents are
+  // offered for work only, so a lead's choices for its lead children stay what the run defines.
+  const leads = (name: string, spec: AgentSpec) => spec.runs === 'lead' || (leadsOn(spec.runs) && own(defs?.agents, name))
+  const names = (lead: boolean) => specs.filter(([name, spec]) => (lead ? leads(name, spec) : spec.runs !== 'lead')).map(([name]) => name)
   const runs = Object.fromEntries(specs.map(([name, spec]) => [name, spec.runs]))
   // The model each agent runs a child on when the child sets none; absent: its harness's own default.
   const modelOf = Object.fromEntries(specs.flatMap(([name, spec]) => {
@@ -223,15 +252,21 @@ export function agentFor(defs: Defs, node: Pick<NodeSpec, 'kind' | 'agent' | 'mo
   if (name === undefined) throw Object.assign(new Error(`no worker agent is available (not found: ${unavailable.commands.join(', ')})`), { fix: 'install one or name an agent' })
   const spec = agentSpec(defs, name)
   if (!spec) throw new Error(`unknown agent ${name}`)
-  if ((spec.runs === 'lead') !== (node.kind === 'lead')) throw new Error(`agent ${name} runs ${spec.runs} and cannot do a ${node.kind} node`)
   const named = node.model ?? spec.model
-  const model = spec.runs === 'lead' ? named ?? defaultLeadModel(unavailable) : workerModel(spec.runs, named, unavailable, node.standing)
-  const why = whyUnavailable(spec.runs, named, unavailable)
+  if (node.kind === 'lead') {
+    const why = leadRuntimeError(name, spec.runs)
+    if (why) throw Object.assign(new Error(why), { fix: `name an agent that runs lead or ${LEAD_HARNESSES.join(', ')}` })
+  } else if (spec.runs === 'lead') throw new Error(`agent ${name} runs lead and cannot do a ${node.kind} node`)
+  // A lead agent that names no model runs where the run's leads run: in process, or on a lead-certified harness.
+  const runs = spec.runs === 'lead' && named === undefined && unavailable.leadRuns ? unavailable.leadRuns : spec.runs
+  const model = runs === 'lead' ? named ?? defaultLeadModel(unavailable)
+    : spec.runs === 'lead' ? unavailable.leadModel : workerModel(runs, named, unavailable, node.standing)
+  const why = whyUnavailable(runs, named, unavailable)
   if (why) {
-    const fix = spec.runs !== 'lead' ? `install ${spec.runs} or change the agent`
+    const fix = runs !== 'lead' ? `install ${runs} or change the agent`
       : model === undefined ? `${ANY_LEAD_CREDENTIAL_FIX}, or name a lead model (--agents, or the node's model)`
       : `${leadCredentialFix(providerOf(model))}, or name another lead model (--agents, or the node's model)`
     throw Object.assign(new Error(`agent ${name} is not available (${why})`), { fix })
   }
-  return { name, runs: spec.runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }
+  return { name, runs, ...(model === undefined ? {} : { model }), ...(spec.instructions ? { instructions: spec.instructions } : {}) }
 }

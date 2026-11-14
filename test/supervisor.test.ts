@@ -365,17 +365,18 @@ test('models leads choose are limited by runtime, and a child model needs a name
   assert.match(delivered(events)[0].text, /You may define a new agent for a work or lead child with agent \{name, runs, model\?, instructions\?\}, on these runtimes: claude \(models haiku\)\./)
 })
 
-test('a lead child may run on an agent a lead defines on lead; a worker runtime cannot do a lead child', async () => {
+test('a lead child may run on an agent a lead defines on lead; a harness not certified to lead cannot do a lead child', async () => {
   const sub = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
   const { outcome, events, state, runDir } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { name: 'boss', runs: 'claude' } }] },
+      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { name: 'boss', runs: 'pi' } }] },
       { tool: 'spawn', children: [{ id: 'sub', kind: 'lead', brief: sub, agent: { name: 'planner', runs: 'lead', instructions: 'Plan in two steps.' } }] },
     ] },
     { calls: [{ tool: 'complete', summary: 'done' }] },
   ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { claude: ['haiku'], lead: ['other/planner-model'] } })
   assert.equal(outcome, 'completed')
-  assert.equal(calls(events)[0].result, 'refused: child bad: a lead needs an agent that runs lead')
+  assert.equal(calls(events)[0].result, 'refused: child bad: agent boss runs pi, which is not certified to lead (leads run on lead, or on claude); ' +
+    'a harness leads once its adapter has a lead mode and SOUS_HARNESS=pi npm run certify passes its lead tests')
   assert.equal(state.nodes.get('sub')!.summary, 'planned')
   const brief = delivered(events, 'sub')[0].text
   assert.match(brief, /Your standing instructions:\nPlan in two steps\./)

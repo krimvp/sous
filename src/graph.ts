@@ -1,6 +1,6 @@
 // Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
-import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
+import { agentNames, agentSpec, leadRuntimeError, modelError, RUNTIMES } from './agents.ts'
 import { HARNESSES, INTEGRATOR, PERSON, ROLES, ROOT } from './types.ts'
 import type { AgentRuntime, AgentSpec, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
 
@@ -113,14 +113,15 @@ function validateDefinitions(raw: Record<string, any>, what: string): void {
   if (agent) throw new Error(`${what}: ${agent}`)
 }
 
-/** Why a node of `kind` may not name `agent`, if it may not. A work node needs a worker agent, a lead a lead agent. */
+/** Why a node of `kind` may not name `agent`, if it may not. A work node needs a worker agent, a lead an agent that runs
+ * lead or a lead-certified harness. */
 function agentError(defs: Pick<Definitions, 'agents'> | undefined, kind: string, agent: unknown): string | undefined {
   if (agent === undefined) return undefined
   if (kind === 'check' || kind === 'gate') return `${kind} nodes have no agent`
   if (typeof agent !== 'string') return 'agent must be a string'
   const spec = agentSpec(defs, agent)
   if (!spec) return `unknown agent ${agent} (known: ${agentNames(defs).join(', ')})`
-  if (kind === 'lead' && spec.runs !== 'lead') return `agent ${agent} runs ${spec.runs}; a lead needs an agent that runs lead`
+  if (kind === 'lead') return leadRuntimeError(agent, spec.runs)
   if (kind !== 'lead' && spec.runs === 'lead') return `agent ${agent} runs lead; a ${kind} node needs a worker agent`
   return undefined
 }
@@ -189,7 +190,7 @@ function newAgentError(defs: Definitions | undefined, kind: string, d: Record<st
   if (typeof d.name !== 'string' || !ID.test(d.name) || RESERVED.includes(d.name)) return `agent.name must be ${ID_RULE} and not be ${RESERVED.join(', ')}`
   if (agentSpec(defs, d.name)) return `agent ${d.name} already exists: name it, or define one with a new name`
   if (!RUNTIMES.includes(d.runs)) return `agent.runs must be one of ${RUNTIMES.join(', ')}`
-  if (kind === 'lead' && d.runs !== 'lead') return 'a lead needs an agent that runs lead'
+  if (kind === 'lead' && leadRuntimeError(d.name, d.runs)) return leadRuntimeError(d.name, d.runs)
   if (kind !== 'lead' && d.runs === 'lead') return `a ${kind} node needs an agent that does not run lead`
   for (const key of ['model', 'instructions'] as const) if (d[key] !== undefined && typeof d[key] !== 'string') return `agent.${key} must be a string`
   if (!defs?.models?.[d.runs as AgentRuntime]?.length) return `leads may not define agents on ${d.runs}: the run lists no ${d.runs} models`

@@ -42,7 +42,7 @@ const USAGE = `usage:
   sous clean [run-id] [--all] [--branches] [--unmerged] [--dry-run] [--workspace <dir>]  (remove a finished run's worktrees)
   sous --help | --version        (sous <command> --help shows one command)
   sous ui [--port <n>] [--workspace <dir>]   (a local page showing the workspace's runs, live or finished)
-  sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials, git state)`
+  sous doctor [--workspace <dir>]  (whether a run could start here: harnesses and versions, lead credentials and where leads run, git state)`
 
 /** The usage lines of `command`, or all of them when it names none. */
 function usageOf(command?: string): string {
@@ -242,6 +242,7 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   log.append({
     type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}),
     ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}),
+    ...(unavailable.leadRuns ? { leadRuns: unavailable.leadRuns } : {}),
     workerModels: unavailable.workerModels ?? {}, ...(maxCost !== undefined ? { maxCost } : {}),
   })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
@@ -275,7 +276,9 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string, maxCo
   console.log(`resuming run ${id} (${runDir})`)
   if (maxCost !== undefined) console.log(budgetLine(maxCost))
   // A run from before the choices were recorded started on the fixed lead default, and its workers on their harnesses'.
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, { leadModel: state.leadModel ?? DEFAULT_LEAD_MODEL, workerModels: state.workerModels ?? {} })
+  // One whose leads run on a harness keeps it, and its model, or none.
+  const leads = state.leadRuns ? { leadRuns: state.leadRuns, leadModel: state.leadModel } : { leadModel: state.leadModel ?? DEFAULT_LEAD_MODEL }
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, { ...leads, workerModels: state.workerModels ?? {} })
   for (const line of waitingLines(runStatus(workspace, id, runDir).waiting, runRef(workspace, id))) console.log(line)
   const printEvent = printer(events, () => runRef(workspace, id))
   let outcome: SupervisorOutcome | undefined
@@ -311,12 +314,14 @@ function printEnd(workspace: string, id: string, runDir: string): void {
 
 /** Check which agents can run, once per run start, and print it, with the model each agent runs its nodes on (a work
  * node's, for a worker agent; `recorded`: the defaults recorded for a resumed run). */
-async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, recorded?: Pick<Recorded, 'leadModel' | 'workerModels'>): Promise<Unavailable> {
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, recorded?: Pick<Recorded, 'leadModel' | 'leadRuns' | 'workerModels'>): Promise<Unavailable> {
   const unavailable = await checkAgents(graph, deps.leadCredential, recorded)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
   // The agents named after the integrator and the splitter serve only standing nodes, which get no default model.
   const standing = (name: string) => name === INTEGRATOR || name === SPLITTER
-  const label = (name: string) => `${name} (${agentModel(agentSpec(graph, name)!, unavailable, standing(name)) ?? 'harness default'})`
+  // A lead agent that names no model on a harness says why it is there: no lead provider had a credential.
+  const onHarness = (name: string) => agentSpec(graph, name)!.runs === 'lead' && agentSpec(graph, name)!.model === undefined && unavailable.leadRuns
+  const label = (name: string) => `${name} (${agentModel(agentSpec(graph, name)!, unavailable, standing(name)) ?? 'harness default'}${onHarness(name) ? ': no lead provider had a credential' : ''})`
   const names = startAgents(graph, unavailable)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
@@ -372,12 +377,13 @@ function printEvent(e: Event): void {
   switch (e.type) {
     case 'run.created': text = `goal: ${e.goal}`; break
     case 'node.added': text = `${e.node.id} (${e.node.kind}${e.node.agent ? `, ${e.node.agent}` : ''})`; break
-    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}` : ''} pid ${e.pid}`; break
+    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}${e.harness && e.harness !== e.agent ? ` (${e.harness})` : ''}` : ''} pid ${e.pid}`; break
     case 'turn.session': text = `${e.node} turn ${e.turn} session ${e.sessionId}`; break
     case 'turn.interrupted': text = `${e.node} turn ${e.turn} ${e.signal}: ${e.reason}`; break
     case 'turn.stalled': text = `${e.node} turn ${e.turn}: no output for ${duration(Date.parse(e.at) - Date.parse(e.since))}; it keeps running`; break
     case 'turn.ended':
-      text = `${e.node} turn ${e.turn} ` + (e.result ? `${e.result.status}: ${e.result.summary}` : `exit ${e.exitCode ?? e.signal}, ${e.error}`)
+      text = `${e.node} turn ${e.turn} ` + (e.result ? `${e.result.status}: ${e.result.summary}`
+        : e.lead ? `${e.lead.calls.length} call${e.lead.calls.length === 1 ? '' : 's'}: ${e.lead.answer}` : `exit ${e.exitCode ?? e.signal}, ${e.error}`)
       break
     case 'check.ended': text = `${e.node} exit ${e.exitCode}: ${lastLine(e.output)}`; break
     case 'node.completed': text = `${e.node}: ${e.summary}`; break
