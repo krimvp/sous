@@ -5,6 +5,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import type { Command } from '../contracts/index.ts'
 import { fold, isFinal, readEvents, writeCommand } from '../run/index.ts'
 import type { InboxMessage, RunState } from '../run/index.ts'
 
@@ -67,7 +68,8 @@ function pendingReceives(runDir: string, node: string, turn: number): number {
   } catch {}
   for (const f of files) {
     try {
-      const cmd = JSON.parse(readFileSync(join(runDir, 'commands', f), 'utf8'))
+      // Written by writeCommand, though any file there is read: the checks stay.
+      const cmd: Command | null = JSON.parse(readFileSync(join(runDir, 'commands', f), 'utf8'))
       if (cmd?.type === 'receive' && cmd.node === node && cmd.turn === turn && typeof cmd.upTo === 'number') upTo = Math.max(upTo, cmd.upTo)
     } catch {} // applied and removed meanwhile: the log has it
   }

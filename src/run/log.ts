@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Event, EventBody } from '../contracts/index.ts'
+import type { Command, Event, EventBody } from '../contracts/index.ts'
 
 export interface EventLog {
   /** Every event in the log, oldest first, including the ones appended through this handle. */
@@ -62,7 +62,7 @@ export function openLog(runDir: string, onEvent?: (event: Event) => void, opts: 
 
 /** Hand a command to the run's supervisor as a file in `<runDir>/commands/`, written whole (by rename) so the supervisor
  * never reads half of it. */
-export function writeCommand(runDir: string, cmd: object): void {
+export function writeCommand(runDir: string, cmd: Command): void {
   const dir = join(runDir, 'commands')
   const file = join(dir, `${Date.now()}-${randomBytes(4).toString('hex')}`)
   mkdirSync(dir, { recursive: true })
