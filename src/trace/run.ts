@@ -135,6 +135,42 @@ export function usagesOf(node: NodeView): (Usage | undefined)[] {
   ]
 }
 
+/** A run's or a node's token totals, and the cost reported. `costUsd` sums the turns that reported a cost; `unpriced`
+ * counts the turns with usage but no cost (Ollama reports no prices), so a partial sum is not taken for the price. */
+export interface Tokens { input: number; output: number; cached: number; costUsd?: number; unpriced: number }
+
+function addUsage(total: Tokens, u: Usage | undefined): Tokens {
+  if (!u) return total
+  total.input += u.inputTokens
+  total.output += u.outputTokens
+  total.cached += u.cachedTokens
+  if (u.costUsd !== undefined) total.costUsd = (total.costUsd ?? 0) + u.costUsd
+  else total.unpriced++
+  return total
+}
+
+export const tokensOf = (usages: (Usage | undefined)[]): Tokens => usages.reduce(addUsage, { input: 0, output: 0, cached: 0, unpriced: 0 })
+
+/** The whole run's totals, as the UI and `sous status` show them. */
+export const runTokens = (view: RunView): Tokens => tokensOf(view.nodes.flatMap(usagesOf))
+
+/** A run's view from its event log alone, without reading turn files: usage is as the log recorded it. */
+export const logView = (runDir: string): RunView => viewRun(loadRun(runDir, () => ({ items: [], ended: false }), () => false))
+
+/** A turn whose harness reports its session's running cost costs what that total grew by since the session's previous
+ * turn; a total lower than before means the harness started counting again. */
+function turnCosts(node: NodeView): void {
+  const totals = new Map<string, number>()
+  for (const t of node.turns.values()) {
+    const total = t.usage?.sessionCostUsd
+    if (total === undefined) continue
+    const session = t.sessionId ?? `turn ${t.turn}`
+    const before = totals.get(session) ?? 0
+    totals.set(session, total)
+    t.usage = { ...t.usage!, costUsd: total >= before ? total - before : total }
+  }
+}
+
 function nodeOf(e: Event): string | undefined {
   if (e.type === 'message') return e.to
   return 'node' in e && typeof e.node === 'string' ? e.node : undefined
@@ -256,5 +292,6 @@ export function viewRun(run: LoadedRun): RunView {
       }
     }
   }
+  view.nodes.forEach(turnCosts)
   return view
 }

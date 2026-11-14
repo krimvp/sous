@@ -34,7 +34,7 @@ export const pi: WorkerAdapter = {
 
   parse(raw) {
     const turn: ParsedTurn = { items: [], ended: false }
-    let usage: Required<Usage> | undefined
+    let usage: Required<Omit<Usage, 'sessionCostUsd'>> | undefined
     let last: string | undefined
     for (const event of jsonLines(raw)) {
       if (event.type === 'session' && typeof event.id === 'string') turn.sessionId ??= event.id

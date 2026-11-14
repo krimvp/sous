@@ -119,7 +119,12 @@ export interface Usage {
   cachedTokens: number
   /** Tokens written to the provider's prompt cache, when reported. */
   cacheWriteTokens?: number
+  /** The turn's cost in US dollars, when the harness reports one. */
   costUsd?: number
+  /** The cost of the whole session so far, for a harness that reports a running total instead of the turn's cost
+   * (Claude Code's `total_cost_usd` includes the session's earlier turns). An adapter sets this or `costUsd`, not both;
+   * `viewRun` gives such a turn the `costUsd` the session total grew by since the session's previous turn. */
+  sessionCostUsd?: number
 }
 
 /** Harness-neutral items parsed from one turn's raw output; the exporters' only view of a worker. */
