@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # What a PR must show before review: `npm run check` and `npm pack --dry-run` pass on the exact commit being pushed.
-# CI is not used (the account's GitHub Actions billing is blocked), so this runs as the pre-push hook
-# (.githooks/pre-push, installed by `npm install`) and by hand. Paste the last line into the PR as "head SHA checked".
+# The repository has no CI, so this runs as the pre-push hook (.githooks/pre-push, installed by `npm install`)
+# and by hand. Paste the last line into the PR as "head SHA checked".
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # As a hook in a linked worktree, git hands these down, and every `git init` the tests run in a temporary directory

@@ -1,7 +1,7 @@
 # Harnesses
 
-A harness is the coding-agent CLI a worker runs on. sous starts it for each turn in the worker's own git worktree,
-reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
+A harness is the coding-agent CLI that a worker runs on. For each turn, sous starts the CLI in the worker's own git
+worktree (or folder), reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
 same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
 also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
 
@@ -40,10 +40,10 @@ Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Ce
 temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
 
 Every certification run writes `test/fixtures/conformance/<harness>/certified.json`: the output of `<cli> --version`,
-the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. The next
-`npm run certify` for a harness creates its file (none is committed yet, so until then the Certified column above
-is the only record). `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
-certified ones, so you can see when a harness has moved on and needs certifying again.
+the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. Claude Code
+has this file. For Codex, Pi and Droid, the Certified column above is the only record until their next
+certification. `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
+certified ones. Use it to see when a CLI has a new version that needs a new certification.
 
 ## What sous keeps out of workers
 

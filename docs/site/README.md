@@ -1,12 +1,13 @@
 # Landing page
 
-`site/index.html` is the published page (https://krimvp.github.io/sous/, published with `scripts/publish-site.sh`,
-which needs only `site/`).
+`site/index.html` is the published page, <https://krimvp.github.io/sous/>. It is one self-contained HTML file.
 
-- [COPY.md](COPY.md): the page text, with fact sources. Every claim was fact-checked against the code.
+- [COPY.md](COPY.md) holds the page text in page order, with the source of each fact in the code or the docs.
 
-The art direction spec and the art review notes that the page was built from were removed from the tree; they remain
-on the branch `archive/site-notes-and-spikes` (at 0.1.1). They referred to scripts and drafts that were never committed.
+To change the page:
 
-To iterate: change the copy here, rebuild the page against it, review with screenshots, then fact-check the copy
-against the code. Notes in COPY.md that cite FACTS-1 and FACTS-3 refer to fact-check lists that were not committed.
+1. Change the text in COPY.md.
+2. Make the same change in `site/index.html`.
+3. Open the page in a browser and examine it at desktop and phone widths.
+4. Make sure that each claim agrees with the code and with [docs/design.md](../design.md).
+5. Run `scripts/publish-site.sh`. It commits `site/` to the `gh-pages` branch, and GitHub Pages serves it.
