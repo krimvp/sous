@@ -76,3 +76,19 @@ sous run --max-depth 4 "$(cat goal.md)"
 with a goal that fixes each level: "depth 1 splits into these four subsystem leads; depth 2 splits into 2–3
 module leads; depth 3 into 2–3 function leads; depth 4 spawns one worker on agent pi and one check". Leads
 otherwise decompose as they judge best, usually shallower.
+
+## Driving a run from a script or an agent
+
+```bash
+$M run graph.json > run.log 2>&1 & pid=$!
+until id=$(awk '$1 == "run" { print $2; exit }' run.log) && [ -n "$id" ]; do kill -0 $pid 2>/dev/null || exit 1; sleep 1; done
+while :; do
+  $M wait "$id" --json --timeout 540 > wait.json
+  case $? in
+    6) continue ;;                       # timeout: still working
+    4) node -e 'for (const a of require("./wait.json").waiting) if (!a.sent) console.log(a.kind, a.node, a.text, a.commands)'
+       break ;;                          # decide (or ask the user), run one of the commands, then loop again
+    *) break ;;                          # 0 completed, 3 failed, 5 stopped (resume it), 1/2 sous refused
+  esac
+done
+```

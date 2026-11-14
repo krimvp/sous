@@ -103,6 +103,9 @@ Or give it a fixed graph file:
 sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
 sous status                # latest run as a tree; a running turn shows its age and how long ago its output last grew
 sous runs                  # every run of the workspace, newest first: id, state, start, goal
+sous status --json         # the same as one JSON document, with what waits for you and the commands that answer it
+sous wait --timeout 300    # block until the run needs you or is over; the exit code says which (0 completed, 3 failed,
+                           # 4 waits for you, 5 stopped: resume it, 6 timeout); --json prints status --json with the reason
 sous --help | --version    # the usage (also: sous <command> --help), the installed version
 sous export atif           # writes .sous/runs/<id>/trace.atif.json
 sous export otlp           # needs LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY

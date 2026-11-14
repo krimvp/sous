@@ -5,6 +5,13 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- `sous status --json` prints a run's status as one JSON document (`RunStatus`: state, result, the node tree with
+  running turns' ages, what waits for the person with the commands that answer it, refused commands); the text status
+  is rendered from the same structure. `sous wait [run-id] [--timeout <seconds>] [--json]` blocks until the run needs
+  the person or is over and exits 0 completed, 3 failed (or completed with failed checks), 4 waits for the person, 5
+  stopped (resume needed) or 6 timeout; an ask whose answer was sent but not yet applied does not stop it, so `wait`,
+  `answer`, `wait` neither repeats nor spins. `sous status` marks such an ask `(answer sent)`. The skill drives runs
+  with `wait` and `status --json` instead of reading the run's output.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked
