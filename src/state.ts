@@ -80,7 +80,7 @@ export interface NodeState {
   turns: TurnState[]
   /** Runs of a `check` node's command. */
   checks: CheckState[]
-  /** Messages not yet taken: a turn's start takes them all, a lead delivery `evt-<seq>` takes one. */
+  /** Messages not yet taken: a turn's start takes them all, a lead delivery takes those it names (`evt-<seq>`). */
   inbox: InboxMessage[]
   summary?: string
   reason?: string
@@ -98,6 +98,8 @@ export interface NodeState {
   notes: string[]
   /** Leads: request IDs delivered, in order. */
   delivered: string[]
+  /** Leads: request IDs of the items delivered under another's request ID (`lead.delivered.carries`). */
+  carried: string[]
   /** Leads: answered every delivery (a lead may report an earlier delivery after a later one was delivered). */
   idle: boolean
   /** Leads: seq of the last `lead.turn`. */
@@ -220,7 +222,7 @@ export function fold(events: readonly Event[]): RunState {
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
-    spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], idle: false, reminders: 0, escalated: false,
+    spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], carried: [], idle: false, reminders: 0, escalated: false,
   })
   const finish = (node: NodeState | undefined, status: 'completed' | 'failed', text: string, seq: number) => {
     if (!node || isFinal(node)) return
@@ -331,7 +333,9 @@ export function fold(events: readonly Event[]): RunState {
           else node.reminders++
         }
         node.delivered.push(e.requestId)
-        node.inbox = node.inbox.filter((m) => `evt-${m.seq}` !== e.requestId)
+        node.carried.push(...(e.carries ?? []))
+        const taken = new Set([e.requestId, ...(e.carries ?? [])])
+        node.inbox = node.inbox.filter((m) => !taken.has(`evt-${m.seq}`))
         node.idle = false
         break
       }

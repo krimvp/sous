@@ -618,32 +618,46 @@ test('a second settled for a delivery already answered is ignored', async () => 
   assert.equal(turns.length, 2)
 })
 
+test('outcomes that arrive while the lead answers go out together once it is done, in order, as one turn', async () => {
+  const { outcome, events } = await runLead([
+    { calls: [{ tool: 'spawn', children: [['a', 0], ['b', 500], ['c', 500]].map(([id, sleepMs]) => ({ id: `${id}`, kind: 'work' as const, brief: `${id}\n${fakePlan([{ sleepMs: +sleepMs, result: done(`${id}`) }])}` })) }] },
+    { sleepMs: 2500 },
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])
+  assert.equal(outcome, 'completed')
+  const texts = delivered(events).map((d) => d.text)
+  assert.equal(texts.length, 3)
+  assert.equal(texts[1], 'Child a completed: a')
+  assert.match(texts[2], /^Child (b|c) completed: \1\n\nChild (b|c) completed: \2$/)
+  const [first, second] = texts[2].match(/Child (b|c)/g)!
+  assert.notEqual(first, second)
+  assert.equal(events.filter((e) => e.type === 'lead.turn').length, 3)
+})
+
 test('a lead that answers an earlier delivery while a later one waits is not idle and gets no reminder', async () => {
+  // Only an interrupt reaches a lead that has not answered yet; its parent sends one while sub's answer to its brief is
+  // reported late, after the interrupt was delivered, which sub then takes a while to answer.
   let held: (() => void) | undefined
   let deliveries = 0
-  const { outcome, events } = await runGraph([lead([
-    { calls: [{ tool: 'spawn', children: [
-      { id: 'a', kind: 'work', brief: `a\n${fakePlan([{ result: done('a') }])}` },
-      { id: 'b', kind: 'work', brief: `b\n${fakePlan([{ result: done('b') }])}`, needs: ['a'] },
-    ] }] },
-    {},
-    { calls: [{ tool: 'complete', summary: 'done' }] },
-  ])], undefined, {
+  const { outcome, events } = await runGraph([
+    lead([{}, { calls: [{ tool: 'complete', summary: 'done' }] }]),
+    lead([{}, { calls: [{ tool: 'complete', summary: 'sub done' }] }], { id: 'sub', parent: 'lead' }),
+  ], undefined, {
     createLeadRunner: (o) => {
-      // The answer to a's outcome is reported only after b's outcome was delivered, which the lead takes a while to answer.
       const runner = fakeLeadRunner({ ...o, host: { ...o.host, settled(node, turn) {
-        if (deliveries === 2) held = () => o.host.settled(node, turn)
-        else o.host.settled(node, turn)
+        if (node !== 'sub' || deliveries !== 1) return o.host.settled(node, turn)
+        held = () => o.host.settled(node, turn)
+        o.host.act('lead', 'int', { tool: 'send', to: 'sub', body: 'Change of plan.', mode: 'interrupt' })
       } } })
       return { ...runner, deliver(node, text, opts) {
-        if (++deliveries !== 3) return runner.deliver(node, text, opts)
+        if (node !== 'sub' || ++deliveries !== 2) return runner.deliver(node, text, opts)
         held!()
         return new Promise((r) => setTimeout(r, 300)).then(() => runner.deliver(node, text, opts))
       } }
     },
   })
   assert.equal(outcome, 'completed')
-  assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child'])
+  assert.deepEqual(delivered(events, 'sub').map((d) => [d.text.split(' ')[0], d.mode]), [['You', 'queue'], ['Message', 'interrupt']])
 })
 
 test('a person command that does not apply is recorded as refused, with the command and why, and changes nothing', async () => {

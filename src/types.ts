@@ -311,8 +311,11 @@ export type EventBody =
   /** Worker `node` read its messages up to seq `upTo` during its turn `turn` (`receive`). They count as read once that
    * turn ends with a result; a turn cut short gets them again when it resumes. Ignored once a later turn started. */
   | { type: 'inbox.read'; node: string; turn: number; upTo: number; command?: string }
-  /** Text delivered to a lead (its brief, a child's outcome, a message). */
-  | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
+  /** Text delivered to a lead (its brief, a child's outcome, a message). One delivery may carry several items at once
+   * (what a child told the lead while it worked, held for the next item that needs the lead, and whatever else waited
+   * while the lead was busy): `requestId` is the last item's, `carries` the request IDs (`evt-<seq>`) of the others, in
+   * order, each delivered by this event. */
+  | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt'; carries?: string[] }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
    * one event in the fold, so a call applies atomically. `ok: false` means policy refused it and nothing changed. */
   | { type: 'lead.call'; node: string; callId: string; call: LeadCall; ok: boolean; result: string }
