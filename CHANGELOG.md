@@ -44,8 +44,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 - A resumed Claude Code turn is no longer charged again for the turns before it: Claude's `total_cost_usd` is the
   session's running total, which sous summed per turn (a run that cost $1.39 showed $2.09). Each turn now costs what
-  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old figures
-  where only the log is read (the UI's run list, `sous status`). `sous status`, and `sous run`/`sous resume` when
+  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old (summed)
+  figures where only the log is read: the UI's run list, `sous status`, and the budget's spend, so resuming such a run
+  with `--max-cost` counts the inflated figure against the budget, while `sous ui`'s run view and `sous export`, which
+  read the turns' output, show the corrected one. `sous status`, and `sous run`/`sous resume` when
   the run ends, print the run's tokens and the cost reported, the same totals the UI shows: `usage: 115,414 tokens in
   (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)`.
 - `sous status --json` prints a run's status as one JSON document (`RunStatus`: state, result, the node tree with
