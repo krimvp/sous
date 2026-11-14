@@ -3,9 +3,9 @@
 // a run could start: a lead and at least one worker, in a repository with a commit or outside git.
 import { spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { checkAgents, defaultLeadModel } from './agents.ts'
+import { agentModel, checkAgents, defaultLeadModel } from './agents.ts'
 import { repoState } from './git.ts'
-import { ANY_LEAD_CREDENTIAL_FIX, HARNESSES, LEAD_PROVIDERS } from './types.ts'
+import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, HARNESSES, LEAD_PROVIDERS } from './types.ts'
 
 /** How long `<cli> --version` may take; a harness that answers later counts as on PATH with an unknown version. */
 const VERSION_TIMEOUT_MS = 5000
@@ -18,6 +18,8 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   const versions = await Promise.all(HARNESSES.map((cli) => (unavailable.commands.includes(cli) ? 'not on PATH' : version(cli))))
   HARNESSES.forEach((cli, i) => console.log(`${cli}: ${versions[i]}`))
   const workers = HARNESSES.filter((cli) => !unavailable.commands.includes(cli))
+  // The model a work node on each built-in worker agent runs on when nothing names one.
+  const onModel = (cli: (typeof HARNESSES)[number]) => `${cli} (${agentModel(BUILTIN_AGENTS[cli], unavailable) ?? 'harness default'})`
 
   const credentials = LEAD_PROVIDERS.filter((p) => sources.get(p.id) !== undefined).map((p) => `${p.id} (${sources.get(p.id)})`)
   console.log(`lead credentials: ${credentials.join(', ') || 'none'}`)
@@ -25,6 +27,7 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   if (problem) console.log(`Pi login: ${problem}`)
   const model = defaultLeadModel(unavailable)
   console.log(`lead model: ${model ?? 'none'}`)
+  console.log(`worker models: ${workers.map(onModel).join(', ') || 'none'}`)
 
   const repo = repoState(workspace)
   const changes = repo && (repo.changes ? `${repo.changes} uncommitted change${repo.changes === 1 ? '' : 's'} (workers see HEAD only)` : 'no uncommitted changes')

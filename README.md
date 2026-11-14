@@ -71,8 +71,26 @@ to API billing; prefer the Pi login or `OLLAMA_API_KEY` when your workers run on
 leads have not been run live yet. Another lead model, as `provider/model`, goes in an agents file (`--agents`,
 `{ "agents": { "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" } } }`) or on a graph's lead node. `sous doctor`
 shows what a run here would find (it does not check that a harness is logged in), and says what is missing. Their workers default to the first agent whose CLI is on your `PATH`: Claude
-Code, else Codex, else Pi, else Droid, each with its default model; a goal can ask for another agent, e.g. "use agent pi for
-every work child". Each run prints which agents are available.
+Code, else Codex, else Pi, else Droid; a goal can ask for another agent, e.g. "use agent pi for every work child".
+
+**Worker models.** A work node whose agent, node and lead name no model runs on a small model of its harness where sous
+knows one: Claude Code workers run on `haiku` (two Claude Code workers on a small task cost $1.39 on Claude's default
+model and $0.02 on `haiku`). Codex, Pi and Droid have no such default: their default model depends on your login or
+settings, so they run on it. An agent's or a node's `model`, and a lead's choice from the run's `models`, still win; to
+run a worker on its harness's own default instead, give its agent `"model": "default"` (for the built-in Claude agent:
+`{ "agents": { "claude": { "runs": "claude", "model": "default" } } }`). The integrator and splitters, which judge
+merges and plans for the whole run, keep their agent's model or the harness's default. Each run prints the agents
+with the model their work runs on (`agents: claude (haiku), codex (harness default), …`), `sous doctor` prints the
+worker models, and a lead's brief names the model of every agent it may give a child. A run keeps the models it
+started with when resumed.
+
+**Cost budget.** `sous run --max-cost <usd>` stops the run once the cost its turns reported reaches the budget: no new
+turn starts, the running turns are stopped as Ctrl-C stops them, and `sous run` ends with the run stopped (not failed):
+`stopped at its cost budget: $0.55 reported of $0.50 …; continue with a higher budget: sous resume <run-id> --max-cost
+<usd>`. `sous resume` without a higher `--max-cost` refuses such a run; `sous status` and `sous wait` (exit 5, stopped)
+say the same. The budget bounds only the cost reported: a cost is known when a turn ends, so the turns running at the
+time can overshoot it, and turns that report no cost (Codex and Droid workers, and leads and Pi workers on Ollama) are not
+counted. There is no turn timeout yet.
 
 In a git repository (it needs at least one commit), each work node runs in its own git worktree, in parallel
 with the others; when it is done its branch is merged into the run's branch `sous/<run-id>`, one merge at a time. A conflict, or a check that fails after a merge, goes to the integrator: an agent of the run
@@ -115,6 +133,7 @@ Or give it a fixed graph file:
 
 ```bash
 sous run graph.json        # runs in the current directory (the repository root, in a git repository); state in .sous/runs/<id>/
+sous run graph.json --max-cost 2   # stop once the turns reported $2 of cost; sous resume --max-cost <more> continues
 sous status                # latest run as a tree; a running turn shows its age and how long ago its output last grew
                            # and the run's tokens and reported cost, also printed when `sous run` ends
 sous runs                  # every run of the workspace, newest first: id, state, start, goal

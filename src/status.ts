@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { branchExists, commitsNotIn } from './git.ts'
 import { listRuns, lockHolder, readEvents } from './log.ts'
-import { ancestors, awaitsSplitApproval, completedText, fold, isFinal } from './state.ts'
+import { ancestors, awaitsSplitApproval, budgetResume, completedText, fold, isFinal, overBudget, usd } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
 import { logView, runTokens } from './trace/run.ts'
 import { WAIT_EXIT_CODES } from './types.ts'
@@ -28,20 +28,33 @@ export function resultOf(state: RunState, runDir: string): RunStatus['result'] {
   return branchExists(state.workspace, branch) ? { branch } : { branch, deleted: true }
 }
 
-/** The run's tokens and the cost its harnesses reported, from the log alone, as the UI totals them; nothing when no turn
- * recorded usage. */
-export function runUsage(runDir: string): RunStatus['usage'] {
+/** The run's tokens and the cost its harnesses reported, from the log alone, as the UI totals them, with the run's budget
+ * (`maxCost`); nothing when no turn recorded usage and the run has no budget. */
+export function runUsage(runDir: string, maxCost?: number): RunStatus['usage'] {
   const t = runTokens(logView(runDir))
-  return t.costUsd === undefined && !t.unpriced ? undefined : t
+  if (t.costUsd === undefined && !t.unpriced && maxCost === undefined) return undefined
+  return maxCost === undefined ? t : { ...t, maxCostUsd: maxCost }
 }
 
-/** A cost is only what was reported: the turns that reported none are counted, not priced. */
+/** A cost is only what was reported: the turns that reported none are counted, not priced, and not counted against a
+ * budget either, which this says once. */
 export function usageText(t: NonNullable<RunStatus['usage']>): string {
   const n = (x: number) => x.toLocaleString('en-US')
-  const unpriced = t.unpriced ? ` (${t.unpriced} turn${t.unpriced === 1 ? '' : 's'} reported no cost)` : ''
-  const cost = t.costUsd === undefined ? 'no cost reported' : `$${t.costUsd.toFixed(t.costUsd < 0.01 ? 4 : 2)} cost reported${unpriced}`
+  const budget = t.maxCostUsd === undefined ? '' : ` of a ${usd(t.maxCostUsd)} budget`
+  const unpriced = t.unpriced ? ` (${t.unpriced} turn${t.unpriced === 1 ? '' : 's'} reported no cost${budget ? ` and ${t.unpriced === 1 ? 'is' : 'are'} not counted against it` : ''})` : ''
+  const cost = t.costUsd === undefined ? `no cost reported${budget}${unpriced}` : `${usd(t.costUsd)} cost reported${budget}${unpriced}`
   return `usage: ${n(t.input)} tokens in (${n(t.cached)} cached), ${n(t.output)} out; ${cost}`
 }
+
+/** A run that stopped at its budget: the cost reported and the budget, while it is not over. */
+export function budgetOf(state: RunState): RunStatus['budget'] {
+  if (state.status !== 'running' || !(state.budgetReached || overBudget(state))) return undefined
+  return { spentUsd: state.spent.costUsd, maxCostUsd: state.maxCost! }
+}
+
+/** Why a run stopped at its budget, with the limits of the number. */
+export const budgetText = (b: NonNullable<RunStatus['budget']>) =>
+  `stopped at its cost budget: ${usd(b.spentUsd)} reported of ${usd(b.maxCostUsd)} (a cost is known when a turn ends, so turns in flight can overshoot)`
 
 /** For a finished git-mode run, the one line naming what the person may do next: look at the result, merge it, clean
  * up; each only while it still applies. */
@@ -110,7 +123,8 @@ export function runStatus(workspace: string, id: string, runDir: string): RunSta
   })
   const refused = events.flatMap((e) => (e.type === 'command.refused' ? [{ at: e.at, reason: e.reason }] : [])).slice(-3)
   const result = resultOf(state, runDir)
-  const usage = runUsage(runDir)
+  const usage = runUsage(runDir, state.maxCost)
+  const budget = budgetOf(state)
   const next = nextSteps(state, runDir, runRef(workspace, id))
   return {
     id, state: live, goal: state.goal, mode: state.mode,
@@ -118,8 +132,9 @@ export function runStatus(workspace: string, id: string, runDir: string): RunSta
     ...(state.reason !== undefined ? { reason: state.reason } : {}),
     ...(result ? { result } : {}),
     ...(usage ? { usage } : {}),
+    ...(budget ? { budget } : {}),
     nodes, waiting, refused,
-    ...(live === 'stopped' ? { resume: `sous resume ${id}` } : {}),
+    ...(live === 'stopped' ? { resume: budget ? budgetResume(id) : `sous resume ${id}` } : {}),
     ...(next ? { next } : {}),
     at,
   }
@@ -156,6 +171,7 @@ function summaryOf(n: NodeState): string | undefined {
 export function statusText(s: RunStatus, r: string): string {
   const lines = [`run ${s.id} ${s.state}: ${firstLine(s.goal)}`]
   if (s.reason) lines.push(`  ${oneLine(s.reason)}`)
+  if (s.budget) lines.push(`  ${budgetText(s.budget)}`)
   if (s.result) lines.push(`  result: ${resultText(s.result)}`)
   if (s.usage) lines.push(`  ${usageText(s.usage)}`)
   const parent = new Map(s.nodes.map((n) => [n.id, n.parent]))
@@ -220,7 +236,8 @@ export function waitText(w: RunWait, r: string, timeoutSeconds?: number): string
     completed: `run ${w.id} completed`,
     failed: w.state === 'completed' ? `run ${w.id} completed with failed checks` : `run ${w.id} failed`,
     waiting: `run ${w.id} waits for you: ${asks.map((a) => `${a.kind === 'question' ? 'a question from' : a.kind === 'gate' ? 'approval of gate' : 'approval of the split of'} ${a.node}`).join(', ')}`,
-    stopped: `run ${w.id} stopped before it was over; continue it with: ${w.resume}`,
+    stopped: w.budget ? `run ${w.id} stopped at its cost budget (${usd(w.budget.spentUsd)} reported of ${usd(w.budget.maxCostUsd)}); continue it with a higher budget: ${w.resume}`
+      : `run ${w.id} stopped before it was over; continue it with: ${w.resume}`,
     timeout: `run ${w.id} still running after ${timeoutSeconds} s`,
   }[w.wait]
   return `${why} (exit ${WAIT_EXIT_CODES[w.wait]})\n${statusText(w, r)}`

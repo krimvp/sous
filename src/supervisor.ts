@@ -19,7 +19,7 @@ import {
 import { childError } from './graph.ts'
 import { openLog, procStartTime } from './log.ts'
 import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets, withoutIdentity } from './send.ts'
-import { ancestors, awaitsSplitApproval, callKey, childrenOf, completedText, failedChecks, fold, isFinal, roleAgent } from './state.ts'
+import { ancestors, awaitsSplitApproval, budgetRefusal, callKey, childrenOf, completedText, failedChecks, fold, isFinal, overBudget, roleAgent } from './state.ts'
 import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
 import { INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
 import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, ParsedTurn, TurnResult, WorkerAdapter } from './types.ts'
@@ -40,9 +40,12 @@ export interface SupervisorOptions {
   resume?: boolean
   /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
   unavailable?: Unavailable
+  /** `sous resume --max-cost`: the run's budget from here on, recorded in `run.resumed`. */
+  maxCost?: number
 }
 
-export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
+/** `budget`: the run stopped at its cost budget (`budget.reached`), not over; `interrupted`: stopped otherwise. */
+export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted' | 'budget'
 
 const MAX_CONCURRENT = 4
 const MAX_FIX_ROUNDS = 2
@@ -256,12 +259,18 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   const stallMs = opts.stallMs ?? STALL_MS
   const log = openLog(runDir, opts.onEvent, { takeOver: opts.resume })
   if (opts.resume) {
-    const { status } = fold(log.events)
-    if (status !== 'running') {
+    const state = fold(log.events)
+    if (state.status !== 'running') {
       log.close()
-      throw new Error(`the run already ${status}; a finished run is not resumed`)
+      throw new Error(`the run already ${state.status}; a finished run is not resumed`)
     }
-    log.append({ type: 'run.resumed' })
+    // A run stopped at its budget continues only with a higher one (checked by `sous resume` too).
+    const limit = opts.maxCost ?? state.maxCost
+    if (limit !== undefined && state.spent.costUsd >= limit) {
+      log.close()
+      throw new Error(budgetRefusal(runId, state.spent.costUsd, limit))
+    }
+    log.append({ type: 'run.resumed', ...(opts.maxCost !== undefined ? { maxCost: opts.maxCost } : {}) })
   }
   const commandsDir = join(runDir, 'commands')
   mkdirSync(commandsDir, { recursive: true })
@@ -299,7 +308,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
 
-  const stop = () => {
+  // Set when the cost reported reached the run's budget: the run stops as on a supervisor stop.
+  let budgetStop = false
+  const stop = (reason = 'supervisor stopped') => {
     if (stopping) return
     stopping = true
     // Every group is stopped whatever the log does: it may be what failed (a full disk, a throwing onEvent), and then
@@ -309,12 +320,25 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       void terminate(pid)
       if (g.turn === undefined || !recording) continue
       try {
-        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason: 'supervisor stopped', signal: 'SIGTERM' })
+        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason, signal: 'SIGTERM' })
       } catch {
         recording = false
       }
     }
   }
+  /** Once the cost the run's turns reported reaches its budget: record it and stop, so no new turn starts and the running
+   * ones are stopped as on Ctrl-C (their sessions resume). Called whenever a turn's cost is recorded (a worker's
+   * `turn.ended`, a lead's `lead.turn`) and on every pass of the loop. A cost is known only when a turn ends, so the
+   * turns in flight may spend past the budget; turns that report no cost are not counted. */
+  const checkBudget = () => {
+    if (stopping) return
+    const state = current()
+    if (!overBudget(state)) return
+    log.append({ type: 'budget.reached', spentUsd: state.spent.costUsd, maxCostUsd: state.maxCost! })
+    budgetStop = true
+    stop('the run reached its cost budget')
+  }
+
   /** Ctrl-C (or SIGTERM) stops the run; a second one while it stops kills every group still being stopped. */
   const onSignal = () => {
     if (!stopping) return stop()
@@ -386,6 +410,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       // After a crash the runner may report a delivery a second time; the first report stands.
       if (closed || log.events.some((e) => e.type === 'lead.turn' && e.node === node && e.requestId === requestId)) return
       log.append({ type: 'lead.turn', node, requestId, status, text, model, ...(usage ? { usage } : {}) })
+      checkBudget()
       wakeUp()
     },
   }
@@ -596,7 +621,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     const running = sessionId ? adapter.resume({ ...turnSpec, sessionId }) : adapter.start(turnSpec)
     const { pid } = running
     log.append({
-      type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, agent: agent.name, pid, startTime: procStartTime(pid),
+      type: 'turn.started', node: spec.id, turn, mode, harness: adapter.name, agent: agent.name, ...(agent.model !== undefined ? { model: agent.model } : {}),
+      pid, startTime: procStartTime(pid),
       outFile: turnSpec.outFile, errFile: turnSpec.errFile, prompt, ...(recovery ? { recovery } : {}),
     })
     groups.set(pid, { node: spec.id, turn })
@@ -670,6 +696,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       error = `${error}; ${stderr}`
     }
     log.append({ type: 'turn.ended', node: spec.id, turn, exitCode: exit.code, signal: exit.signal, result, usage, error })
+    // Before the caller can start another turn of this node.
+    checkBudget()
     return { result, sessionId: session, exited }
   }
 
@@ -1071,6 +1099,10 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     for (const n of current().nodes.values()) {
       for (const t of n.turns) if (!t.ended) await closeTurn(n.spec, t)
     }
+    // A turn that ended while the supervisor was down may have reached the budget: then nothing runs, the lead runner's
+    // unfinished work included, and the run stops again.
+    checkBudget()
+    if (stopping) return
     const state = current()
     // A node cancelled while its merge ran, when the supervisor stopped before it reset the integration branch: its merge
     // (clean, or committed by the integrator) is still on the branch, and nothing merged after it. Reset it now, once:
@@ -1122,8 +1154,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!stopping) readCommands()
       const state = current()
       if (state.status !== 'running') return state.status
+      checkBudget()
       if (stopping) {
-        if (!tasks().length) return 'interrupted'
+        if (!tasks().length) return budgetStop ? 'budget' : 'interrupted'
         await Promise.race(tasks())
         continue
       }

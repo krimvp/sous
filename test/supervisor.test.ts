@@ -285,7 +285,7 @@ test('a lead spawns a child by agent name: a defined agent does it, an unknown a
   ])
   assert.deepEqual([started, state.nodes.get('r')!.turns[0].agent], [[['pi', undefined]], 'reviewer'])
   assert.match(promptOf(sessions, state.nodes.get('r')!), /Your standing instructions:\nOnly review\./)
-  assert.match(delivered(events)[0].text, new RegExp(`Agents a child may name: for work children ${HARNESSES.join(', ')}, reviewer \\(runs pi\\) \\(default claude\\); for lead children lead`))
+  assert.match(delivered(events)[0].text, new RegExp(`Agents a child may name: for work children ${HARNESSES.map((h) => `${h} \\(harness default model\\)`).join(', ')}, reviewer \\(runs pi, harness default model\\) \\(default claude\\); for lead children lead \\(model ollama-cloud/deepseek-v4.1-flash\\)`))
 })
 
 test('a lead defines hr on claude: its workers get its instructions and the default model, a later spawn names it', async () => {
@@ -379,7 +379,7 @@ test('a lead child may run on an agent a lead defines on lead; a worker runtime 
   assert.equal(state.nodes.get('sub')!.summary, 'planned')
   const brief = delivered(events, 'sub')[0].text
   assert.match(brief, /Your standing instructions:\nPlan in two steps\./)
-  assert.match(brief, /for lead children lead, planner \(runs lead\)/)
+  assert.match(brief, /for lead children lead \(model ollama-cloud\/deepseek-v4.1-flash\), planner \(runs lead, model other\/planner-model\)/)
   assert.deepEqual(fakeLeadRecords(runDir).find((r) => r.op === 'deliver' && r.node === 'sub'), { op: 'deliver', node: 'sub', requestId: 'sub:brief', mode: 'queue', model: 'other/planner-model' })
 })
 

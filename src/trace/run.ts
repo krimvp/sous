@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { agentSpec } from '../agents.ts'
-import { childNode, fold } from '../state.ts'
+import { childNode, fold, turnCost } from '../state.ts'
 import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
@@ -157,17 +157,13 @@ export const runTokens = (view: RunView): Tokens => tokensOf(view.nodes.flatMap(
 /** A run's view from its event log alone, without reading turn files: usage is as the log recorded it. */
 export const logView = (runDir: string): RunView => viewRun(loadRun(runDir, () => ({ items: [], ended: false }), () => false))
 
-/** A turn whose harness reports its session's running cost costs what that total grew by since the session's previous
- * turn; a total lower than before means the harness started counting again. */
+/** Each turn's cost (`turnCost`): a turn whose harness reports its session's running cost costs what that total grew by
+ * since the session's previous turn. */
 function turnCosts(node: NodeView): void {
   const totals = new Map<string, number>()
   for (const t of node.turns.values()) {
-    const total = t.usage?.sessionCostUsd
-    if (total === undefined) continue
-    const session = t.sessionId ?? `turn ${t.turn}`
-    const before = totals.get(session) ?? 0
-    totals.set(session, total)
-    t.usage = { ...t.usage!, costUsd: total >= before ? total - before : total }
+    if (t.usage?.sessionCostUsd === undefined) continue
+    t.usage = { ...t.usage, costUsd: turnCost(t.usage, t.sessionId ?? `turn ${t.turn}`, totals) }
   }
 }
 
@@ -247,7 +243,7 @@ export function viewRun(run: LoadedRun): RunView {
           turn: e.turn,
           mode: e.mode,
           agent: e.agent ?? node.spec.agent ?? e.harness,
-          model: parsed.model ?? node.spec.model ?? (e.agent ? agentSpec(view.agents, e.agent)?.model : undefined),
+          model: parsed.model ?? e.model ?? node.spec.model ?? (e.agent ? agentSpec(view.agents, e.agent)?.model : undefined),
           prompt: e.prompt ?? (parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`),
           sessionId: parsed.sessionId,
           startedAt: e.at,

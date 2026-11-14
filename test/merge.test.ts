@@ -42,14 +42,18 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: opts.getAdapter ?? (() => adapter), createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent })
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: opts.getAdapter ?? (() => adapter), createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent, unavailable: opts.unavailable })
   const events = readEvents(runDir)
   const integration = join(runDir, 'integration')
   const prompts = (node: string) => {
     const session = fold(events).nodes.get(node)!.turns[0].sessionId
     return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).prompts as string[]
   }
-  return { workspace, runDir, integration, outcome, events, state: fold(events), prompts }
+  const models = (node: string) => {
+    const session = fold(events).nodes.get(node)!.turns[0].sessionId
+    return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).models as (string | null)[]
+  }
+  return { workspace, runDir, integration, outcome, events, state: fold(events), prompts, models }
 }
 
 const mergeDone = (events: Event[], node: string) => events.flatMap((e) => (e.type === 'merge.done' && e.node === node ? [e] : []))[0]
@@ -186,6 +190,19 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
     'Merge conflict, sent to the integrator: conflict in f.txt',
     `Merged by integrator at ${mergeDone(events, 'b')?.commit}`,
   ])
+})
+
+test("the integrator, a standing node, keeps its harness's default model while the run's work nodes get the small default", async () => {
+  const { outcome, models } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    files: { 'f.txt': 'base\n' },
+    agents: { integrator: { runs: 'claude', instructions: fakePlan([{ sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`, result: done('kept both') }]) } },
+    unavailable: { commands: [], leadProviders: [], workerModels: { claude: 'haiku' } },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual([models('a'), models('b'), models(INTEGRATOR)], [['haiku'], ['haiku'], [null]])
 })
 
 test('conflict markers committed by the integrator fail verification, at any marker size; one retry, then the merge is done', async () => {

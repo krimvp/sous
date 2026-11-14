@@ -1,6 +1,6 @@
 // A scripted stand-in for a harness CLI. Reads the prompt on stdin and plays one step of the plan
 // found on a `FAKE_PLAN: {...}` line of the first prompt; the session file remembers the plan and
-// every prompt received, so a resumed session continues where it left off.
+// every prompt received (and the model of each turn, null for none), so a resumed session continues where it left off.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
@@ -32,11 +32,12 @@ export interface FakeStep {
 
 const sessionFile = process.argv[2]
 const prompt = readFileSync(0, 'utf8')
-const session: { plan: FakeStep[]; prompts: string[] } = existsSync(sessionFile)
+const session: { plan: FakeStep[]; prompts: string[]; models: (string | null)[] } = existsSync(sessionFile)
   ? JSON.parse(readFileSync(sessionFile, 'utf8'))
-  : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [] }
+  : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [], models: [] }
 const step = session.plan[session.prompts.length] ?? {}
 session.prompts.push(prompt)
+session.models.push(process.argv[3] || null)
 writeFileSync(sessionFile, JSON.stringify(session))
 
 const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')

@@ -124,6 +124,15 @@ export interface RunState {
   graph?: GraphFile
   /** The model of lead agents that name none, from `run.created`. */
   leadModel?: string
+  /** The default model of work nodes by harness, from `run.created` (absent in older logs: none). */
+  workerModels?: Partial<Record<HarnessName, string>>
+  /** The run's cost budget in US dollars: `run.created.maxCost`, replaced by a later `run.resumed.maxCost`. */
+  maxCost?: number
+  /** The cost the run's worker and lead turns reported so far (`turnCost`), and how many turns with usage reported none
+   * (they are not counted against the budget). */
+  spent: { costUsd: number; unpriced: number }
+  /** The last `budget.reached` since the run was last resumed. */
+  budgetReached?: { spentUsd: number; maxCostUsd: number }
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
   /** The agent definitions the person wrote (the graph's, or the agents file's), without those leads defined. */
@@ -142,6 +151,31 @@ export interface RunState {
   /** The run's integration branch, once created. */
   integration?: { branch: string; path: string }
 }
+
+/** What one turn cost, from its usage: its `costUsd`, or, for a harness that reports its session's running total instead
+ * (Claude Code), what that total grew by since the session's previous turn. `totals` holds the last total by session
+ * and is updated; a total lower than before means the harness started counting again. Undefined: no cost reported.
+ * The one rule behind both the budget (`fold`) and the totals of status and the traces (`viewRun`). */
+export function turnCost(usage: Usage | undefined, session: string, totals: Map<string, number>): number | undefined {
+  const total = usage?.sessionCostUsd
+  if (total === undefined) return usage?.costUsd
+  const before = totals.get(session) ?? 0
+  totals.set(session, total)
+  return total >= before ? total - before : total
+}
+
+/** Whether the cost reported so far reached the run's budget. */
+export const overBudget = (state: RunState) => state.maxCost !== undefined && state.spent.costUsd >= state.maxCost
+
+/** A cost in US dollars as sous prints it: cents, or four decimals below a cent. */
+export const usd = (x: number) => `$${x.toFixed(x < 0.01 ? 4 : 2)}`
+
+/** How to continue run `id` once its reported cost `spent` reached its budget `limit`. */
+export const budgetResume = (id: string) => `sous resume ${id} --max-cost <usd>`
+
+/** Why run `id` is not resumed without a higher budget, and how it is. */
+export const budgetRefusal = (id: string, spent: number, limit: number) =>
+  `run ${id} stopped at its cost budget: ${usd(spent)} reported of ${usd(limit)}; continue it with a higher budget: ${budgetResume(id)} with more than ${usd(spent)}`
 
 export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' || n?.status === 'failed'
 
@@ -214,6 +248,13 @@ export function completedText(n: NodeState): string {
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
     goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', mode: 'git', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(), sent: new Map(),
+    spent: { costUsd: 0, unpriced: 0 },
+  }
+  // Sessions' last reported running totals, by node and session (`turnCost`).
+  const sessionTotals = new Map<string, number>()
+  const spend = (cost: number | undefined) => {
+    if (cost === undefined) state.spent.unpriced++
+    else state.spent.costUsd += cost
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
@@ -257,7 +298,10 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
+        Object.assign(state, {
+          goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, workerModels: e.workerModels, maxCost: e.maxCost,
+          maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true,
+        })
         state.agents = { agent, agents: registry(agents), models }
         state.definitions = { agent, agents: registry(agents), models }
         break
@@ -287,6 +331,7 @@ export function fold(events: readonly Event[]): RunState {
       case 'turn.ended': {
         const t = turn(e.node, e.turn)
         if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, usage: e.usage, error: e.error })
+        if (e.usage) spend(turnCost(e.usage, `${e.node}\n${t?.sessionId ?? `turn ${e.turn}`}`, sessionTotals))
         const node = state.nodes.get(e.node)
         if (node?.read?.turn === e.turn) {
           if (e.result) node.inbox = node.inbox.filter((m) => m.seq > node.read!.upTo)
@@ -337,6 +382,7 @@ export function fold(events: readonly Event[]): RunState {
       case 'lead.turn': {
         const node = state.nodes.get(e.node)
         if (!node) break
+        if (e.usage) spend(e.usage.costUsd)
         const done = answered.get(e.node) ?? new Set<string>()
         answered.set(e.node, done.add(e.requestId))
         Object.assign(node, {
@@ -408,6 +454,13 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'merge.failed':
         finish(state.nodes.get(e.node), 'failed', `merge failed: ${e.reason}`, e.seq)
+        break
+      case 'run.resumed':
+        if (e.maxCost !== undefined) state.maxCost = e.maxCost
+        state.budgetReached = undefined
+        break
+      case 'budget.reached':
+        state.budgetReached = { spentUsd: e.spentUsd, maxCostUsd: e.maxCostUsd }
         break
       case 'run.completed':
         Object.assign(state, { status: 'completed', summary: e.summary })
