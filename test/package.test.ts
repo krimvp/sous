@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 test('the package runs from node_modules, and its MCP server and send command are its own compiled files', async () => {
-  const pkg = join(mkdtempSync(join(tmpdir(), 'sous-package-')), 'node_modules', '@krimvp', 'sous')
+  const pkg = join(mkdtempSync(join(realpathSync(tmpdir()), 'sous-package-')), 'node_modules', '@krimvp', 'sous')
   mkdirSync(pkg, { recursive: true })
   execFileSync(process.execPath, [join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', join(ROOT, 'tsconfig.build.json'), '--outDir', join(pkg, 'dist')])
   cpSync(join(ROOT, 'src', 'ui', 'page.html'), join(pkg, 'dist', 'ui', 'page.html'))

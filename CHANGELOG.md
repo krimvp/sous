@@ -5,6 +5,9 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- macOS: `sous resume` stops a turn that outlived a killed supervisor, and a run's lock tells a reused pid from its
+  holder. Both need a process's start time, which sous read only from Linux's `/proc`; without it, sous now asks `ps`,
+  which counts in seconds. The test suite passes on macOS.
 - Docs: the README is rewritten for new users (how it works, requirements, a quick start, a command table, lead
   providers, security). `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to
   private projects or branches are removed.
