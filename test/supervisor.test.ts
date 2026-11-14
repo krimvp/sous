@@ -503,6 +503,14 @@ test('an idle lead gets two reminders and then fails', async () => {
   assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
 })
 
+test('a lead that answers its reminders with notes and sends alone still fails as idle', async () => {
+  const chatty = Array.from({ length: 8 }, (_, i) => ({ calls: [i % 2 ? { tool: 'note' as const, text: `n${i}` } : { tool: 'send' as const, to: 'person', body: `m${i}`, mode: 'queue' as const }] }))
+  const { outcome, events, state } = await runLead([{}, ...chatty])
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
+  assert.equal(delivered(events).length, 3)
+})
+
 test('a delivery the runner could not get answered is retried once with the reason; a second failure fails the lead with it', async () => {
   const reason = 'model_error: 401 the login expired'
   const recovered = await runLead([{ unanswered: reason }, { calls: [{ tool: 'complete', summary: 'done after the retry' }] }])

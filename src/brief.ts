@@ -259,30 +259,34 @@ export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
 /** The first turn of a lead on a CLI harness after its turn `cut` was cut short or ended without a result. */
 const CUT = (turn: number) => `Your turn ${turn} ended before its result: none of its calls were applied. Continue from here.`
 
-/** The prompt of a lead turn on a CLI harness: the results of its last turn's calls, in order (`results`, with `skipped`
- * calls after a refusal), a note when its last turn ended without a result (`cut`), and the deliveries it answers. */
-export function leadTurnPrompt(deliveries: string[], results: { call: LeadCall; result: string }[], skipped: LeadCall[], cut?: number): string {
+/** The prompt of a lead turn on a CLI harness: the results of the calls of its last applied turn, in order (`results`,
+ * with `skipped` calls after a refusal), and the deliveries it answers. When its last turn (`cut`) ended without a result,
+ * it says so first, and the results are labelled with the turn that applied them (`applied`). */
+export function leadTurnPrompt(deliveries: string[], results: { call: LeadCall; result: string }[], skipped: LeadCall[], cut?: number, applied?: number): string {
   const lines = [...results.map((r) => `${r.call.tool}: ${r.result}`), ...skipped.map((c) => `${c.tool}: not applied, since an earlier call was refused`)]
+  const which = cut === undefined ? 'your last turn' : `your turn ${applied}, the last one applied`
   return [
-    ...(lines.length ? [`Results of the calls of your last turn, in order:\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`] : []),
     ...(cut !== undefined ? [CUT(cut)] : []),
+    ...(lines.length ? [`Results of the calls of ${which}, in order:\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`] : []),
     ...deliveries,
   ].join('\n\n') + '\n'
 }
-
-/** Delivered to a lead on a CLI harness whose turn had a call refused, so that it acts on the results. */
-export const REFUSED_CALL = 'A call of your last turn was refused (see its result above), and the calls after it were not applied. Decide what to do now.'
 
 /** The one retry a lead gets when the runner could not get its last delivery answered. */
 export function retryPrompt(reason: string): string {
   return `Your last turn was not answered (${reason}). Continue where you left off; a second failure ends your work with that reason.\n`
 }
 
-/** Sent to a lead that settled with nothing left to wait for. */
-export function idleReminder(node: string, k: number, max: number, waiting: string[]): string {
+/** Sent to a lead that settled with nothing left to wait for; `refused` when a call of its last turn was refused (a lead
+ * on a CLI harness, whose prompt starts with the results). */
+export function idleReminder(node: string, k: number, max: number, waiting: string[], refused = false): string {
   const ask = waiting.length ? ` Children waiting for your answer: ${waiting.join(', ')}; answer them with send.` : ''
-  return `Reminder ${k} of ${max}: no child of ${node} is working and no message is waiting, but ${node} is not finished.${ask} ` +
-    `Spawn children, complete, fail or escalate. After ${max} reminders without a tool call, ${node} fails.\n`
+  const why = refused
+    ? 'a call of your last turn was refused (see its result above) and the calls after it were not applied; no child'
+    : 'no child'
+  return `Reminder ${k} of ${max}: ${why} of ${node} is working and no message is waiting, but ${node} is not finished.${ask} ` +
+    `Spawn children, cancel, complete, fail or escalate: a note or a send alone does not count. After ${max} reminders ` +
+    `without one, ${node} fails.\n`
 }
 
 // ---- The integrator ----------------------------------------------------------------------------

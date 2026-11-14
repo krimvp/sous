@@ -8,7 +8,7 @@ import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoi
 import type { Agent, Unavailable } from './agents.ts'
 import {
   composeBrief, fixPrompt, HARNESS_LEAD_ROLE, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, leadTurnPrompt,
-  mergeRequest, outcomeText, recoveryPrompt, REFUSED_CALL, resultReminder, retryPrompt, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
+  mergeRequest, outcomeText, recoveryPrompt, resultReminder, retryPrompt, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
 } from './brief.ts'
 import { collect, linkedFolder, listFiles, readText } from './files.ts'
 import type { Root } from './files.ts'
@@ -478,9 +478,6 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     for (const c of children) {
       if (isFinal(c) && c.cancelledBy !== id) items.push({ seq: c.endSeq!, mode: 'queue', info: false, text: outcomeText(c) })
     }
-    // A lead on a harness learns its calls' results in its next turn; a refused call needs that turn now.
-    const refused = onHarness ? refusedCall(id) : undefined
-    if (refused !== undefined) items.push({ seq: refused, mode: 'queue', info: false, text: REFUSED_CALL })
     const taken = (seq: number) => lead.delivered.includes(`evt-${seq}`) || lead.carried.includes(`evt-${seq}`)
     const fresh = items.filter((i) => !taken(i.seq)).sort((a, b) => a.seq - b.seq)
     // A waiting child with messages is about to resume, and one whose open question is to the person (a gate, a lead
@@ -505,8 +502,13 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (lead.unanswered.retried) return abandon(state, id, `unanswered after a retry: ${lead.unanswered.reason}`)
       return deliver(lead, agent, `evt-${lead.lastTurn}`, retryPrompt(lead.unanswered.reason), 'queue')
     }
-    if (lead.reminders >= MAX_REMINDERS) return abandon(state, id, `idle after ${MAX_REMINDERS} reminders`)
-    deliver(lead, agent, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting), 'queue')
+    // A lead on a harness learns its calls' results in its next turn. A refused call earns that turn only here, as a
+    // reminder: while a child works its next delivery carries them, so refused calls cannot drive turns of their own.
+    const refused = onHarness ? refusedCall(id) : undefined
+    if (lead.reminders >= MAX_REMINDERS) {
+      return abandon(state, id, `idle after ${MAX_REMINDERS} reminders${refused ? `; ${refused.call.tool} was ${refused.result}` : ''}`)
+    }
+    deliver(lead, agent, `evt-${lead.lastTurn}`, idleReminder(id, lead.reminders + 1, MAX_REMINDERS, waiting, refused !== undefined), 'queue')
   }
 
   // ---- Leads on a CLI harness -------------------------------------------------------------------
@@ -532,11 +534,11 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     return { results, skipped: [] }
   }
 
-  /** The seq of the refused call of lead `id`'s last applied turn, if one was refused: it needs a turn of its own. */
-  const refusedCall = (id: string): number | undefined => {
+  /** The refused call of lead `id`'s last applied turn, if one was refused. */
+  const refusedCall = (id: string) => {
     const t = appliedTurn(nodeNow(id))
     if (!t) return undefined
-    return log.events.find((e) => e.type === 'lead.call' && e.node === id && !e.ok && e.callId.startsWith(`t${t.number}.`))?.seq
+    return log.events.find((e) => e.type === 'lead.call' && e.node === id && !e.ok && e.callId.startsWith(`t${t.number}.`)) as Extract<Event, { type: 'lead.call' }> | undefined
   }
 
   /** Apply the calls of turn `t`, then settle the deliveries its prompt carried (`covered`), whose answer it was. */
@@ -546,14 +548,6 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (host.act(id, leadCallId(t.number, i), call).startsWith('refused:')) break
     }
     for (const requestId of covered) host.settled(id, { requestId, status: 'done', text: answer, model: agent.model ?? `${agent.runs} default` })
-    // Two turns in a row whose first call was refused applied nothing: the lead is stuck.
-    const state = current()
-    const lead = state.nodes.get(id)!
-    const firstRefused = (turn: TurnState) => turn.lead!.calls.length > 0 && state.calls.get(callKey(id, leadCallId(turn.number, 0)))?.startsWith('refused:')
-    const acted = lead.turns.filter((turn) => turn.lead && !turn.interrupted && turn.lead.calls.length)
-    if (!isFinal(lead) && acted.length >= 2 && acted.slice(-2).every(firstRefused) && acted.at(-1)!.number === t.number) {
-      abandon(state, id, 'two turns in a row had their first call refused')
-    }
   }
 
   /** Turns of lead `id` on its harness while deliveries wait for an answer: a recorded result is settled first (a turn
@@ -592,7 +586,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
         return abandon(state, id, `a supervisor stop cut its turn short after ${MAX_RECOVERIES} recoveries`)
       }
       const { results, skipped } = callResults(state, id)
-      const prompt = leadTurnPrompt(pending.map((d) => d.text), results, skipped, cut)
+      const prompt = leadTurnPrompt(pending.map((d) => d.text), results, skipped, cut, applied?.number)
       const out = resultsDir()
       const cwd = folder ? linkedFolder(nodeFolder(id), workspace, out) : out
       const sessionId = lead.turns.findLast((t) => t.sessionId)?.sessionId

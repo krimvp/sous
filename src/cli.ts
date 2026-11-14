@@ -113,6 +113,10 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   }
   if (parsed.values.json && command !== 'status' && command !== 'wait') return usageError('--json is for status and wait')
   if (parsed.values.timeout !== undefined && command !== 'wait') return usageError('--timeout is for wait')
+  if (parsed.values.stat && command !== 'diff') return usageError('--stat is for diff')
+  for (const flag of ['all', 'branches', 'unmerged', 'dry-run'] as const) {
+    if (parsed.values[flag] && command !== 'clean') return usageError(`--${flag} is for clean`)
+  }
   const rawCost = parsed.values['max-cost']
   if (rawCost !== undefined && command !== 'run' && command !== 'resume') return usageError('--max-cost is for run and resume')
   const maxCost = rawCost === undefined ? undefined : Number(rawCost)

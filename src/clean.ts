@@ -46,7 +46,9 @@ function cleanGit(workspace: string, id: string, runDir: string, events: Event[]
   const report: CleanReport = { removed: [], kept: [] }
   const verb = opts.dryRun ? 'would remove' : 'removed'
   const show = (path: string) => relative(workspace, path) || path
+  // By name and, for a path that exists, by real path: a link in the run directory to another worktree is not in the run.
   const inRun = (path: string) => resolve(path).startsWith(resolve(runDir) + sep)
+    && (!existsSync(path) || realpathSync(path).startsWith(realpathSync(runDir) + sep))
   const result = events.find((e) => e.type === 'integration.created')
   const trees = [
     ...events.flatMap((e) => (e.type === 'worktree.created' ? [{ path: e.path, branch: e.branch, node: e.node as string | undefined }] : [])),

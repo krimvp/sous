@@ -14,7 +14,9 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   turn is a Claude Code turn that only reads (Read, Glob and Grep, confined to the run's results by `--restricted`, no
   MCP server, no project hooks) and ends with its calls, which sous applies after the turn through the same checks as
   every lead call (call IDs `t<turn>.<index>`, so a recovered run applies each once); a refused call stops the rest of
-  its turn and gives the lead a turn with the results. The mechanism is the harness adapter's (`TurnSpec.lead`,
+  its turn, and the lead learns the results with its next delivery (a child's outcome, or a reminder when no child
+  works). For every lead, a `note` or `send` alone no longer counts as progress against the idle reminders, so a lead
+  answering each reminder with only a note fails after two, as one that does nothing does. The mechanism is the harness adapter's (`TurnSpec.lead`,
   `ParsedTurn.lead`, `LeadResult`), not Claude's: a harness leads once its certification passes the new lead tests
   (`LEAD_HARNESSES`). Codex has a lead mode that is not yet certified; Pi and Droid have none. A lead named on a harness
   that may not lead is refused before the run starts, with how to certify it.
@@ -44,8 +46,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 - A resumed Claude Code turn is no longer charged again for the turns before it: Claude's `total_cost_usd` is the
   session's running total, which sous summed per turn (a run that cost $1.39 showed $2.09). Each turn now costs what
-  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old figures
-  where only the log is read (the UI's run list, `sous status`). `sous status`, and `sous run`/`sous resume` when
+  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old (summed)
+  figures where only the log is read: the UI's run list, `sous status`, and the budget's spend, so resuming such a run
+  with `--max-cost` counts the inflated figure against the budget, while `sous ui`'s run view and `sous export`, which
+  read the turns' output, show the corrected one. `sous status`, and `sous run`/`sous resume` when
   the run ends, print the run's tokens and the cost reported, the same totals the UI shows: `usage: 115,414 tokens in
   (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)`.
 - `sous status --json` prints a run's status as one JSON document (`RunStatus`: state, result, the node tree with
