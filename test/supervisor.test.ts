@@ -8,12 +8,12 @@ import type { Definitions, Event, EventBody, HarnessName, LeadHost, NodeSpec, Tu
 import { runSupervisor } from '../src/supervisor/index.ts'
 import type { SupervisorOptions } from '../src/supervisor/index.ts'
 import { exportAtif } from '../src/trace/index.ts'
-import { checkAtif } from './atif-checker.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
-import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './fixtures/fake-lead.ts'
-import type { FakeLeadStep } from './fixtures/fake-lead.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
+import { checkAtif } from './helpers/atif-checker.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { fakeAdapter, fakePlan } from './helpers/fake-adapter.ts'
+import { fakeLeadPlan, fakeLeadRecords, fakeLeadRunner } from './helpers/fake-lead.ts'
+import type { FakeLeadStep } from './helpers/fake-lead.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 

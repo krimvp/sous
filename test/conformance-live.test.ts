@@ -19,7 +19,7 @@ import { HARNESSES } from '../src/contracts/index.ts'
 import type { HarnessName, ParsedTurn, RunningTurn, TurnSpec } from '../src/contracts/index.ts'
 import { CONFORMANCE, NEEDS_INPUT_PROMPT, NOTE, READ_FILE_PROMPT, certifiedUrl, recordingUrl } from './conformance/harnesses.ts'
 import type { Recording } from './conformance/harnesses.ts'
-import { git, gitWorkspace } from './fixtures/git-repo.ts'
+import { git, gitWorkspace } from './helpers/git-repo.ts'
 
 const live = process.env.SOUS_CERTIFY === '1'
 const record = process.env.SOUS_RECORD === '1'

@@ -6,8 +6,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { fakeBin } from './fixtures/sous-proc.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { fakeBin } from './helpers/sous-proc.ts'
 
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 

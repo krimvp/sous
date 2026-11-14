@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { startUi } from '../src/ui/index.ts'
 import type { Event, EventBody, ParsedTurn } from '../src/contracts/index.ts'
-import { sous } from './fixtures/sous-proc.ts'
+import { sous } from './helpers/sous-proc.ts'
 
 // The lead fixture (see trace-atif.test.ts): `lead` spawns `impl` (work, completes after one Claude turn) and `docs`
 // (lead, spawns `readme`); the person interrupts the lead, which cancels docs and completes the run.

@@ -11,11 +11,11 @@ import { test } from 'node:test'
 import { fold, openLog, readEvents, writeCommand } from '../src/run/index.ts'
 import { runSupervisor } from '../src/supervisor/index.ts'
 import type { ChildSpec, Event, EventBody, NodeSpec } from '../src/contracts/index.ts'
-import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
-import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
-import type { FakeLeadStep } from './fixtures/fake-lead.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
+import { fakeAdapter, fakePlan } from './helpers/fake-adapter.ts'
+import { fakeLeadPlan, fakeLeadRunner } from './helpers/fake-lead.ts'
+import type { FakeLeadStep } from './helpers/fake-lead.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
 
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const MCP = new URL('../src/mcp.ts', import.meta.url).pathname

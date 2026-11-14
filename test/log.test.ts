@@ -47,7 +47,7 @@ test('refuses a lock held by a live supervisor; only a takeover (sous resume) re
 })
 
 test('only one of many concurrent supervisors gets the lock', async () => {
-  const taker = new URL('./fixtures/lock-taker.ts', import.meta.url).pathname
+  const taker = new URL('./helpers/lock-taker.ts', import.meta.url).pathname
   for (let round = 0; round < 5; round++) {
     const runDir = tempRun()
     const exits = Array.from({ length: 16 }, (_, id) => {

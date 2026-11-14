@@ -14,7 +14,7 @@ import { runSupervisor, stopGroup } from '../src/supervisor/index.ts'
 import { HARNESSES } from '../src/contracts/index.ts'
 import type { HarnessName, ParsedTurn, TurnSpec } from '../src/contracts/index.ts'
 import { CONFORMANCE, NOTE, RECORDINGS, recording, recordingUrl } from './conformance/harnesses.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
 
 const tempDir = () => mkdtempSync(join(tmpdir(), 'sous-conformance-'))
 const MCP_SERVER = fileURLToPath(new URL('../src/mcp.ts', import.meta.url))

@@ -9,9 +9,9 @@ import { getAdapter } from '../src/adapters/index.ts'
 import { fold, openLog, readEvents } from '../src/run/index.ts'
 import { runSupervisor } from '../src/supervisor/index.ts'
 import type { Event, EventBody, LeadRunner, NodeSpec, TurnSpec, WorkerAdapter } from '../src/contracts/index.ts'
-import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
-import { git, gitWorkspace } from './fixtures/git-repo.ts'
-import { fakeBin } from './fixtures/sous-proc.ts'
+import { fakeAdapter, fakePlan } from './helpers/fake-adapter.ts'
+import { git, gitWorkspace } from './helpers/git-repo.ts'
+import { fakeBin } from './helpers/sous-proc.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, extra: Partial<NodeSpec> = {}): NodeSpec =>

@@ -1,4 +1,4 @@
-// A WorkerAdapter that runs test/fixtures/fake-worker.ts as a real child process in its own process group.
+// A WorkerAdapter that runs test/helpers/fake-worker.ts as a real child process in its own process group.
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, mkdirSync, openSync } from 'node:fs'

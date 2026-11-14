@@ -14,7 +14,7 @@ import { openNodeJsonlStorage } from '@earendil-works/pi-durable/storage/jsonl/n
 import { openLeadRunner } from '../src/lead/runner.ts'
 import type { LeadCall, LeadHost, LeadRead } from '../src/contracts/index.ts'
 
-const fixture = join(import.meta.dirname, 'fixtures', 'lead-proc.ts')
+const fixture = join(import.meta.dirname, 'helpers', 'lead-proc.ts')
 
 function fauxModels() {
   const faux = fauxProvider()

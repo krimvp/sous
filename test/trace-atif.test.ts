@@ -8,7 +8,7 @@ import type { HarnessName, ParsedTurn } from '../src/contracts/index.ts'
 import { exportAtif, toAtif } from '../src/trace/atif.ts'
 import { SOUS_VERSION } from '../src/self.ts'
 import { loadRun } from '../src/trace/index.ts'
-import { checkAtif } from './atif-checker.ts'
+import { checkAtif } from './helpers/atif-checker.ts'
 
 // The fixture run: `impl` (Claude) starts, fails its acceptance check, is resumed and completes; `verify` is a
 // check node; `docs` (Codex) is interrupted and fails; the log ends in a line cut off mid-append. Parsing raw

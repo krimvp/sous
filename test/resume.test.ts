@@ -7,14 +7,14 @@ import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fold, openLog, readEvents } from '../src/run/index.ts'
 import type { Event, EventBody, NodeSpec } from '../src/contracts/index.ts'
-import { checkAtif } from './atif-checker.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { fakePlan } from './fixtures/fake-adapter.ts'
-import { fakeLeadPlan, fakeLeadRecords } from './fixtures/fake-lead.ts'
-import { fakeBin, sous, runDirOf, waitFor } from './fixtures/sous-proc.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
+import { checkAtif } from './helpers/atif-checker.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { fakePlan } from './helpers/fake-adapter.ts'
+import { fakeLeadPlan, fakeLeadRecords } from './helpers/fake-lead.ts'
+import { fakeBin, sous, runDirOf, waitFor } from './helpers/sous-proc.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
 
-const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathname
+const CRASH = new URL('./helpers/crash-supervisor.ts', import.meta.url).pathname
 const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
 
 function workspaceWith(nodes: NodeSpec[]) {
