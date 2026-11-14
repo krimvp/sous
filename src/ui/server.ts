@@ -138,15 +138,19 @@ function runSummary(runDir: string) {
   const live = lockHolder(runDir) !== undefined
   const cached = summaries.get(runDir)
   if (cached?.size === size && cached.live === live) return cached.summary
-  const summary = summarize(runDir)
+  const summary = summarize(runDir, readRun(runDir))
   summaries.set(runDir, { size, live, summary })
   return summary
 }
 
-function summarize(runDir: string) {
+/** A run's state and its view, both from one reading of its log, so a log that grows meanwhile cannot set them apart.
+ * Only the turn files of the nodes `parses` picks are read. */
+function readRun(runDir: string, parseTurn: ParseTurn = () => ({ items: [], ended: false }), parses: (node: string) => boolean = () => false) {
   const events = readEvents(runDir)
-  const state = fold(events)
-  const view = viewRun(loadRun(runDir, () => ({ items: [], ended: false }), () => false))
+  return { state: fold(events), view: viewRun(loadRun(runDir, parseTurn, parses, events)) }
+}
+
+function summarize(runDir: string, { state, view }: ReturnType<typeof readRun>) {
   return {
     id: view.runId,
     goal: state.goal,
@@ -207,12 +211,11 @@ function spansOf(node: NodeView, end: string | undefined): Span[] {
 }
 
 function runDetail(runDir: string) {
-  const events = readEvents(runDir)
-  const state = fold(events)
-  const view = viewRun(loadRun(runDir, () => ({ items: [], ended: false }), () => false))
+  const run = readRun(runDir)
+  const { state, view } = run
   const status = liveStatus(runDir, state)
   return {
-    ...runSummary(runDir),
+    ...summarize(runDir, run),
     status,
     summary: state.summary,
     reason: state.reason,
@@ -275,10 +278,10 @@ const argsText = (item: TraceItem) => item.kind === 'tool_call' && typeof item.a
 /** Everything about one node: its brief, its own events (a lead's decisions), and each worker turn with its parsed
  * trace. Only this node's turn files are read. */
 function nodeDetail(runDir: string, id: string, parseTurn: ParseTurn) {
-  const view = viewRun(loadRun(runDir, parseTurn, (n) => n === id))
-  const node = view.nodes.find((n) => n.spec.id === id)
+  const run = readRun(runDir, parseTurn, (n) => n === id)
+  const node = run.view.nodes.find((n) => n.spec.id === id)
   if (!node) throw new Error(`no node ${id}`)
-  const state = fold(readEvents(runDir)).nodes.get(id)
+  const state = run.state.nodes.get(id)
   return {
     spec: node.spec,
     by: node.by,

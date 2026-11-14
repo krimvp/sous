@@ -41,7 +41,7 @@ test('loadRun skips the truncated final event line and parses each turn with its
 test('loadRun rejects a corrupt line that is not the last one', () => {
   const dir = mkdtempSync(join(tmpdir(), 'sous-trace-'))
   writeFileSync(join(dir, 'events.jsonl'), '{"seq":1,"at":"2026-10-11T10:00:00Z","type":"run.cr\n{"seq":2}\n')
-  assert.throws(() => loadRun(dir, parseTurn), /events\.jsonl:1/)
+  assert.throws(() => loadRun(dir, parseTurn), /events\.jsonl line 1\b/)
 })
 
 test('the ATIF document passes the strict checker', () => {
@@ -228,8 +228,8 @@ test('a cancellation by the person comes from node.cancelled, and the lead\'s la
   cpSync(LEAD_RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'events.jsonl')
   const lines = readFileSync(file, 'utf8').trim().split('\n')
-  lines.splice(20, 0, JSON.stringify({ seq: 99, at: '2026-10-11T11:00:17.000Z', type: 'node.cancelled', node: 'docs', by: 'person' }))
-  writeFileSync(file, lines.join('\n') + '\n')
+  lines.splice(20, 0, JSON.stringify({ at: '2026-10-11T11:00:17.000Z', type: 'node.cancelled', node: 'docs', by: 'person' }))
+  writeFileSync(file, lines.map((l, i) => JSON.stringify({ ...JSON.parse(l), seq: i + 1 })).join('\n') + '\n')
   const out = toAtif(loadRun(dir, parseTurn)) as Obj
   assert.deepEqual(checkAtif(out), [])
   const docs = trajectories(out).find((t) => t.trajectory_id.endsWith('/docs'))!
