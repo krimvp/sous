@@ -122,7 +122,7 @@ function locate(roots: Root[], path = ''): { real?: string; shown: string } {
   return { real, shown: parts.join('/') }
 }
 
-/** A listing of `path` and everything below it (directories end in `/`, files show their size), at most 200 entries. */
+/** A listing of `path` and everything below it (directories end in `/`, files show their size), at most MAX_ENTRIES entries. */
 export function listFiles(roots: Root[], path?: string): string {
   const { real, shown } = locate(roots, path)
   const entries: string[] = []
@@ -153,7 +153,7 @@ export function listFiles(roots: Root[], path?: string): string {
   return entries.join('\n') + (more ? `\n(listing stopped at ${MAX_ENTRIES} entries; list a subdirectory to see more)` : '')
 }
 
-/** Up to 32 KB of the text file `path` from byte `offset`, with a note on how to read on; `bytes` is how much was read.
+/** Up to MAX_READ bytes of the text file `path` from byte `offset`, with a note on how to read on; `bytes` is how much was read.
  * A directory, or a file with NUL bytes (not text), is refused. */
 export function readText(roots: Root[], path: string, offset = 0): { text: string; bytes: number } {
   const { real } = locate(roots, path)

@@ -18,7 +18,8 @@ import { runCheckNode, runWork } from './work.ts'
 export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
 
 const MAX_CONCURRENT = 4
-/** How often `<runDir>/commands/` is checked for `sous answer`, `sous approve` and `sous cancel`. */
+/** How often `<runDir>/commands/` is checked for the person's `sous answer`, `sous approve` and `sous cancel`, and
+ * workers' `send` and `receive`. */
 const POLL_MS = 200
 
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
