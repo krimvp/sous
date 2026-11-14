@@ -38,7 +38,8 @@ export type AgentRuntime = HarnessName | 'lead'
 /** An agent: the unit that does work. The harness is only how it runs. */
 export interface AgentSpec {
   runs: AgentRuntime
-  /** For CLI harnesses the harness's model name; for leads `provider/model`. */
+  /** For CLI harnesses the harness's model name (`default`: the harness's own default, see HARNESS_DEFAULT_MODEL;
+   * absent: DEFAULT_WORKER_MODELS for a work node); for leads `provider/model`. */
   model?: string
   /** Standing instructions added to every brief this agent receives. */
   instructions?: string
@@ -53,6 +54,18 @@ export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = Object.fromEn
  * agent named `integrator` overrides the integrator choice. */
 export const WORKER_AGENT_PREFERENCE = ['claude', 'codex', 'pi', 'droid'] as const
 export const INTEGRATOR_AGENT_PREFERENCE = ['codex', 'claude', 'pi', 'droid'] as const
+
+/** The model a work node of the tree runs on when its agent, its node and its lead name none: a small, inexpensive model
+ * of the harness, where the repository has evidence the name is valid there (Claude Code: `haiku`, the model it is
+ * certified on, test/conformance/harnesses.ts). A harness without an entry runs on its own default: Codex's, Pi's and
+ * Droid's depend on the person's login or settings (Pi's and Droid's on the providers they set up), and sous knows no
+ * model name valid for every setup. Standing nodes (the integrator, a splitter) do judgment-heavy work for the whole run
+ * and keep the harness's default. `run.created.workerModels` records the table a run started with. */
+export const DEFAULT_WORKER_MODELS: Readonly<Partial<Record<HarnessName, string>>> = { claude: 'haiku' }
+
+/** As an agent's or a node's `model` on a CLI harness: pass no model, so the harness runs on its own default (the
+ * behaviour before DEFAULT_WORKER_MODELS). */
+export const HARNESS_DEFAULT_MODEL = 'default'
 
 /** Node ID and agent name reserved for the run's integrator. */
 export const INTEGRATOR = 'integrator'
@@ -292,12 +305,16 @@ export type EventBody =
    * `approveSplits`: the person approves each split the splitter proposes before its lead receives it.
    * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`.
    * `leadModel`: the model of lead agents that name none, chosen from the credentials present when the run was created
-   * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string }
+   * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs.
+   * `workerModels`: DEFAULT_WORKER_MODELS when the run was created, so a resumed run keeps running each node on what it
+   * started with; absent (older logs) means none: every harness on its own default.
+   * `maxCost`: the run's cost budget in US dollars (`sous run --max-cost`), see `budget.reached`. */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string; workerModels?: Partial<Record<HarnessName, string>>; maxCost?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
-   * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
-  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
+   * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. `model`: the model sous passed to
+   * the harness; absent, the harness ran on its own default. */
+  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; model?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   /** A warning, recorded once per turn: the turn's output file has not grown since `since` (its start, or its last
@@ -335,8 +352,14 @@ export type EventBody =
    * named no node of the run, or no longer applied when read (the node finished, a gate was not waiting), or never does
    * (an answer to a check or a gate, a cancel of a standing node). `reason` names the command and why. */
   | { type: 'command.refused'; command: string; reason: string }
-  /** `sous resume` took over a run whose supervisor had stopped. */
-  | { type: 'run.resumed' }
+  /** `sous resume` took over a run whose supervisor had stopped. `maxCost`: the budget `sous resume --max-cost` set for
+   * the run from here on, replacing the earlier one. */
+  | { type: 'run.resumed'; maxCost?: number }
+  /** The cost the run's turns reported (`spentUsd`, see `turnCost`) reached its budget (`maxCostUsd`): the supervisor
+   * starts no new turn, stops the running ones as a supervisor stop does (their sessions stay resumable) and exits, the
+   * run not over. A cost is known only when a turn ends, so turns in flight can spend past the budget, and turns that
+   * report no cost (Codex and Droid workers, leads and Pi workers on Ollama) are not counted. `sous resume --max-cost <more>` continues it. */
+  | { type: 'budget.reached'; spentUsd: number; maxCostUsd: number }
   /** The run's integration branch and worktree, created before the first work or check node starts. */
   | { type: 'integration.created'; branch: string; path: string; base: string }
   /** A node's own worktree and branch, created from the integration branch at `base` (a commit). */
@@ -437,15 +460,19 @@ export interface RunStatus {
   reason?: string
   /** Where the results are: the run's branch (git mode, once created) or its output folder (folder mode, once it exists). */
   result?: { branch: string; deleted?: true } | { folder: string }
-  /** The run's tokens so far and the cost its harnesses reported, absent when no turn recorded usage. `costUsd` sums the
-   * turns that reported a cost; `unpriced` counts those that reported none, so a partial sum is not taken for the price. */
-  usage?: { input: number; output: number; cached: number; costUsd?: number; unpriced: number }
+  /** The run's tokens so far and the cost its harnesses reported, absent when no turn recorded usage and the run has no
+   * budget. `costUsd` sums the turns that reported a cost; `unpriced` counts those that reported none, so a partial sum is
+   * not taken for the price. `maxCostUsd`: the run's budget (`--max-cost`), which bounds only `costUsd`. */
+  usage?: { input: number; output: number; cached: number; costUsd?: number; unpriced: number; maxCostUsd?: number }
+  /** The run stopped at its budget (`budget.reached`, or a log whose reported cost is at its budget): it is `stopped`,
+   * and `resume` names a higher `--max-cost`. */
+  budget?: { spentUsd: number; maxCostUsd: number }
   /** Every node, depth first: each node is followed by its subtree. */
   nodes: StatusNode[]
   waiting: StatusAsk[]
   /** The latest three person commands the supervisor did not apply, latest last. */
   refused: { at: string; reason: string }[]
-  /** How to continue a stopped run: `sous resume <id>`. */
+  /** How to continue a stopped run: `sous resume <id>`, with `--max-cost <more>` for a run stopped at its budget. */
   resume?: string
   /** For a finished git-mode run, what the person may do next, while it still applies: `next: sous diff, then git merge
    * sous/<id>, then sous clean`. */
@@ -456,7 +483,8 @@ export interface RunStatus {
 
 /** Why `sous wait` returned, and its exit code. `completed`: the run completed and no top-level node completed over a
  * failed check. `failed`: the run failed, or completed with failed checks. `waiting`: something waits for the person
- * that no command sent for it answers yet (`StatusAsk.sent`). `stopped`: the run is not over and its supervisor is gone.
+ * that no command sent for it answers yet (`StatusAsk.sent`). `stopped`: the run is not over and its supervisor is gone,
+ * also when it stopped at its cost budget (`RunStatus.budget` says so, and `resume` how to raise it).
  * `timeout`: none of these within `--timeout`. */
 export const WAIT_EXIT_CODES = { completed: 0, failed: 3, waiting: 4, stopped: 5, timeout: 6 } as const
 export type WaitReason = keyof typeof WAIT_EXIT_CODES

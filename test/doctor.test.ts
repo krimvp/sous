@@ -42,6 +42,7 @@ test('sous doctor reports each harness with its version, the lead credentials an
     'droid: on PATH; --version exited 2: no such option; login not checked',
     'lead credentials: none',
     'lead model: none',
+    'worker models: claude (haiku), pi (harness default), droid (harness default)',
     `workspace: ${workspace}, git repository at its top level, 2 uncommitted changes (workers see HEAD only)`,
     'not ready: no lead provider has a credential: set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login',
     '',

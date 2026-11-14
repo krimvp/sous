@@ -3,8 +3,8 @@
 ## Commands
 
 ```
-sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
-sous resume [run-id] [--workspace <dir>]
+sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--max-cost <usd>] [--approve-splits] [--workspace <dir>]
+sous resume [run-id] [--max-cost <usd>] [--workspace <dir>]   (--max-cost: stop once the cost reported reaches it; resume raises it)
 sous status [run-id] [--json] [--workspace <dir>]   (the run as a tree with a `usage:` line of tokens and reported cost, or as one JSON document: see below)
 sous wait [run-id] [--timeout <seconds>] [--json] [--workspace <dir>]   (blocks until the run needs you or is over)
 sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
@@ -53,7 +53,8 @@ text. `sous wait --json` prints it with `"wait"`, why it returned.
   "summary": "…",                // run.completed's summary, once completed
   "reason": "…",                 // run.failed's reason, once failed
   "result": { "branch": "sous/20261114T092641Z-ef7f" },   // or { "folder": "<dir>" }; absent until there is one; "deleted": true once the branch is gone
-  "usage": { "input": 115414, "output": 2141, "cached": 75142, "costUsd": 0.73, "unpriced": 1 },   // tokens so far; costUsd only what was reported, unpriced: turns that reported none
+  "usage": { "input": 115414, "output": 2141, "cached": 75142, "costUsd": 0.73, "unpriced": 1, "maxCostUsd": 2 },   // tokens so far; costUsd only what was reported, unpriced: turns that reported none (not counted against the budget), maxCostUsd: --max-cost
+  "budget": { "spentUsd": 0.55, "maxCostUsd": 0.5 },   // only when the run stopped at its budget: state is "stopped", resume names --max-cost
   "nodes": [                     // depth first; a node is followed by its subtree
     { "id": "lead", "kind": "lead", "status": "running", "turns": 0 },
     { "id": "w", "kind": "work", "parent": "lead", "status": "running", "agent": "claude", "turns": 1,
@@ -68,7 +69,7 @@ text. `sous wait --json` prints it with `"wait"`, why it returned.
       "commands": { "answer": "sous answer lead \"<answer>\"" }, "sent": true }
   ],                             // split: { "approve", "answer" (changes) }; "sent": an answer is sent, not yet applied
   "refused": [{ "at": "…", "reason": "sous cancel nope: no node nope" }],   // the latest three, latest last
-  "resume": "sous resume 20261114T092641Z-ef7f",   // when stopped
+  "resume": "sous resume 20261114T092641Z-ef7f",   // when stopped; "sous resume <id> --max-cost <usd>" at its budget
   "next": "next: sous diff, then git merge sous/…, then sous clean",   // a finished git-mode run: what is left to do
   "at": "…",                     // when it was read
   "wait": "waiting"              // wait --json only
@@ -95,8 +96,10 @@ reads the run's files. It returns, with exit code:
 | `agents` | named agents: `{ "runs": "claude" \| "codex" \| "pi" \| "droid" \| "lead", "model"?, "instructions"? }`; a name may shadow a built-in and follows the id rule (letters, digits, `_` and `-`, and `.` after the first character); `integrator` picks who resolves merge conflicts (default first available of `codex`, `claude`, `pi`, `droid`); `splitter` (not on `lead`) proposes every lead's split before its brief, its `instructions` being the strategy |
 | `models` | per runtime, the models **leads** may choose: `{ "claude": ["sonnet"], "pi": ["ollama-cloud/glm-5.3"], … }`. No list for a runtime: leads choose no model for it and cannot define agents on it |
 
-Agents the person defines are not limited by `models`. An agent with no `model` uses its harness's default
-(Claude's, Codex's, Pi's or Droid's own settings; for `lead`, the first lead provider with a credential, in the order
+Agents the person defines are not limited by `models`. A work node whose agent and node name no `model` runs on a
+small model where sous knows one (Claude Code: `haiku`), else on its harness's default (Codex's, Pi's or Droid's own
+settings); `"model": "default"` keeps the harness's own default for Claude too. The integrator and splitters get no
+small default (their agent's model, else the harness's). For `lead`, the first lead provider with a credential, in the order
 `ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`, `openai-codex/gpt-5.5`).
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
@@ -148,5 +151,5 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 
 `turn.started`/`turn.ended` (worker turns; an `error` names the turn's `.err` file and ends with its stderr), `turn.stalled` (no output for 10 minutes; the turn goes on), `lead.delivered`/`lead.call`/`lead.read`/`lead.turn` (leads), `check.ended`,
 `merge.queued`/`merge.done` (with `files`; in folder mode a collection)/`merge.conflict`/`merge.failed`/`merge.withdrawn`, `message` (incl. to/from
-`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `command.refused` (a person command not applied), `split.requested`/`split.proposed`/`split.failed`, `run.resumed`,
+`person`, and `sent: true` for a worker's `send`), `inbox.read` (a worker's `receive`), `node.completed`/`node.failed`/`node.cancelled`, `command.refused` (a person command not applied), `split.requested`/`split.proposed`/`split.failed`, `run.resumed` (`maxCost`: a new budget), `budget.reached` (`spentUsd`, `maxCostUsd`: the run stopped at its budget),
 `run.completed`/`run.failed`.

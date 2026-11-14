@@ -5,6 +5,25 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- **Changed: Claude Code workers now run on `haiku` by default.** A work node whose agent, node and lead name no model
+  used to run on Claude Code's own default (for a person on a top model, the most expensive one); it now runs on
+  `haiku`, the model Claude Code is certified on (two workers on one small task: $1.39 before, $0.02 on `haiku`). Codex,
+  Pi and Droid workers keep their own default, since theirs depends on your login and settings. An agent's or a node's
+  `model`, and a lead's choice from `models`, still win; the integrator and splitters keep the harness's default. **To
+  get the old behaviour**, give the agent `"model": "default"`, for the built-in one in an agents file or graph:
+  `{ "agents": { "claude": { "runs": "claude", "model": "default" } } }`, or name the model you want. The `agents:`
+  line, `sous doctor` (`worker models:`) and a lead's brief show the model each agent's work runs on. A run keeps the
+  models it was created with when resumed (`run.created.workerModels`); runs created before this resume on the
+  harness's default as before. `turn.started.model` records the model passed.
+- `sous run --max-cost <usd>` sets a cost budget: once the cost the run's turns reported reaches it, no new turn
+  starts, the running turns are stopped as Ctrl-C stops them (they resume), `budget.reached` is recorded and `sous run`
+  ends with the run stopped, the spend and `sous resume <id> --max-cost <usd>`. `sous resume` refuses such a run without
+  a higher `--max-cost` (recorded in `run.resumed`). `sous status` (and `status --json`: `budget`, `usage.maxCostUsd`)
+  and `sous wait` (exit 5, `stopped`) show it. The budget bounds reported cost only: a cost is known when a turn ends,
+  so running turns can overshoot it, and Codex and Droid workers, and leads and Pi workers on Ollama, report none and
+  are not counted (`sous run` says so once). There is no turn timeout yet. The budget and the usage totals share one
+  rule for Claude's running session cost.
+
 - A resumed Claude Code turn is no longer charged again for the turns before it: Claude's `total_cost_usd` is the
   session's running total, which sous summed per turn (a run that cost $1.39 showed $2.09). Each turn now costs what
   the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old figures

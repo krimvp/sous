@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync,
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { agentSpec, checkAgents, defaultLeadModel, defines, startAgents, unusableNodeAgents, whyUnavailable } from './agents.ts'
+import { agentModel, agentSpec, checkAgents, defines, startAgents, unusableNodeAgents, whyUnavailable } from './agents.ts'
 import { branchExists, dirtyChanges, inWorkTree, repoRoot, showDiff } from './git.ts'
 import { cleanRefusal, cleanRun, filesIn } from './clean.ts'
 import type { CleanOptions } from './clean.ts'
@@ -15,19 +15,20 @@ import { loadDefinitions, loadGraph } from './graph.ts'
 import { doctor } from './doctor.ts'
 import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.ts'
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
-import { eventMessage, fold } from './state.ts'
-import { duration, firstLine, lastLine, liveStatus, oneLine, nextSteps, resultOf, resultText, runRef, runStatus, runUsage, statusText, usageText, waitingLines, waitRun, waitText } from './status.ts'
+import { budgetRefusal, budgetResume, eventMessage, fold, usd } from './state.ts'
+import { budgetOf, budgetText, duration, firstLine, lastLine, liveStatus, oneLine, nextSteps, resultOf, resultText, runRef, runStatus, runUsage, statusText, usageText, waitingLines, waitRun, waitText } from './status.ts'
 import { commandRefusal, runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
 import { startUi } from './ui.ts'
-import { DEFAULT_LEAD_MODEL, PERSON, SPLITTER, WAIT_EXIT_CODES } from './types.ts'
+import { DEFAULT_LEAD_MODEL, INTEGRATOR, PERSON, SPLITTER, WAIT_EXIT_CODES } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
+import type { Unavailable as Recorded } from './agents.ts'
 
 const USAGE = `usage:
-  sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
-  sous resume [run-id] [--workspace <dir>]
+  sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--max-cost <usd>] [--approve-splits] [--workspace <dir>]
+  sous resume [run-id] [--max-cost <usd>] [--workspace <dir>]  (--max-cost: stop once the cost turns report reaches it)
   sous status [run-id] [--json] [--workspace <dir>]
   sous wait [run-id] [--timeout <seconds>] [--json] [--workspace <dir>]  (until the run needs you or is over; exit 0 completed, 3 failed, 4 waits for you, 5 stopped, 6 timeout)
   sous runs [--workspace <dir>]  (the workspace's runs, newest first)
@@ -92,7 +93,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   let parsed
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
-      workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
+      workspace: { type: 'string' }, 'max-depth': { type: 'string' }, 'max-cost': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
       port: { type: 'string' }, json: { type: 'boolean' }, timeout: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
       stat: { type: 'boolean' }, all: { type: 'boolean' }, branches: { type: 'boolean' }, unmerged: { type: 'boolean' }, 'dry-run': { type: 'boolean' },
     } })
@@ -112,6 +113,10 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   }
   if (parsed.values.json && command !== 'status' && command !== 'wait') return usageError('--json is for status and wait')
   if (parsed.values.timeout !== undefined && command !== 'wait') return usageError('--timeout is for wait')
+  const rawCost = parsed.values['max-cost']
+  if (rawCost !== undefined && command !== 'run' && command !== 'resume') return usageError('--max-cost is for run and resume')
+  const maxCost = rawCost === undefined ? undefined : Number(rawCost)
+  if (maxCost !== undefined && !(/^\d*\.?\d+$/.test(rawCost!) && maxCost > 0)) return usageError('--max-cost must be a positive number of US dollars')
   // An explicit --workspace is used as given; the default, the current directory, becomes the repository's top level.
   const { workspace, from } = parsed.values.workspace === undefined ? repoWorkspace(process.cwd()) : { workspace: resolve(parsed.values.workspace), from: undefined }
   try {
@@ -124,11 +129,11 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
           return usageError('--max-depth must be a whole number from 1 to 8')
         }
         announceRoot(workspace, from)
-        return await run(args[0], workspace, deps, { maxDepth, agentsFile: parsed.values.agents, approveSplits: parsed.values['approve-splits'] })
+        return await run(args[0], workspace, deps, { maxDepth, maxCost, agentsFile: parsed.values.agents, approveSplits: parsed.values['approve-splits'] })
       }
       case 'resume':
         if (args.length > 1) return usageError('resume takes at most one argument: a run id')
-        return await resumeRun(workspace, deps, args[0])
+        return await resumeRun(workspace, deps, args[0], maxCost)
       case 'status':
         if (args.length > 1) return usageError('status takes at most one argument: a run id')
         return status(workspace, args[0], parsed.values.json)
@@ -199,8 +204,8 @@ function announceRoot(workspace: string, from?: string): void {
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
  * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word, not a URL, that ends in
  * `.json` or has a path separator) but names no file is refused, not taken for a goal. */
-async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
-  const { maxDepth, agentsFile, approveSplits } = opts
+async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; maxCost?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
+  const { maxDepth, maxCost, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
   if (!isGraph && !/\s/.test(arg) && !arg.includes('://') && (arg.endsWith('.json') || /[\\/]/.test(arg))) {
@@ -231,9 +236,14 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
     const changes = dirtyChanges(workspace)
     if (changes) console.log(`workspace has ${changes} uncommitted change${changes === 1 ? '' : 's'}; workers see HEAD only`)
   }
+  if (maxCost !== undefined) console.log(budgetLine(maxCost))
   const printEvent = printer([], () => runRef(workspace, id))
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}) })
+  log.append({
+    type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}),
+    ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}),
+    workerModels: unavailable.workerModels ?? {}, ...(maxCost !== undefined ? { maxCost } : {}),
+  })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -248,22 +258,31 @@ async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDep
   return outcome === 'completed' ? 0 : 1
 }
 
-/** Continue a run whose supervisor stopped or crashed. */
-async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Promise<number> {
+/** What a budget bounds, said once when a run starts or resumes with one. */
+const budgetLine = (maxCost: number) =>
+  `budget: ${usd(maxCost)} of reported cost; a cost is known when a turn ends, so running turns can overshoot it, and turns ` +
+  'that report no cost (Codex and Droid workers, leads and Pi workers on Ollama) are not counted'
+
+/** Continue a run whose supervisor stopped or crashed; `maxCost` replaces its budget from here on. A run stopped at its
+ * budget continues only with a higher one. */
+async function resumeRun(workspace: string, deps: CliDeps, runId?: string, maxCost?: number): Promise<number> {
   const { id, runDir } = findRun(workspace, runId)
   const events = readEvents(runDir)
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
+  const limit = maxCost ?? state.maxCost
+  if (limit !== undefined && state.spent.costUsd >= limit) throw new Error(budgetRefusal(id, state.spent.costUsd, limit))
   console.log(`resuming run ${id} (${runDir})`)
-  // A run from before the choice was recorded started on the fixed default.
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel ?? DEFAULT_LEAD_MODEL)
+  if (maxCost !== undefined) console.log(budgetLine(maxCost))
+  // A run from before the choices were recorded started on the fixed lead default, and its workers on their harnesses'.
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, { leadModel: state.leadModel ?? DEFAULT_LEAD_MODEL, workerModels: state.workerModels ?? {} })
   for (const line of waitingLines(runStatus(workspace, id, runDir).waiting, runRef(workspace, id))) console.log(line)
   const printEvent = printer(events, () => runRef(workspace, id))
   let outcome: SupervisorOutcome | undefined
   try {
     outcome = await runSupervisor({
       workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
-      resume: true, unavailable,
+      resume: true, unavailable, maxCost,
     })
   } finally {
     printEnd(workspace, id, runDir)
@@ -280,23 +299,24 @@ function printEnd(workspace: string, id: string, runDir: string): void {
     const state = fold(readEvents(runDir))
     const result = resultOf(state, runDir)
     if (result) console.log(`result: ${resultText(result)}`)
-    const usage = state.status === 'running' ? undefined : runUsage(runDir)
+    const budget = budgetOf(state)
+    const usage = state.status === 'running' && !budget ? undefined : runUsage(runDir, state.maxCost)
     if (usage) console.log(usageText(usage))
-    if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+    if (budget) console.log(`${budgetText(budget)}; continue with a higher budget: ${budgetResume(id)}`)
+    else if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
     const next = nextSteps(state, runDir, runRef(workspace, id))
     if (next) console.log(next)
   } catch {}
 }
 
-/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
- * the one recorded for a resumed run). */
-async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, leadModel?: string): Promise<Unavailable> {
-  const unavailable = await checkAgents(graph, deps.leadCredential, leadModel)
+/** Check which agents can run, once per run start, and print it, with the model each agent runs its nodes on (a work
+ * node's, for a worker agent; `recorded`: the defaults recorded for a resumed run). */
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, recorded?: Pick<Recorded, 'leadModel' | 'workerModels'>): Promise<Unavailable> {
+  const unavailable = await checkAgents(graph, deps.leadCredential, recorded)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
-  const label = (name: string) => {
-    const spec = agentSpec(graph, name)!
-    return spec.runs === 'lead' ? `${name} (${spec.model ?? defaultLeadModel(unavailable)})` : name
-  }
+  // The agents named after the integrator and the splitter serve only standing nodes, which get no default model.
+  const standing = (name: string) => name === INTEGRATOR || name === SPLITTER
+  const label = (name: string) => `${name} (${agentModel(agentSpec(graph, name)!, unavailable, standing(name)) ?? 'harness default'})`
   const names = startAgents(graph, unavailable)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)
@@ -312,7 +332,11 @@ function printer(past: Event[], ref: () => string): (e: Event) => void {
   const nodes = new Map<string, { parent?: string; kind: string }>()
   // Leads whose proposed split came before their brief: their message to the person asks for its approval.
   const proposed = new Set<string>()
+  // The run's budget, and whether this process said yet that turns without a cost are not counted against it.
+  let maxCost: number | undefined
+  let toldUnpriced = false
   const track = (e: Event) => {
+    if (e.type === 'run.created' || (e.type === 'run.resumed' && e.maxCost !== undefined)) maxCost = e.maxCost
     if (e.type === 'node.added') nodes.set(e.node.id, e.node)
     if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) nodes.set(c.id, { parent: e.node, kind: c.kind })
     if (e.type === 'split.proposed') proposed.add(e.node)
@@ -322,6 +346,11 @@ function printer(past: Event[], ref: () => string): (e: Event) => void {
   return (e) => {
     track(e)
     printEvent(e)
+    const usage = e.type === 'turn.ended' || e.type === 'lead.turn' ? e.usage : undefined
+    if (maxCost !== undefined && !toldUnpriced && usage && usage.costUsd === undefined && usage.sessionCostUsd === undefined) {
+      toldUnpriced = true
+      console.log(`note: ${'node' in e ? e.node : 'a turn'} reported no cost; turns that report none are not counted against the ${usd(maxCost)} budget`)
+    }
     const m = eventMessage(e, (id) => nodes.get(id)?.parent)
     if (m?.to !== PERSON) return
     const r = ref()
@@ -361,7 +390,8 @@ function printEvent(e: Event): void {
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
     case 'command.refused': text = e.reason; break
-    case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
+    case 'run.resumed': text = `unfinished turns and deliveries are recovered${e.maxCost !== undefined ? `; budget ${usd(e.maxCost)}` : ''}`; break
+    case 'budget.reached': text = `${usd(e.spentUsd)} reported of a ${usd(e.maxCostUsd)} budget: no new turn starts, running turns are stopped`; break
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
     case 'merge.queued': text = `${e.node}${e.branch ? ` ${e.branch}` : ''}`; break

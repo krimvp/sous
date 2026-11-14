@@ -28,8 +28,9 @@ M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill 
 - In a git repository (it needs a commit) workers see the last commit (`HEAD`) only: commit what they need first (the
   run prints `workspace has N uncommitted changes; workers see HEAD only`). From a subdirectory the workspace is the
   repository root, which the run prints.
-- A run starts by printing `agents: claude, lead (ollama-cloud/deepseek-v4.1-flash); not available: codex (codex not
-  found), …`: the agents it can use (a lead with its model), then those it cannot, with why (`<cli> not found` means
+- A run starts by printing `agents: claude (haiku), lead (ollama-cloud/deepseek-v4.1-flash); not available: codex
+  (codex not found), …`: the agents it can use, each with the model its work runs on (`harness default`: the harness's
+  own), then those it cannot, with why (`<cli> not found` means
   not on PATH; `no lead provider has a credential`, `no credential for <provider>`). Leads are offered only the
   available ones; one whose CLI is not logged in still fails its turns.
 
@@ -42,7 +43,8 @@ when it is not in a git repository):
 $M run "Add a --precision N option to the CLI, with tests and a check that node --test passes"
 ```
 
-A lead splits the goal into workers, checks and sub-leads. The result lands on branch `sous/<run-id>` (the person's
+For anything non-trivial, give it a budget: `$M run "…" --max-cost 2` stops the run once the cost its turns reported
+reaches $2 (ask the user what they will spend). A lead splits the goal into workers, checks and sub-leads. The result lands on branch `sous/<run-id>` (the person's
 own branch is never touched), or in folder mode in `.sous/runs/<run-id>/output/` (the person's files are only read).
 Leads may read files before splitting. In folder mode, workers and checks run in their own folders with links
 `workspace/` (inputs) and `results/` (the output), so write checks such as `test -s results/report.md`.
@@ -73,7 +75,7 @@ Leads may read files before splitting. In folder mode, workers and checks run in
    | 0 | `completed` | check the result (step 6) |
    | 3 | `failed` | the run failed, or completed with failed checks: read `reason`, `summary` and the failed nodes' `summary` |
    | 4 | `waiting` | each `waiting` item has `kind` (question, gate, split), `node`, `text` and the `commands` that answer it: decide, or ask the user, run one, then `wait` again |
-   | 5 | `stopped` | the supervisor is gone (Ctrl-C, a crash): `$M resume $id > resume.log 2>&1 &`, then `wait` again |
+   | 5 | `stopped` | the supervisor is gone (Ctrl-C, a crash): `$M resume $id > resume.log 2>&1 &`, then `wait` again. With `budget` set, the run reached its `--max-cost`: tell the user what it spent (`budget.spentUsd`) and resume only with a higher budget they agree to (`$M resume $id --max-cost <usd>`; `resume` without one is refused) |
    | 6 | `timeout` | nothing changed yet: look at `nodes` if you want, then `wait` again |
    | 1, 2 | | sous refused the command (no such run, a bad option): it says why on stderr |
 
@@ -84,7 +86,8 @@ Leads may read files before splitting. In folder mode, workers and checks run in
    unanswered stops every `wait` at once. A running node's `turn` gives its age and the age of its last output: a
    worker silent for long (`turn.stalled` in the log after 10 minutes) may run a long command; look before cancelling
    it. `$M status --json` (or `$M status` as text) is the same snapshot without waiting; its `usage` gives the tokens and the
-   cost the harnesses reported (Ollama reports none, so it may be partial: `unpriced` counts those turns); `$M runs` lists the runs.
+   cost the harnesses reported (Codex, Droid and Ollama report none, so it may be partial: `unpriced` counts those turns,
+   which a budget does not count either), and `maxCostUsd` the budget; `$M runs` lists the runs.
 5. **Steer** when needed, from your shell or another (the run need not be waiting):
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
@@ -112,6 +115,13 @@ Leads may read files before splitting. In folder mode, workers and checks run in
   checks run at a time in a run, the rest wait.
 - A failed worker turn's stderr is in `.sous/runs/<id>/nodes/<node>/turn-<k>.err`, its raw output in `turn-<k>.jsonl`.
 - Leads choose models only from the run's `models` lists; without one they use agents as defined.
+- Pass `--max-cost <usd>` for anything non-trivial. It bounds only the cost reported, once a turn ends: running turns
+  can overshoot it, and Codex and Droid workers (and Pi workers and leads on Ollama) report no cost, so a run on them
+  is not bounded by it. There is no turn timeout.
+- Work nodes whose agent names no model run on a small model of their harness where sous knows one (Claude Code:
+  `haiku`); Codex, Pi and Droid run on their own default. For hard work, name a stronger model on the agent or node
+  (`"model": "sonnet"`), or `"model": "default"` for the harness's own default. The integrator and splitters keep their
+  agent's model or the harness's default.
 - Prefer cheap models for experiments (`pi` on Ollama models, the default lead).
 - A failing check is often a wrong command in the goal, not wrong code: read its output in `.sous/runs/<id>/events.jsonl`
   (`check.ended`) before blaming the agents, and correct the lead with `answer`.

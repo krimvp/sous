@@ -20,8 +20,11 @@ file (`sous run --agents agents.json "…"`) or a graph file:
 { "agents": { "fast": { "runs": "droid", "model": "claude-sonnet-5" } }, "agent": "fast" }
 ```
 
-Without a `model`, a harness uses its own default: for Claude Code the project's settings or Claude's built-in default
-(workers leave out your user settings), for the others your own settings.
+Without a `model`, a Claude Code worker runs on `haiku`, the model it is certified on, which costs a small part of
+Claude's default; `"model": "default"` keeps Claude's own default (the project's settings or Claude's built-in default:
+workers leave out your user settings). Codex, Pi and Droid use your own settings: their default model depends on your
+login and providers, so sous has no small model it knows to be valid for them. The integrator and splitters keep the
+harness's default unless their agent names a model.
 
 ## What every harness guarantees
 

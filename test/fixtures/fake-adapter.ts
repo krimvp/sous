@@ -18,7 +18,8 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
   const launch = (spec: TurnSpec, sessionId: string): RunningTurn => {
     const out = openSync(spec.outFile, 'w')
     const err = openSync(spec.errFile, 'w')
-    const child = spawn(process.execPath, [WORKER, join(sessionDir, `${sessionId}.json`)], {
+    // The worker records the model of each turn (`--model` of a real harness) in its session file; '' for none.
+    const child = spawn(process.execPath, [WORKER, join(sessionDir, `${sessionId}.json`), spec.model ?? ''], {
       cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...process.env, ...spec.env },
     })
     closeSync(out)

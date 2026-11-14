@@ -128,10 +128,26 @@ and the file's path go into `turn.ended.error` and the node's failure reason. Wh
 tool call), another turn would fail the same way, so the node fails at once without the reminder; an integrator's or
 splitter's turn like it fails the merge or the split.
 
-**Stalls.** There is no turn timeout yet (budgets, #39), so a hung harness must at least show. The supervisor watches each
+**Stalls.** There is no turn timeout yet, so a hung harness must at least show. The supervisor watches each
 turn's output file; once it has not grown for 10 minutes (a constant), it records `turn.stalled {since}`, once per turn:
 a warning that changes nothing in the run's state, since a long command is silent too. `sous status` shows each running
 turn's age and how long ago its output last grew (the output file's modification time); the UI's tree shows both.
+
+**Cost budget.** `sous run --max-cost <usd>` (`run.created.maxCost`; `sous resume --max-cost` replaces it from then on,
+recorded in `run.resumed.maxCost`) bounds the cost the run's turns reported. The fold totals it (`RunState.spent`): a
+worker turn's cost from `turn.ended.usage` and a lead turn's from `lead.turn.usage`, by `turnCost` in `src/state.ts`,
+the same rule `viewRun` uses for the traces and `sous status` (a turn of a harness that reports its session's running
+total, Claude Code, costs what that total grew by). The supervisor checks the total after every worker turn ends (before
+the node's next turn could start), after every lead turn, and on every pass of its loop; once it reaches the budget it
+appends `budget.reached {spentUsd, maxCostUsd}`, starts no new turn, delivers nothing more to leads, stops the running
+turns and checks as a supervisor stop does (`turn.interrupted` "the run reached its cost budget"; their sessions resume
+like any cut turn) and exits; the run is not over, and `sous run` ends, with exit code 1 as for any stop, printing the
+spend, the budget and `sous resume <id> --max-cost <usd>`. `sous resume` refuses a run whose reported cost is at its budget (the one recorded, or the one given) without
+appending anything, so a run is continued only with a higher budget. Its limits are said in the CLI and here: a cost is
+known only when a turn ends, so the turns in flight when the budget is reached can spend past it; and turns that report
+no cost (Codex and Droid never do; Ollama Cloud has no prices, so neither do leads and Pi workers on it; counted as
+`unpriced`) are not counted, so the budget bounds only reported cost. sous invents no prices. `sous run` says so when it
+starts with a budget, and once more on the first turn that reports no cost.
 
 ### Lead runner
 
@@ -447,7 +463,8 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   and printed (`agents: …; not available: …`, each lead agent with the model it runs on; for a graph without lead nodes only the agents its work nodes use, as no lead can pick another). The model chosen for lead
   agents that name none is recorded in `run.created.leadModel`; a resumed run resolves such leads to it, whatever
   credentials are present then (a lead whose recorded provider lost its credential is unavailable, with the fix,
-  rather than moved to another provider). `sous doctor` runs the same
+  rather than moved to another provider). Each agent on the `agents:` line shows the model its work nodes run on
+  (`claude (haiku)`, `codex (harness default)`). `sous doctor` runs the same
   check without a run and prints it (each harness on `PATH` with its `--version`, not whether it is logged in; the
   lead credentials present, never their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
   commit, uncommitted changes, which workers do not see, and whether an explicit `--workspace` is below the top level, which `sous run` would take as given), and exits 0
@@ -458,6 +475,20 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   agent a lead's child names later fails that node with a clear reason. Each
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
+- **Worker models.** A work node of the tree whose node, agent and lead name no model runs on its harness's entry in
+  `DEFAULT_WORKER_MODELS` (`src/types.ts`), else on the harness's own default (sous passes no model). The table holds a
+  harness only where the repository shows the name is valid for it: `claude: haiku`, the model Claude Code is certified
+  on. Codex's, Pi's and Droid's defaults depend on the person's login and settings (Pi and Droid are often on custom
+  providers such as Ollama Cloud), and no model name in the repository is valid for every such setup, so they keep
+  their own. Measured on one small task, two Claude Code workers cost $1.39 on Claude's default and $0.02 on `haiku`. An
+  agent's or a node's `model`, and so a lead's choice from the run's `models`, win as before; `model: "default"`
+  (`HARNESS_DEFAULT_MODEL`) in an agent definition or on a node passes no model, the opt-out (one mechanism, no flag).
+  Standing nodes (the integrator and splitters) get no table default: they judge merges and plans for the whole run,
+  one session each, where a weak model costs more than it saves; their agent's model applies, else the harness's
+  default. The table is recorded in `run.created.workerModels` and a resumed run resolves nodes with it, so a node
+  keeps the model it started on when the table changes; a log without it (before the table) resolves to no model.
+  `turn.started.model` records what was passed. The `agents:` line, `sous doctor` (`worker models:`) and a lead's brief
+  (each agent a child may name, with the model its child runs on) show the models, as do the splitter's requests.
 - **Agents leads define.** A lead's child may define a new agent instead of naming one: `ChildSpec.agent` is then
   `{ name, runs, model?, instructions? }` (`NewAgent`). The constraint is the runtime: `runs` must be a runtime
   the run lists models for (see Model limits), and `model` one of them, by default the first. The agent has exactly
@@ -645,7 +676,11 @@ error does the same before the supervisor exits with it. Either way `sous run` a
 7. **Person commands** waiting in `<runDir>/commands/` are processed as usual. The event a command produces
    carries its file name (`command`) and is appended before the file is removed, so a crash in between neither
    loses it nor applies it twice.
-8. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
+8. **A run at its cost budget stays stopped.** `sous resume` refuses a run whose reported cost is at its budget, with or
+   without a `budget.reached` (a supervisor killed between the turn that reached it and the event, or after it); a turn
+   that ended while the supervisor was down is recorded first, and if its cost reaches the budget the supervisor
+   records `budget.reached` and stops before it starts a turn or resumes the lead runner. Nothing is run twice.
+9. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
    fails with "a supervisor stop cut its turn short after 3 recoveries" (a constant, not a setting).
 
 Pi runs its tool commands in their own session, outside the turn's process group. In the v2 real run (Roadmap),
@@ -710,7 +745,8 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
 - **Claude's cost is a session total.** A `result` event's `usage` is the turn's own, but its `total_cost_usd` (and
   `modelUsage`) is the running total of the session, earlier turns included: a resumed turn that used 39k tokens
   reported $0.73, its first turn's $0.70 plus $0.03 of its own. The adapter records it as `sessionCostUsd`, and
-  `viewRun` gives each turn the amount the session's total grew by, so a resumed session is not paid for twice.
+  `turnCost` (`src/state.ts`, used by `viewRun` and by the fold's budget total) gives each turn the amount the session's
+  total grew by, so a resumed session is not paid for twice.
 - Claude `-p` runs the user's global hooks and plugins unless told otherwise; decide per adapter whether
   to isolate with `--setting-sources` and `--strict-mcp-config`.
 - Codex's `--output-schema` uses OpenAI strict mode: every property must be required, so the adapter sends
@@ -793,11 +829,12 @@ run or an older one.
 JSON document, and the text is rendered from it (`src/status.ts`), so the two cannot drift. It is built from `fold`,
 the run's lock (a run that is not over without a live supervisor is `stopped`, as `sous runs` and `sous ui` call it),
 each running turn's output file (its age and its last output's age) and the person's command files not yet applied.
-It holds the run's id, state, goal, mode, summary or reason, result (branch or output folder), every node depth first
+It holds the run's id, state, goal, mode, summary or reason, result (branch or output folder), usage (tokens, the cost
+reported, the turns that reported none, the budget), `budget` when the run stopped at its cost budget, every node depth first
 (id, kind, parent, status, agent, turns, summary or failure reason, failed checks a lead completed over, a running
 turn), what waits for the person (`waiting`: questions, gates and proposed splits, each with its full text, the seq of
 the event that asked, and the commands that answer it), the latest three refused commands, and `sous resume <id>` when
-stopped. An ask is `sent` when a command file in `commands/` names its node (or cancels an ancestor) and no event
+stopped (`sous resume <id> --max-cost <usd>` at its budget). An ask is `sent` when a command file in `commands/` names its node (or cancels an ancestor) and no event
 records that file yet; `sous status` marks it `(answer sent)`.
 
 `sous wait [run-id] [--timeout <seconds>] [--json]` lets an agent drive a run without reading its printed log. It polls
@@ -805,7 +842,8 @@ the same status every 500 ms (it only reads) and returns when the run is over, i
 waits for the person, printing why and the status (`--json`: the `RunStatus` with `wait`, the reason). Exit codes
 (`WAIT_EXIT_CODES`): 0 completed; 3 failed, or completed with a top-level lead that completed over failed checks; 4
 waits for the person; 5 stopped (resume needed); 6 timeout; 1 and 2 keep their meaning (a refusal, a command line not
-understood). A run seen without a live supervisor is looked at once more after a poll before it counts as stopped, as
+understood). A run stopped at its cost budget is `stopped` too (exit 5): it needs the same `sous resume`, with a higher
+`--max-cost`, which `resume` names, and `budget` says why. A run seen without a live supervisor is looked at once more after a poll before it counts as stopped, as
 `sous run` releases the lock for a moment between creating the run and starting its supervisor.
 
 `wait` returns for any ask that waits, not only for one that appeared after it started: a run that asks before the
@@ -884,7 +922,8 @@ strip types from files under `node_modules`, so `npm pack`/`npm publish` first c
 | **v6** (done) | Worker messages: `send` to a sibling or the lead and `receive` within a turn, through sous's MCP server or `sous send`/`receive`; workers load no other MCP server and little of the person's own setup | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
 | **v7** (in progress) | `sous ui`: a local viewer for live and finished runs (#59); then steering (#60), replay and comparison (#61) | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
 | **v8** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
-| **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); cost budgets (Ollama reports no prices) | |
+| **v9** (done, not yet run live) | Cost budgets (`--max-cost`) on the reported cost; a small default model for workers (`DEFAULT_WORKER_MODELS`) | a run at its budget stops resumable, refuses `resume` without a higher budget, and continues with one without repeating a turn (fake-harness tests) |
+| **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); a turn timeout (a budget acts only once a turn has ended and reported its cost, and counts only reported cost) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
 (its default `ollama-cloud/glm-5.2`). A goal split into two work children and a check completed and exported a valid
