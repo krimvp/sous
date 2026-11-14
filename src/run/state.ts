@@ -1,7 +1,7 @@
 // Run state as a pure fold of the event log.
-import { defineAgent, registry } from './agents.ts'
-import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, RunMode, TurnResult, Usage } from './types.ts'
+import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from '../contracts/index.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, RunMode, TurnResult, Usage } from '../contracts/index.ts'
+import { defineAgent, registry } from '../definitions/index.ts'
 
 /** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
  * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node

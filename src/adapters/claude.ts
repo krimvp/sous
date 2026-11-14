@@ -2,8 +2,8 @@
 // `structured_output`, produced through `--json-schema`.
 
 import { randomUUID } from 'node:crypto'
-import { TURN_RESULT_SCHEMA } from '../types.ts'
-import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
+import { TURN_RESULT_SCHEMA } from '../contracts/index.ts'
+import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../contracts/index.ts'
 import { jsonLines, num, sousServer, spawnTurn, str, textOf, toTurnResult } from './common.ts'
 
 function run(spec: TurnSpec, session: string[], sessionId: string) {

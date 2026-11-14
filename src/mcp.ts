@@ -3,9 +3,8 @@
 // the same as `sous send` and `sous receive`. Its harness starts it for the worker's turn with SOUS_RUN_DIR and SOUS_NODE set; it
 // writes command files and never the log, so the supervisor stays the only writer.
 import { createInterface } from 'node:readline'
-import { readEvents } from './log.ts'
-import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets, workerReceive, workerSend } from './send.ts'
-import { fold } from './state.ts'
+import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets, workerReceive, workerSend } from './commands/index.ts'
+import { fold, readEvents } from './run/index.ts'
 
 const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
 if (!runDir || !node || !turn) {

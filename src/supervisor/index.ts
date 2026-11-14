@@ -4,25 +4,22 @@ import { spawn } from 'node:child_process'
 import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { agentFor, childAgents, defineAgent, integratorAgent, registry, roleChoices } from './agents.ts'
-import type { Agent, Unavailable } from './agents.ts'
+import { commandRefusal, MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets, withoutIdentity } from '../commands/index.ts'
+import { INTEGRATOR, PERSON, roleNode, SPLITTER } from '../contracts/index.ts'
+import type { ChildSpec, Command, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, ParsedTurn, TurnResult, WorkerAdapter } from '../contracts/index.ts'
+import { agentFor, childAgents, childError, defineAgent, integratorAgent, registry, roleChoices } from '../definitions/index.ts'
+import type { Agent, Unavailable } from '../definitions/index.ts'
 import {
   composeBrief, fixPrompt, idleReminder, inboxPrompt, INTEGRATOR_BRIEF, integratorPrompt, leadBrief, leadMessageText, mergeRequest, outcomeText,
   recoveryPrompt, resultReminder, retryPrompt, splitApproval, splitRequest, SPLITTER_BRIEF, splitterPrompt,
-} from './brief.ts'
-import { collect, linkedFolder, listFiles, readText } from './files.ts'
-import type { Root } from './files.ts'
+} from '../prompts/index.ts'
+import { ancestors, callKey, childrenOf, completedText, failedChecks, fold, isFinal, openLog, procStartTime, roleAgent } from '../run/index.ts'
+import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from '../run/index.ts'
 import {
-  changedFiles, commitAll, createIntegration, createNodeWorktree, currentBranch, ensureRepo, hasChanges, head, merge, mergedOnto, mergeInProgress,
-  resetTo, uncommitted, withConflictMarkers,
-} from './git.ts'
-import { childError } from './graph.ts'
-import { openLog, procStartTime } from './log.ts'
-import { MAX_SENDS, MAX_WAIT_SECONDS, sendRefusal, sendTargets, withoutIdentity } from './send.ts'
-import { ancestors, awaitsSplitApproval, callKey, childrenOf, completedText, failedChecks, fold, isFinal, roleAgent } from './state.ts'
-import type { CheckState, InboxMessage, NodeState, RunState, TurnState } from './state.ts'
-import { INTEGRATOR, PERSON, roleNode, SPLITTER } from './types.ts'
-import type { ChildSpec, CreateLeadRunner, Event, HarnessName, LeadCall, LeadHost, NodeSpec, ParsedTurn, TurnResult, WorkerAdapter } from './types.ts'
+  changedFiles, collect, commitAll, createIntegration, createNodeWorktree, currentBranch, ensureRepo, hasChanges, head, linkedFolder, listFiles, merge,
+  mergedOnto, mergeInProgress, readText, resetTo, uncommitted, withConflictMarkers,
+} from '../workspace/index.ts'
+import type { Root } from '../workspace/index.ts'
 
 export interface SupervisorOptions {
   workspace: string
@@ -62,36 +59,6 @@ const POLL_MS = 200
 const SUPERVISOR = 'supervisor'
 /** The body of the message `sous approve <lead>` sends to a lead whose split waits for approval. */
 const SPLIT_APPROVED = 'The person approved the proposed split.'
-
-/** A command file written by `sous answer`, `sous approve` or `sous cancel`, or by a worker's `send`. */
-export type PersonCommand =
-  | { type: 'answer'; node: string; text: string }
-  | { type: 'approve' | 'cancel'; node: string }
-  | { type: 'send'; from: string; to: string; text: string }
-  | { type: 'receive'; node: string; turn: number; upTo: number }
-
-/** Why a person's answer, approval or cancel does not apply to the run as it is, if it does not: `sous answer`,
- * `approve` and `cancel` check it before they write the command file, and the supervisor again when it reads it, as the
- * run may have moved on since (or the file came from elsewhere). A standing node (the integrator, a splitter) is not
- * cancelled: the run would lose it for good. Cancelling the node it works for stops that work. */
-export function commandRefusal(state: RunState, cmd: Exclude<PersonCommand, { type: 'send' | 'receive' }>): string | undefined {
-  const node = typeof cmd.node === 'string' ? state.nodes.get(cmd.node) : undefined
-  if (!node) return `no node ${cmd.node}`
-  const { id, kind, standing } = node.spec
-  if (isFinal(node)) return `node ${id} is already ${node.status}`
-  if (cmd.type === 'answer') {
-    if (kind === 'gate') return `node ${id} is a gate: approve it with sous approve, or reject it with sous cancel`
-    if (kind === 'check') return `node ${id} is a check, which reads no messages`
-    if (typeof cmd.text !== 'string' || !cmd.text.trim()) return 'the answer is empty'
-  } else if (cmd.type === 'approve') {
-    if (kind === 'gate' && node.status !== 'waiting') return `gate ${id} is not waiting for approval yet`
-    if (kind !== 'gate' && !awaitsSplitApproval(node)) return kind === 'lead' ? `lead ${id} has no proposed split waiting for approval` : `node ${id} is not a gate or a lead`
-  } else if (standing) {
-    const serving = [...state.nodes.values()].filter((n) => !isFinal(n) &&
-      (id === INTEGRATOR ? n.merge?.conflict : n.split?.status === 'requested' && roleNode(SPLITTER, n.split.agent) === id)).map((n) => n.spec.id)
-    return `${id} serves the whole run and is not cancelled; to stop its work, cancel the node it works for${serving.length ? ` (${serving.join(', ')})` : ''}`
-  }
-}
 
 /** Signal a turn's whole process group. Ignores a group that is already gone. */
 function interrupt(pid: number, signal: NodeJS.Signals): void {
@@ -480,7 +447,7 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
   const apply = (path: string, command: string) => {
-    let cmd: PersonCommand | undefined
+    let cmd: Command | undefined
     try {
       cmd = JSON.parse(readFileSync(path, 'utf8'))
     } catch {}

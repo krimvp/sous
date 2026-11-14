@@ -2,9 +2,9 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import { agentSpec } from '../agents.ts'
-import { childNode, fold } from '../state.ts'
-import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
+import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../contracts/index.ts'
+import { agentSpec } from '../definitions/index.ts'
+import { childNode, fold } from '../run/index.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
 export type EventOf<T extends Event['type']> = Extract<Event, { type: T }>
@@ -15,8 +15,6 @@ export interface LoadedRun {
   /** Parsed turn output keyed by `turnKey(node, turn)`. */
   turns: Record<string, ParsedTurn>
 }
-
-export const SOUS_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version
 
 function turnKey(node: string, turn: number): string {
   return `${node}#${turn}`

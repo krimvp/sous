@@ -2,7 +2,7 @@
 // takers have made their attempt (or 10 s pass), so a slow process cannot win after the release.
 import { existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { openLog } from '../../src/log.ts'
+import { openLog } from '../../src/run/index.ts'
 
 const [dir, id, count] = process.argv.slice(2)
 writeFileSync(`${dir}/ready-${id}`, '')

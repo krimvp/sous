@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { openLog, readEvents } from '../src/log.ts'
+import { openLog, readEvents } from '../src/run/index.ts'
 
 const tempRun = () => mkdtempSync(join(tmpdir(), 'sous-log-'))
 

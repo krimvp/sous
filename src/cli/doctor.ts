@@ -3,9 +3,9 @@
 // a run could start: a lead and at least one worker, in a repository with a commit or outside git.
 import { spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import { checkAgents, defaultLeadModel } from './agents.ts'
-import { repoState } from './git.ts'
-import { ANY_LEAD_CREDENTIAL_FIX, HARNESSES, LEAD_PROVIDERS } from './types.ts'
+import { ANY_LEAD_CREDENTIAL_FIX, HARNESSES, LEAD_PROVIDERS } from '../contracts/index.ts'
+import { checkAgents, defaultLeadModel } from '../definitions/index.ts'
+import { repoState } from '../workspace/index.ts'
 
 /** How long `<cli> --version` may take; a harness that answers later counts as on PATH with an unknown version. */
 const VERSION_TIMEOUT_MS = 5000

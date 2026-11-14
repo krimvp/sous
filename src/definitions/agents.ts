@@ -3,8 +3,8 @@
 // or resumes.
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, LEAD_PROVIDERS, leadCredentialFix, ROLES, WORKER_AGENT_PREFERENCE } from './types.ts'
-import type { AgentRuntime, AgentSpec, Definitions, NewAgent, NodeSpec } from './types.ts'
+import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, HARNESSES, INTEGRATOR, INTEGRATOR_AGENT_PREFERENCE, LEAD_PROVIDERS, leadCredentialFix, ROLES, WORKER_AGENT_PREFERENCE } from '../contracts/index.ts'
+import type { AgentRuntime, AgentSpec, Definitions, NewAgent, NodeSpec } from '../contracts/index.ts'
 
 /** An agent resolved for one node: the node's model, if it sets one, replaces the agent's. */
 export interface Agent {

@@ -6,14 +6,13 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
-import { listRuns, lockHolder, readEvents } from './log.ts'
-import { awaitsSplitApproval, fold, isFinal } from './state.ts'
-import type { RunState } from './state.ts'
-import { loadRun, usagesOf, viewRun } from './trace/run.ts'
-import type { NodeView, ParseTurn, RunView } from './trace/run.ts'
-import type { Event, TraceItem, Usage } from './types.ts'
+import type { Event, TraceItem, Usage } from '../contracts/index.ts'
+import { awaitsSplitApproval, fold, isFinal, listRuns, lockHolder, readEvents } from '../run/index.ts'
+import type { RunState } from '../run/index.ts'
+import { loadRun, usagesOf, viewRun } from '../trace/index.ts'
+import type { NodeView, ParseTurn, RunView } from '../trace/index.ts'
 
-const PAGE = new URL('./ui.html', import.meta.url)
+const PAGE = new URL('./page.html', import.meta.url)
 
 /** How often the stream looks for log changes, and the longest string the page gets. */
 const POLL_MS = 500

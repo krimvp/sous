@@ -9,4 +9,4 @@ rmSync('dist', { recursive: true, force: true })
 // npm puts node_modules/.bin on the PATH of its scripts.
 const tsc = spawnSync('tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit' })
 if (tsc.status !== 0) process.exit(tsc.status ?? 1)
-cpSync('src/ui.html', 'dist/ui.html')
+cpSync('src/ui/page.html', 'dist/ui/page.html')

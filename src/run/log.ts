@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Event, EventBody } from './types.ts'
+import type { Event, EventBody } from '../contracts/index.ts'
 
 export interface EventLog {
   /** Every event in the log, oldest first, including the ones appended through this handle. */

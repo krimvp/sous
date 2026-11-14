@@ -13,7 +13,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@ear
 import { createLeadRunner } from '../../src/lead/index.ts'
 import { leadCredential, loginModels, resolveModel } from '../../src/lead/providers.ts'
 import { openLeadRunner } from '../../src/lead/runner.ts'
-import type { LeadHost } from '../../src/types.ts'
+import type { LeadHost } from '../../src/contracts/index.ts'
 
 const [runDir, phase] = process.argv.slice(2)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

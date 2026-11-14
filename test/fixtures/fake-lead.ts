@@ -5,7 +5,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { CreateLeadRunner, LeadCall, LeadRead } from '../../src/types.ts'
+import type { CreateLeadRunner, LeadCall, LeadRead } from '../../src/contracts/index.ts'
 
 export interface FakeLeadStep {
   /** Tool calls in order, reads included; `callId` defaults to <node>-<step>-<index>. */

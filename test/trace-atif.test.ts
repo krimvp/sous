@@ -4,9 +4,10 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessName, ParsedTurn } from '../src/types.ts'
+import type { HarnessName, ParsedTurn } from '../src/contracts/index.ts'
 import { exportAtif, toAtif } from '../src/trace/atif.ts'
-import { loadRun, SOUS_VERSION } from '../src/trace/run.ts'
+import { SOUS_VERSION } from '../src/self.ts'
+import { loadRun } from '../src/trace/index.ts'
 import { checkAtif } from './atif-checker.ts'
 
 // The fixture run: `impl` (Claude) starts, fails its acceptance check, is resumed and completes; `verify` is a

@@ -3,7 +3,7 @@
 //        node crash-supervisor.ts <workspace> <runDir> rm <file name>  (killed right after that file is removed)
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
-import { runSupervisor } from '../../src/supervisor.ts'
+import { runSupervisor } from '../../src/supervisor/index.ts'
 
 const [workspace, runDir, point, name] = process.argv.slice(2)
 if (point === 'rm') {

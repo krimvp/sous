@@ -1,7 +1,7 @@
 // `sous` with the fake adapter for every harness and the scripted fake lead runner, whose leads are always available:
 // every lead provider has a credential, or only those $FAKE_LEAD_CREDENTIALS lists (comma-separated) when it is set.
 // Session files go to $FAKE_SESSIONS.
-import { main } from '../../src/cli.ts'
+import { main } from '../../src/cli/index.ts'
 import { fakeAdapter } from './fake-adapter.ts'
 import { fakeLeadRunner } from './fake-lead.ts'
 

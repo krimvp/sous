@@ -4,9 +4,9 @@ import { existsSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { readEvents } from '../../src/log.ts'
-import type { Event } from '../../src/types.ts'
-import { HARNESSES } from '../../src/types.ts'
+import { readEvents } from '../../src/run/index.ts'
+import type { Event } from '../../src/contracts/index.ts'
+import { HARNESSES } from '../../src/contracts/index.ts'
 
 const SOUS = new URL('./sous-fake.ts', import.meta.url).pathname
 

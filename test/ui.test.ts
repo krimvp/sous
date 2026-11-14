@@ -4,8 +4,8 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { startUi } from '../src/ui.ts'
-import type { Event, EventBody, ParsedTurn } from '../src/types.ts'
+import { startUi } from '../src/ui/index.ts'
+import type { Event, EventBody, ParsedTurn } from '../src/contracts/index.ts'
 import { sous } from './fixtures/sous-proc.ts'
 
 // The lead fixture (see trace-atif.test.ts): `lead` spawns `impl` (work, completes after one Claude turn) and `docs`

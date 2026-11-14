@@ -12,7 +12,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@ear
 import { createRegistry, Harness } from '@earendil-works/pi-durable'
 import { openNodeJsonlStorage } from '@earendil-works/pi-durable/storage/jsonl/node'
 import { openLeadRunner } from '../src/lead/runner.ts'
-import type { LeadCall, LeadHost, LeadRead } from '../src/types.ts'
+import type { LeadCall, LeadHost, LeadRead } from '../src/contracts/index.ts'
 
 const fixture = join(import.meta.dirname, 'fixtures', 'lead-proc.ts')
 

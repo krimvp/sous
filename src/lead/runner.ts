@@ -8,8 +8,8 @@ import { AssistantEntry, createRegistry, defineDoc, Harness, ROOT_CONVERSATION_I
 import type { Cursor, ModelRef, SettledSubmissionRecord, Submission } from '@earendil-works/pi-durable'
 import { openNodeJsonlStorage } from '@earendil-works/pi-durable/storage/jsonl/node'
 import type { JsonlStorage } from '@earendil-works/pi-durable/storage/jsonl/node'
-import { DEFAULT_LEAD_MODEL } from '../types.ts'
-import type { LeadHost, LeadRunner, Usage } from '../types.ts'
+import { DEFAULT_LEAD_MODEL } from '../contracts/index.ts'
+import type { LeadHost, LeadRunner, Usage } from '../contracts/index.ts'
 import { modelName, resolveModel } from './providers.ts'
 import { leadExtension } from './tools.ts'
 

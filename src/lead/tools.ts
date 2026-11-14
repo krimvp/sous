@@ -3,9 +3,9 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
-import { RUNTIMES } from '../agents.ts'
-import { ROLES } from '../types.ts'
-import type { LeadCall, LeadHost, LeadRead } from '../types.ts'
+import { ROLES } from '../contracts/index.ts'
+import type { LeadCall, LeadHost, LeadRead } from '../contracts/index.ts'
+import { RUNTIMES } from '../definitions/index.ts'
 
 const strict = { additionalProperties: false }
 const NewAgent = Type.Object({

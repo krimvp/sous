@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 printf '%-8s %-28s %-40s %s\n' harness installed certified status
-harnesses=$(node --input-type=module -e "import { HARNESSES } from './src/types.ts'; console.log(HARNESSES.join(' '))")
+harnesses=$(node --input-type=module -e "import { HARNESSES } from './src/contracts/index.ts'; console.log(HARNESSES.join(' '))")
 for h in $harnesses; do
   installed="not installed"
   if command -v "$h" >/dev/null 2>&1; then

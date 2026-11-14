@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   abortMerge, commitAll, createIntegration, createNodeWorktree, ensureRepo, hasChanges, head, merge, mergeInProgress, uncommitted,
-} from '../src/git.ts'
+} from '../src/workspace/index.ts'
 
 // No user identity anywhere: sous's commits must carry their own.
 process.env.HOME = mkdtempSync(join(tmpdir(), 'sous-git-home-'))

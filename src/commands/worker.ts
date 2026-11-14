@@ -5,9 +5,8 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { readEvents, writeCommand } from './log.ts'
-import { fold, isFinal } from './state.ts'
-import type { InboxMessage, RunState } from './state.ts'
+import { fold, isFinal, readEvents, writeCommand } from '../run/index.ts'
+import type { InboxMessage, RunState } from '../run/index.ts'
 
 /** The supervisor's environment without any SOUS_* variable, for what it starts (turns, checks): an identity comes from
  * a turn alone, so an outer run's (sous running inside a sous worker) never reaches them. */

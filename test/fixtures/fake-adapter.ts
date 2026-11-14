@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { closeSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ParsedTurn, RunningTurn, TurnSpec, WorkerAdapter } from '../../src/types.ts'
+import type { ParsedTurn, RunningTurn, TurnSpec, WorkerAdapter } from '../../src/contracts/index.ts'
 import type { FakeStep } from './fake-worker.ts'
 
 const WORKER = new URL('./fake-worker.ts', import.meta.url).pathname

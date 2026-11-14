@@ -1,8 +1,8 @@
 // Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
+import { HARNESSES, INTEGRATOR, PERSON, ROLES, ROOT } from '../contracts/index.ts'
+import type { AgentRuntime, AgentSpec, ChildSpec, Definitions, GraphFile, NodeSpec } from '../contracts/index.ts'
 import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
-import { HARNESSES, INTEGRATOR, PERSON, ROLES, ROOT } from './types.ts'
-import type { AgentRuntime, AgentSpec, ChildSpec, Definitions, GraphFile, NodeSpec } from './types.ts'
 
 const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const DEFINITION_KEYS = ['agent', 'agents', 'models']
