@@ -853,7 +853,7 @@ the certification model, whether it has a lead recording) is required by the typ
 The first lead certification, on 2026-11-14 (Claude Code 2.1.325 on `haiku`), passed all twelve tests, the five lead
 tests included, on its first run. Later runs failed the killed-lead test twice: the kill came before Claude had saved
 the session, which sous then tried to resume (see Harness facts); it had passed by timing. Sous now resumes only an
-established session, and the test kills the harness with the supervisor so the case is certain.
+established session, and the test kills the harness with the supervisor so the case is certain. With that and the new early-kill test for a worker, the certification passed all thirteen tests on 2026-11-14 (Claude Code 2.1.325 on `haiku`).
 
 Certification on 2026-10-12 (Claude Code 2.1.296 on `haiku`, Codex 0.160.0, Pi 1.1.0, Droid 0.210.0; Pi and Droid on
 Ollama Cloud models) found two faults, both fixed: a Codex worker's first run in a workspace started the project's own
