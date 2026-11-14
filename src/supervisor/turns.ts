@@ -7,6 +7,7 @@ import { PERSON } from '../contracts/index.ts'
 import type { HarnessName, LeadResult, LeadTurnSpec, NodeSpec, ParsedTurn, TurnResult, TurnSpec } from '../contracts/index.ts'
 import type { Agent } from '../definitions/index.ts'
 import { procStartTime } from '../run/index.ts'
+import type { InboxMessage, TurnState } from '../run/index.ts'
 import type { Context } from './context.ts'
 import { stderrTail } from './processes.ts'
 
@@ -20,6 +21,28 @@ export interface Exited {
 
 /** Times a supervisor stop may cut a node's turn short before the node fails. */
 export const MAX_RECOVERIES = 3
+
+/** Whether turn `t` shows that its harness had a conversation: it recorded a result, or its output holds a trace item
+ * other than the harness's own error report (a system message). A harness given its session ID up front (Claude, Pi)
+ * and stopped in its first moments has none to resume: Claude refuses the ID, Pi would open an empty session under it. */
+export const established = (ctx: Context, t: TurnState): boolean => {
+  if (t.result || t.lead) return true
+  try {
+    return ctx.getAdapter(t.harness!).parse(readFileSync(t.outFile, 'utf8')).items.some((i) => i.kind !== 'message' || i.role !== 'system')
+  } catch {
+    return false
+  }
+}
+
+/** The session the next turn of a node with `turns` resumes: that of its last established turn. None when no turn was
+ * established: the node starts again, in a new session, as if it never had one. `unseen`: the messages taken by the turns
+ * after it, which its session never saw (a worker's or standing node's; a lead's deliveries stay unanswered instead).
+ * `unknown`: the last established turn named no session, so what it did cannot be continued. */
+export const resumable = (ctx: Context, turns: TurnState[]): { sessionId?: string; unseen: InboxMessage[]; unknown: boolean } => {
+  const i = turns.findLastIndex((t) => established(ctx, t))
+  const sessionId = i < 0 ? undefined : turns[i]!.sessionId
+  return { sessionId, unseen: turns.slice(i + 1).flatMap((t) => t.took ?? []), unknown: i >= 0 && !sessionId }
+}
 
 export const exitedText = (turn: number, e: Exited) => `turn ${turn} exited ${e.code} with no output; ${e.stderr}`
 

@@ -757,7 +757,21 @@ error does the same before the supervisor exits with it. Either way `sous run` a
 
    A node whose last turn has no result then resumes its session with a recovery turn
    (`turn.started {recovery: true}`): "you were interrupted; re-check the workspace", plus any messages in its
-   inbox. A node without a session ID starts again from its brief. A node whose last turn ended `done` runs
+   inbox. A node without an established session starts again from its brief, in a new session. A session is
+   **established** once a turn of it shows the harness had a conversation: the turn recorded a result, or its output
+   holds a trace item other than the harness's own error report (a system message). A session ID alone is not enough:
+   sous records one as soon as it is known, and Claude and Pi are given theirs up front, so a turn stopped in its first
+   moments names a session its harness never saved (Claude then refuses `--resume` with "No conversation found"; Pi
+   would open an empty session under the ID). Codex and Droid report their ID in the stream, which may also come before
+   any output. Every turn of a node resumes the session of its last established turn, not merely the last ID recorded,
+   so a session established earlier is still resumed after a later turn was cut before it began; the messages such cut
+   turns took (`TurnState.took`) come again with the recovery note, since the session never saw them. Without an
+   established session a worker starts again from its brief with every message it was given, the integrator and a
+   splitter from their role with the pending requests, and a fresh start gets a new session ID. Starting afresh loses
+   nothing sous knew about: a harness that did save a conversation without printing anything held no work sous saw.
+   This applies to every resume, not only after a restart: a turn an urgent message stopped before it said anything
+   starts again from the brief with the message, and so does a result reminder after a turn with no output. A node
+   whose last turn ended `done` runs
    its acceptance check (again, if it was running), and a worker's question that was not yet sent to its
    parent is sent.
 5. **Checks** (`check` nodes and acceptance checks) that were running are simply run again; one whose
@@ -766,7 +780,10 @@ error does the same before the supervisor exits with it. Either way `sous run` a
 6. **Leads on a harness recover as worker turns do**, and their effects only ever come from a recorded turn result:
    a lead turn still running is stopped and recorded without a result, so it applied nothing, and the lead's next turn
    resumes its session with "Your turn N ended before its result: none of its calls were applied" and every delivery
-   not yet answered; a turn that finished while the supervisor was down is settled from its file (`turn.ended.lead`) and
+   not yet answered. A lead without an established session (its first turn was cut in its first moments) starts a new
+   session instead, with every delivery not yet answered, its brief among them, and no note about a turn it never had;
+   one whose earlier turn completed keeps that session, and its cut turn's deliveries are among those not yet answered.
+   A turn that finished while the supervisor was down is settled from its file (`turn.ended.lead`) and
    its calls applied once; a stop between two calls of one turn applies the rest on resume, the recorded ones returning
    their recorded result (call IDs `t<turn>.<index>`), then answers the turn's deliveries. A recovery turn counts toward
    the 3 recoveries, as for a worker.
@@ -807,19 +824,23 @@ the certification model, whether it has a lead recording) is required by the typ
   process group; and that the supervisor completes a work node with the adapter. A harness with a lead recording
   (`lead`: a lead turn that reads `plan.md` and spawns work and a check) parses it to a lead result, and no cut of it
   has one before the end; an adapter with a lead mode gives a lead turn the role, the prompt and the model and neither an
-  identity nor an MCP server; an adapter without one refuses a lead turn; and every harness in `LEAD_HARNESSES` has a
+  identity nor an MCP server; an adapter without one refuses a lead turn; a supervisor resuming a run starts a turn cut
+  before its harness printed anything (its `stopped` recording up to the line that names the session) again in a new
+  session, not naming the old one, and resumes one cut after output; and every harness in `LEAD_HARNESSES` has a
   lead mode, a lead recording and a `certified.json` that lists the lead tests as passed, so a harness cannot lead
   without committed evidence.
 - **Live certification** (`npm run certify`, `SOUS_HARNESS=<names>`, costs money; `test/conformance-live.test.ts`).
   With the real CLI: a file read; a `needs_input` turn; a session resumed twice; a turn stopped mid-command by the
   supervisor's stop (no result, nothing left running, resumes); a turn killed with SIGKILL (resumes); two siblings that
   settle a name with `send` and `receive` in a real `sous run` while an MCP canary configured in every project location
-  a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; and a
-  supervisor killed mid-turn whose run `sous resume` completes. For an adapter with a lead mode, also: a lead turn reads
+  a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; a
+  supervisor killed mid-turn whose run `sous resume` completes; and a supervisor killed, with the worker's harness, as
+  soon as a worker turn starts, whose run `sous resume` completes by starting that worker again in a new session. For an adapter with a lead mode, also: a lead turn reads
   the files and returns valid calls (each spawned child passes the spawn checks); a lead asked to create a file creates
   none and changes none; a resumed lead remembers its earlier turn; a real `sous run` whose lead runs on the harness
-  splits into work and a check and completes; and a supervisor killed during a lead turn whose run `sous resume`
-  completes with each spawn recorded once. The lead recording is written when it is missing. `SOUS_RECORD=1` rewrites the recordings (with the
+  splits into work and a check and completes; and a supervisor killed, with the lead's harness, as soon as a lead turn
+  starts, whose run `sous resume` completes with the lead started again in a new session and each spawn recorded once.
+  Killing the harness too makes the early stop certain rather than a matter of timing. The lead recording is written when it is missing. `SOUS_RECORD=1` rewrites the recordings (with the
   home directory scrubbed from them). Every run writes `certified.json` beside them: CLI version, model, date, tests
   passed and failed. Pi reads a
   project's MCP servers only in projects the person trusted; Codex records trust itself (see the isolation table), and
@@ -831,7 +852,9 @@ the certification model, whether it has a lead recording) is required by the typ
   each harness's isolation is a written fact in the isolation table.
 
 The first lead certification, on 2026-11-14 (Claude Code 2.1.325 on `haiku`), passed all twelve tests, the five lead
-tests included, on its first run.
+tests included, on its first run. Later runs failed the killed-lead test twice: the kill came before Claude had saved
+the session, which sous then tried to resume (see Harness facts); it had passed by timing. Sous now resumes only an
+established session, and the test kills the harness with the supervisor so the case is certain. With that and the new early-kill test for a worker, the certification passed all thirteen tests on 2026-11-14 (Claude Code 2.1.325 on `haiku`).
 
 Certification on 2026-10-12 (Claude Code 2.1.296 on `haiku`, Codex 0.160.0, Pi 1.1.0, Droid 0.210.0; Pi and Droid on
 Ollama Cloud models) found two faults, both fixed: a Codex worker's first run in a workspace started the project's own
@@ -852,6 +875,11 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   writer"), so the resume failed. Starting each CLI with `setsid` and signalling `-pgid` fixed it.
 - **Session IDs:** Claude takes `--session-id <uuid>` and Pi `--session-id <id>` up front. Codex's
   `thread_id` appears in the first `thread.started` event of `--json` output.
+- **Claude given `--session-id` and stopped early has no conversation to resume.** Found by the lead certification
+  (Claude Code 2.1.325, 2026-11-14): a `sous run` killed as soon as the lead's turn started left a turn whose output was
+  two harness lines naming the session and nothing else; `claude --resume <id>` then printed only an error `result` and
+  "No conversation found with session ID" on stderr, twice, and the lead failed. Claude saves the conversation only
+  once it has begun, so sous resumes only an established session (Recovery, 4).
 - **Turn end is the result event, not process exit.** Claude moved a `sleep` it considered long into the
   background, emitted its `result` event and kept the process alive. Codex exited 0 after SIGTERM. The
   supervisor must use its own record of whether it interrupted a turn, and the end markers `result`

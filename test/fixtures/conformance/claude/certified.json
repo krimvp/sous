@@ -11,6 +11,7 @@
     "killed mid-command: the session resumes",
     "two siblings settle a name through sous; no project MCP server starts",
     "a supervisor killed mid-turn: sous resume completes the run",
+    "a supervisor killed as a worker turn starts: sous resume starts the worker again and completes the run",
     "a lead turn reads the files and returns valid calls",
     "a lead asked to create a file creates none",
     "a resumed lead remembers its earlier turn",

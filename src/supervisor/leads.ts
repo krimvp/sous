@@ -14,7 +14,7 @@ import { linkedFolder, listFiles, readText } from '../workspace/index.ts'
 import type { Root } from '../workspace/index.ts'
 import type { Context } from './context.ts'
 import { accepted, depthOf, notesFor, refusal } from './policy.ts'
-import { exitedText, MAX_RECOVERIES, runTurn } from './turns.ts'
+import { exitedText, MAX_RECOVERIES, resumable, runTurn } from './turns.ts'
 
 const MAX_REMINDERS = 2
 
@@ -203,7 +203,9 @@ export function createLeads(ctx: Context, createLeadRunner: CreateLeadRunner | u
    * that ended while the supervisor was down, or a stop between two of its calls), then each turn carries the results of
    * the last turn's calls and every delivery not yet answered. A turn cut short (interrupted, stopped, or without a
    * result) applied nothing, and the next one says so; a second turn without a result, or one that exits with no
-   * output, fails the lead. */
+   * output, fails the lead. Each turn resumes the lead's established session (`resumable`); without one it starts a new
+   * session, whose prompt is every delivery not yet answered (its brief among them, since no turn applied), with no note
+   * about a turn it never had. */
   const driveLead = async (id: string) => {
     let missed = 0
     let first = true
@@ -235,10 +237,10 @@ export function createLeads(ctx: Context, createLeadRunner: CreateLeadRunner | u
         return abandon(state, id, `a supervisor stop cut its turn short after ${MAX_RECOVERIES} recoveries`)
       }
       const { results, skipped } = callResults(state, id)
-      const prompt = leadTurnPrompt(pending.map((d) => d.text), results, skipped, cut, applied?.number)
+      const { sessionId } = resumable(ctx, lead.turns)
+      const prompt = leadTurnPrompt(pending.map((d) => d.text), results, skipped, sessionId ? cut : undefined, applied?.number)
       const out = resultsDir()
       const cwd = folder ? linkedFolder(nodeFolder(id), workspace, out) : out
-      const sessionId = lead.turns.findLast((t) => t.sessionId)?.sessionId
       const number = lead.turns.length + 1
       const t = await runTurn(ctx, lead.spec, agent, number, prompt, cwd, sessionId, recovery,
         { system: HARNESS_LEAD_ROLE, ...(folder ? { readable: [workspace, out] } : {}) })

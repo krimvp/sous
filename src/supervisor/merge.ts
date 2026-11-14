@@ -10,7 +10,7 @@ import type { InboxMessage, NodeState, RunState } from '../run/index.ts'
 import { changedFiles, collect, hasChanges, head, merge, mergedOnto, mergeInProgress, resetTo, uncommitted, withConflictMarkers } from '../workspace/index.ts'
 import { SUPERVISOR } from './context.ts'
 import type { Context } from './context.ts'
-import { check, exitedText, runTurn } from './turns.ts'
+import { check, exitedText, resumable, runTurn } from './turns.ts'
 
 /** Drop the node's merge from the integration branch and fail the node; its parent hears of it. */
 const mergeFailed = (ctx: Context, id: string, reason: string, onto?: string) => {
@@ -131,10 +131,13 @@ const integrate = async (ctx: Context, spec: NodeSpec, onto: string) => {
     if (!result) {
       const agent = agentOf(state, ig)
       if (typeof agent === 'string') return mergeFailed(ctx, id, agent, onto)
-      const sessionId = ig.turns.findLast((t) => t.sessionId)?.sessionId
-      const inbox: InboxMessage[] = ig.inbox.length ? ig.inbox : [{ seq: 0, from: SUPERVISOR, body: requestFor(ctx, state, id), mode: 'queue' }]
+      // Without an established session the integrator starts again from its role. Either way this merge's requests that
+      // a turn took without output come again: its session never saw them.
+      const { sessionId, unseen } = resumable(ctx, ig.turns)
+      const given = [...unseen.filter((m) => m.seq > since), ...ig.inbox]
+      const inbox: InboxMessage[] = given.length ? given : [{ seq: 0, from: SUPERVISOR, body: requestFor(ctx, state, id), mode: 'queue' }]
       const prompt = !sessionId ? integratorPrompt(state.goal, ig.spec, path, branch, inbox, agent.instructions)
-        : recorded ? recoveryPrompt(ig.inbox) : inboxPrompt(ig.inbox)
+        : recorded ? recoveryPrompt(given) : inboxPrompt(given)
       const t = await runTurn(ctx, ig.spec, agent, ig.turns.length + 1, prompt, path, sessionId, !!recorded)
       if (ctx.stopping) return
       // A node cancelled meanwhile is handled at the top of the loop.

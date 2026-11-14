@@ -123,7 +123,7 @@ test("a check never sees an outer run's SOUS_* identity", async () => {
 
 test('a missing result gets one reminder; a second miss fails the node', async () => {
   const { state } = await runGraph([
-    work('ok', [{}, { result: done('done after reminder') }]),
+    work('ok', [{ say: 'working' }, { result: done('done after reminder') }]),
     work('never', [{}, {}]),
   ])
   assert.equal(state.nodes.get('ok')?.status, 'completed')
@@ -465,17 +465,17 @@ test('an interrupt send stops a running worker and resumes it with the message',
   let outFile = ''
   const { outcome, state, sessions } = await runLead([
     { calls: [{ tool: 'spawn', children: [{ id: 'w', kind: 'work', brief: `Slow.\n${fakePlan([
-      { sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
+      { say: 'working', sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
     ])}` }] }] },
     { calls: [{ tool: 'complete', summary: 'ok' }] },
   ], (e, host) => {
     if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) outFile = e.outFile // <workspace>/run/nodes/w/turn-1.jsonl
     if (e.type !== 'turn.session' || e.node !== 'w' || e.turn !== 1) return
-    // Interrupt only once the worker has printed its session line, which it does after saving the session (the plan);
-    // stopped earlier, the resumed turn would find no plan and end without a result. Gives up after 10 s.
+    // Interrupt only once the worker has said something: its session is established, so the message resumes it.
+    // Gives up after 10 s.
     const deadline = Date.now() + 10_000
     const poll = setInterval(() => {
-      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"session"')
+      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"message"')
       if (!printed && Date.now() < deadline) return
       clearInterval(poll)
       if (printed) host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })

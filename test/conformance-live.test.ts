@@ -240,6 +240,56 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
       assert.ok(await until(() => !sleeping(n), 5000), 'the interrupted command outlived the resume')
     })
 
+    /** SIGKILL `sous run` (`first`) and the process group of `node`'s turn as soon as that turn is logged as started:
+     * the harness is stopped in its first moments, before it has any conversation to resume (Claude, given
+     * `--session-id`, has saved none). Resolves false if no such turn started. */
+    const killAtTurnStart = async (workspace: string, first: ReturnType<typeof spawn>, node: string) => {
+      const runs = join(workspace, '.sous', 'runs')
+      let pid: number | undefined
+      const turnStarted = () => existsSync(runs) && readdirSync(runs).some((id) => {
+        try {
+          const e = readEvents(join(runs, id)).find((e) => e.type === 'turn.started' && e.node === node)
+          if (e?.type === 'turn.started') pid = e.pid
+          return pid !== undefined
+        } catch {
+          return false
+        }
+      })
+      if (!(await until(turnStarted, 5 * MINUTES))) return false
+      process.kill(first.pid!, 'SIGKILL')
+      try {
+        process.kill(-pid!, 'SIGKILL')
+      } catch {}
+      return true
+    }
+    /** `node`'s first turn left no output, so sous resume started it again, in a new session: not resumed. */
+    const startedAgain = (runDir: string, events: Event[], node: string) => {
+      const [cut, next] = fold(events).nodes.get(node)!.turns
+      const items = adapter.parse(readFileSync(resolve(runDir, cut!.outFile), 'utf8')).items
+      assert.ok(!items.some((i) => i.kind !== 'message' || i.role !== 'system'), `the cut turn had output; see ${cut!.outFile}`)
+      assert.equal(next?.mode, 'start', 'started again, not resumed')
+      assert.equal(next?.recovery, true)
+      if (cut!.sessionId) assert.notEqual(next?.sessionId, cut!.sessionId, 'in a new session')
+    }
+
+    test('a supervisor killed as a worker turn starts: sous resume starts the worker again and completes the run', { timeout: 20 * MINUTES }, async () => {
+      const workspace = gitWorkspace(`sous-certify-${harness}-`)
+      const graph = writeGraph(harness, liveModel, [
+        { id: 'early', kind: 'work', agent: 'worker', brief: 'Write a file done.txt containing the word done and commit it.' },
+        { id: 'verify', kind: 'check', needs: ['early'], command: 'grep -q done done.txt' },
+      ])
+      const first = spawn(process.execPath, [CLI, 'run', graph], { cwd: workspace, stdio: 'ignore' })
+      const exited = new Promise((resolve) => first.on('exit', resolve))
+      assert.ok(await killAtTurnStart(workspace, first, 'early'), 'the worker never started a turn')
+      await exited
+      const resumed = await sous(['resume'], workspace, 18 * MINUTES)
+      assert.equal(resumed.code, 0, resumed.output)
+      const runDir = runDirOf(resumed.output)
+      const events = readEvents(runDir)
+      assert.equal(fold(events).status, 'completed')
+      startedAgain(runDir, events, 'early')
+    })
+
     // ---- Leading: a lead turn is read only and ends with valid calls; a real run's lead runs on the harness. ----
     const leadSpec = (cwd: string, turn: number, prompt: string): TurnSpec => ({ ...spec(cwd, turn, prompt), lead: { system: HARNESS_LEAD_ROLE } })
     const leadFinished = async (running: RunningTurn, s: TurnSpec) => {
@@ -326,21 +376,14 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
       const { workspace, agents } = leadRun()
       const first = spawn(process.execPath, [CLI, 'run', GOAL, '--agents', agents, '--max-cost', '1'], { cwd: workspace, stdio: 'ignore' })
       const exited = new Promise((resolve) => first.on('exit', resolve))
-      const runs = join(workspace, '.sous', 'runs')
-      const leadTurn = () => existsSync(runs) && readdirSync(runs).some((id) => {
-        try {
-          return readEvents(join(runs, id)).some((e) => e.type === 'turn.started' && e.node === 'lead')
-        } catch {
-          return false
-        }
-      })
-      assert.ok(await until(leadTurn, 5 * MINUTES), 'the lead never started a turn')
-      process.kill(first.pid!, 'SIGKILL')
+      assert.ok(await killAtTurnStart(workspace, first, 'lead'), 'the lead never started a turn')
       await exited
       const resumed = await sous(['resume'], workspace, 18 * MINUTES)
       assert.equal(resumed.code, 0, resumed.output)
-      const events = readEvents(runDirOf(resumed.output))
+      const runDir = runDirOf(resumed.output)
+      const events = readEvents(runDir)
       assert.equal(fold(events).status, 'completed')
+      startedAgain(runDir, events, 'lead')
       const ids = spawned(events).map((c) => c.id)
       assert.ok(ids.length >= 2, JSON.stringify(ids))
       assert.equal(new Set(ids).size, ids.length, `each spawn is recorded once: ${ids.join(', ')}`)

@@ -43,7 +43,7 @@ test('a run stops at its budget: no new turn, running turns stopped resumable; s
       { write: { 'hello.txt': 'nope\n' }, result: done('wrote it'), usage: { ...tokens, sessionCostUsd: 0.3 } },
       { write: { 'hello.txt': 'hello\n' }, result: done('fixed it'), usage: { ...tokens, sessionCostUsd: 0.45 } },
     ], { command: 'grep -q hello hello.txt' }),
-    work('slow', [{ sleepMs: 60_000, result: done('too late') }, { result: done('slow resumed') }]),
+    work('slow', [{ say: 'working', sleepMs: 60_000, result: done('too late') }, { result: done('slow resumed') }]),
     // Turns that report no cost, as Codex and Droid workers do: not counted, and said once.
     work('d', [{ result: done('d'), usage: tokens }]),
     work('e', [{ result: done('e'), usage: tokens }]),

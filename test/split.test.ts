@@ -1,7 +1,7 @@
 // The splitter: a standing agent that proposes each lead's split before its brief. Real git worktrees, fake workers
 // and the scripted fake lead runner; the approval gate and recovery through real `sous` processes.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -373,9 +373,32 @@ test("with --approve-splits a lead is neither reminded nor abandoned while its c
   assert.equal(state.summary, 'all done')
 })
 
+test('a splitter killed before its harness saved its session starts again from its role and the request, and its proposal reaches the lead once', async () => {
+  const marker = join(mkdtempSync(join(tmpdir(), 'sous-early-')), 'stopped')
+  const { workspace, agents, sessions, goal } = goalRun([
+    { stopEarly: marker, write: propose('lead', [task('a', [])]), result: done('proposed afresh') },
+  ], leadDone)
+  const run = sous(['run', goal, '--agents', agents], workspace, sessions)
+  for (let i = 0; i < 400 && !existsSync(marker); i++) await sleep(25)
+  assert.ok(existsSync(marker), 'the splitter never started')
+  run.child.kill('SIGKILL')
+  await run.exit
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exit, 0, resumed.output())
+  const events = readEvents(runDirOf(workspace)!)
+  const sp = fold(events).nodes.get(SPLITTER)!
+  assert.deepEqual(sp.turns.map((t) => [t.mode, t.recovery ?? false, t.result?.summary]), [['start', false, undefined], ['start', true, 'proposed afresh']])
+  assert.notEqual(sp.turns[1]!.sessionId, sp.turns[0]!.sessionId)
+  const prompts = JSON.parse(readFileSync(join(sessions, `${sp.turns[1]!.sessionId}.json`), 'utf8')).prompts as string[]
+  assert.match(prompts[0]!, /^You are the splitter of a larger goal\.[\s\S]*Propose a split for lead lead\./)
+  assert.deepEqual(splitEvents(events).map((e) => e.type), ['split.requested', 'split.proposed'])
+  assert.equal(events.filter((e) => e.type === 'message' && e.to === SPLITTER).length, 1)
+  assert.equal(fold(events).status, 'completed')
+})
+
 test('a splitter turn cut short by a SIGKILL is resumed with a recovery note, and its proposal reaches the lead once', async () => {
   const { workspace, agents, sessions, goal } = goalRun([
-    { sleepMs: 60_000, result: done('too late') },
+    { say: 'working', sleepMs: 60_000, result: done('too late') },
     { write: propose('lead', [task('a', [])]), result: done('after recovery') },
   ], leadDone)
   const run = sous(['run', goal, '--agents', agents], workspace, sessions)
