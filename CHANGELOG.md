@@ -3,7 +3,7 @@
 Releases of `@krimvp/sous`. Each release is a PR titled "Release x.y.z" and a `vx.y.z` git tag on its merge commit.
 Add changes under Unreleased as they merge; the release PR renames that heading.
 
-## Unreleased
+## 0.2.0 (2026-11-14)
 
 - Docs: the README is rewritten for new users (how it works, requirements, a quick start, a command table, lead
   providers, security). `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to
