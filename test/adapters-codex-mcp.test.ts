@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-const TURNS = new URL('./fixtures/codex-turns.ts', import.meta.url).pathname
+const TURNS = new URL('./helpers/codex-turns.ts', import.meta.url).pathname
 const tempDir = () => mkdtempSync(join(tmpdir(), 'sous-codex-mcp-'))
 
 /** `body` is what a stand-in `codex mcp list --json` does; any other command records its arguments and ends. */

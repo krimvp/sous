@@ -1,4 +1,5 @@
-import type { HarnessName, WorkerAdapter } from '../types.ts'
+// The worker adapters: one per CLI harness, each starting and resuming a worker's turns and parsing their output.
+import type { HarnessName, WorkerAdapter } from '../contracts/index.ts'
 import { claude } from './claude.ts'
 import { codex } from './codex.ts'
 import { droid } from './droid.ts'

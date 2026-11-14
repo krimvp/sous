@@ -60,7 +60,7 @@ The project's own instruction files still apply, as each harness reads them:
 - **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`,
   which sous passes to it.
 - **Droid:** your MCP servers and the project's are disabled, hooks are off, and your skills (yours and your plugins')
-  are off. It reads the worktree's `AGENTS.md`. Your custom droids, and MCP servers or droids your plugins bring, still
+  and Droid's built-in skills are off. It reads the worktree's `AGENTS.md`. Your custom droids, and MCP servers or droids your plugins bring, still
   load. A resumed turn continues a fork of the session, so it works without a Factory login.
 
 Workers run with full permissions in their worktree and still have a shell, your files and your network: this keeps
@@ -88,8 +88,9 @@ running turn has run and when its output last grew, and a turn without output fo
 
 ## Adding a harness
 
-1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
-   to the worker and integrator preference lists, in `src/types.ts`.
+1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`. Add its name to `HARNESSES` in
+   `src/contracts/workers.ts`, and to `WORKER_AGENT_PREFERENCE` and `INTEGRATOR_AGENT_PREFERENCE` in
+   `src/contracts/agents.ts`. [The code map](architecture.md#adapters) says what an adapter shares with the others.
 2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one.
 3. Record its conformance fixtures and pass certification: `SOUS_HARNESS=<name> SOUS_RECORD=1 npm run certify`, then
    `npm run check`.

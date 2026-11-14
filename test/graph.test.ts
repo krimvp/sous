@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { validateGraph } from '../src/graph.ts'
-import { HARNESSES } from '../src/types.ts'
+import { validateGraph } from '../src/definitions/index.ts'
+import { HARNESSES } from '../src/contracts/index.ts'
 
 const work = (id: string, needs?: string[]) => ({ id, kind: 'work', brief: `do ${id}`, needs })
 

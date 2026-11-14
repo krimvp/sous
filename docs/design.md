@@ -93,6 +93,9 @@ sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | droid | 
                └──▶ trace exporters (ATIF file, OTLP/HTTP to Langfuse)
 ```
 
+Where each part lives in `src/`, and which module may import which, is in the code map,
+[architecture.md](architecture.md).
+
 ### Supervisor
 
 One process per run, holding `.sous/runs/<id>/lock` (pid and start time), created exclusively. A lock left
@@ -154,7 +157,7 @@ reopened lead continues where it stopped.
   original result on replay**: in the spike, a different replay result made the model stop early. A read
   changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, else the default: the first provider in
-  `LEAD_PROVIDERS` (`src/types.ts`) with a credential, on that provider's default model, decided with availability
+  `LEAD_PROVIDERS` (`src/contracts/agents.ts`) with a credential, on that provider's default model, decided with availability
   when the run starts and printed on the `agents:` line. The providers, in that order, are Ollama Cloud
   (`ollama-cloud/deepseek-v4.1-flash`: cheap; passed the spike, as did `ollama-cloud/glm-5.3`), Anthropic
   (`anthropic/claude-haiku-5-5`), OpenAI (`openai/gpt-6-luna`) and the ChatGPT login (`openai-codex/gpt-5.5`, which
@@ -223,7 +226,7 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   check, so a standing node, which gets none, or a check does not take on the identity of an outer run's worker when
   sous runs inside one.
   This is attribution, not authentication: workers run as the person.
-- **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
+- **Policy** (`src/commands/worker.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
   only a lead stops a worker.
@@ -269,8 +272,8 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
 
 ## Leads
 
-The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
-events in `src/types.ts`.
+The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost` and `LeadRunner` in `src/contracts/leads.ts`, and the
+`lead.*` and `node.cancelled` events in `src/contracts/events.ts`.
 
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
@@ -356,7 +359,7 @@ calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing 
 ## Roles
 
 A **role** is a job an agent does for every lead of a subtree, rather than a node of its own. `ROLES` in
-`src/types.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
+`src/contracts/nodes.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
 
 - **Assigning.** A lead node in a graph file may set `roles: { "<role>": "<agent>" }`, naming any agent of the graph
   or a built-in. A lead may set `roles` on a lead child it spawns, naming only agents the person defined (in the
@@ -421,7 +424,7 @@ Without a splitter, leads split on their own, as before.
 
 An **agent** is what does work; a harness is only how an agent runs. An agent has a name, a runtime (`claude`,
 `codex`, `pi`, `droid` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
-every brief it receives (`AgentSpec` in `src/types.ts`).
+every brief it receives (`AgentSpec` in `src/contracts/agents.ts`).
 
 - **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined. A graph file may define
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
@@ -613,7 +616,7 @@ command could have outlived it.
 
 ## Harness conformance
 
-Every harness in `HARNESSES` (`src/types.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
+Every harness in `HARNESSES` (`src/contracts/workers.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
 entry in `test/conformance/harnesses.ts` (`Record<HarnessName, …>`: end marker, whether workers get sous's MCP server,
 the certification model) is required by the type checker.
 
@@ -718,7 +721,7 @@ from them, so traces can move between tools later.
   `system` step.
 - sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
-- Tests check every document with a strict checker of the subset sous emits (`test/atif-checker.ts`),
+- Tests check every document with a strict checker of the subset sous emits (`test/helpers/atif-checker.ts`),
   and with Harbor's validator (`python -m harbor.utils.trajectory_validator`) when Harbor is installed
   (`HARBOR_PYTHON`).
 
@@ -742,7 +745,7 @@ run or an older one.
 
 ## The UI
 
-`sous ui [--port <n>]` (`src/ui.ts`, `src/ui.html`) serves one static page and a small JSON API with Node's `http`
+`sous ui [--port <n>]` (`src/ui/server.ts`, `src/ui/page.html`) serves one static page and a small JSON API with Node's `http`
 server, on `127.0.0.1` only. It prints its address with a random token; every request needs the token, and a Host
 header naming this machine, so other sites in the browser (or a rebound DNS name) cannot read runs. It reads, and
 never writes: the supervisor stays the only writer, and the person's commands still go through `sous answer`, `approve`
@@ -768,10 +771,13 @@ and `cancel`.
   run.json             goal, workspace, graph or agents file, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
-  commands/            command files from sous answer, approve and cancel, until processed
+  commands/            command files from sous answer, approve and cancel, and from workers' send and receive
+                       (the commands or sous's MCP tools), until processed
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
+    turn-<k>.schema.json    Codex: the result schema passed with --output-schema
+    turn-<k>.settings.json  Droid: the runtime settings passed with --settings (MCP servers, hooks, skills)
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
@@ -788,9 +794,10 @@ Node 22.19 or later runs the TypeScript sources directly (type stripping). Only 
 runtime dependencies: `@earendil-works/pi-durable`, `pi-ai` and `chord`, pinned to exact versions because
 the API is experimental. The supervisor, adapters and exporters use Node built-ins only.
 Development dependency: `typescript` for type checking, and for the npm package (`@krimvp/sous`): Node does not
-strip types from files under `node_modules`, so `npm pack`/`npm publish` first compile `src/` to `dist/`
-(`tsconfig.build.json`, `.ts` imports rewritten to `.js`; `ui.html` copied). Paths a run hands to another process
-(sous's MCP server, the `sous send` command) take the extension of the running file. Tests use `node:test`;
+strip types from files under `node_modules`, so `npm pack`/`npm publish` first build `dist/` (`scripts/build.mjs`):
+`src/` compiled with `tsconfig.build.json` into the same layout, `.ts` imports rewritten to `.js`, and
+`src/ui/page.html` copied to `dist/ui/page.html`. The paths a run hands to another process (sous's MCP server, the
+`sous send` command) come from `src/self.ts` and take the extension of the running file. Tests use `node:test`;
 `test/package.test.ts` runs the compiled package from a `node_modules` directory.
 
 ## Roadmap
@@ -882,7 +889,7 @@ The Droid adapter was verified on 2026-10-12 with Factory Droid 0.210.0 on an Ol
 the live test started a session and resumed it twice by forking, remembering the codeword. A graph run had two Droid
 siblings, `a` telling `b` a file name with the MCP `send` tool while `b` waited for it with `receive`; both merged and
 the check passed. The workspace's own MCP server and `SessionStart` hook stayed out (Droid offered only `sous___send`
-and `sous___receive`, and the hook's file was not written), and the exported ATIF passed `test/atif-checker.ts`
+and `sous___receive`, and the hook's file was not written), and the exported ATIF passed `test/helpers/atif-checker.ts`
 (Harbor was not installed). In a third run `sous run` was killed with SIGKILL while its Droid worker ran `sleep 45`;
 `sous resume` stopped the orphaned turn (Droid ended the `sleep`), resumed it as a fork with the recovery note, and
 the work merged and the check passed.

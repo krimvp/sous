@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { getAdapter } from '../src/adapters/index.ts'
-import type { HarnessName, ParsedTurn } from '../src/types.ts'
+import type { HarnessName, ParsedTurn } from '../src/contracts/index.ts'
 import { recording } from './conformance/harnesses.ts'
 
 // The conformance recordings (`SOUS_RECORD=1 npm run certify` regenerates them), so these tests follow the real CLIs.
