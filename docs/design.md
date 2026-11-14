@@ -218,10 +218,13 @@ harness leads once it is certified for it.
   without a `lead.turn`) gets its `lead.turn`, with the answer; the turn's usage is on its `turn.ended`, counted by the
   shared `turnCost`, so `lead.turn` carries none and a budget counts the turn once.
 - **What it learns.** A turn's prompt starts with the results of the last applied turn's calls, in order (those not
-  applied say so), then the deliveries it answers (`leadTurnPrompt`). A refused call is an item of its own, delivered
-  like an outcome (`evt-<seq>` of the refused `lead.call`), so the lead gets a turn with the results; successful results
-  ride along with the next delivery. Two turns in a row whose first call was refused fail the lead; so does the idle
-  rule (two reminders without an accepted call), as for any lead.
+  applied say so), then the deliveries it answers (`leadTurnPrompt`); after a cut turn (below) the results are labelled
+  with the turn that applied them. A refused call earns no turn of its own: while a child works, the results ride along
+  with the next delivery that needs the lead (an outcome, a question), as a worker's `send` does, and the lead decides
+  again then, as a lead in process that was refused waits for the next outcome. With no child working, the idle rule
+  delivers them: the reminder says a call was refused, and a lead that ends two reminders still refused fails with the
+  refusal (`idle after 2 reminders; cancel was refused: ...`). So no call of the lead's own makes it a turn: its turns
+  are bounded by its deliveries (see Idle leads).
 - **Interrupts and cuts.** An urgent message stops the running turn's group (`turn.interrupted`, as for a worker) and the
   next turn carries it. Only an uninterrupted turn's recorded result has effects: an interrupted turn, one a stop cut
   short, or one that ended without a result applied nothing, and the next turn starts with "Your turn N ended before its
@@ -412,8 +415,14 @@ child's brief.
 
 **Idle leads.** A lead is idle once it has answered every delivery (it may answer an earlier one after a later
 one was delivered, and the runner may report one twice after a crash; the second report is ignored). When it settles idle with no running or pending children, no undelivered
-messages, and without completing, it receives a reminder to spawn, complete, fail or escalate. After two
-reminders without progress the lead fails. A delivery the runner could not get answered (a model error, an
+messages, and without completing, it receives a reminder to spawn, cancel, complete, fail or escalate. After two
+reminders without progress the lead fails. Progress is an accepted call other than `note` and `send`, or a delivery of
+something new (a message, an outcome): a note or a send alone does not move the lead on, so answering every reminder
+with one, or alternating one with refused calls, still ends after two. This bounds a lead's turns without a budget:
+each comes from a delivery, and deliveries other than the two reminders (and the one retry below) come from someone
+else (an outcome, at most one per child; a message, which takes another agent's or the person's turn) or follow a
+progress call (spawn and cancel are bounded by the children a lead may have, complete and fail end it, escalate waits
+for the parent). A delivery the runner could not get answered (a model error, an
 expired login: `lead.turn` is `unanswered` with the reason) is retried once with the reason, where an idle
 lead would be reminded (so a working child's outcome reaches the lead first, and the retry is not a
 reminder); when the retry goes unanswered too, the lead fails with that reason, not as idle. A settlement the

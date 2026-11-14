@@ -104,7 +104,8 @@ export interface NodeState {
   /** Leads: the last `lead.turn` was `unanswered` (the runner could not get the delivery answered: a model error), with
    * its reason and whether the one retry for it has been delivered. */
   unanswered?: { reason: string; retried: boolean }
-  /** Leads: reminders delivered since the last accepted tool call. */
+  /** Leads: reminders delivered since the last delivery of something new or accepted call that is progress (not `note`
+   * or `send`). */
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
   escalated: boolean
@@ -372,11 +373,12 @@ export function fold(events: readonly Event[]): RunState {
       case 'lead.delivered': {
         const node = state.nodes.get(e.node)
         if (!node) break
-        // A delivery named after the last turn is the retry of an unanswered one, else an idle reminder.
+        // A delivery named after the last turn is the retry of an unanswered one, else an idle reminder. Any other brings
+        // the lead something new (a brief, a message, an outcome), and the count of reminders starts again.
         if (node.lastTurn !== undefined && e.requestId === `evt-${node.lastTurn}`) {
           if (node.unanswered) node.unanswered.retried = true
           else node.reminders++
-        }
+        } else node.reminders = 0
         node.delivered.push(e.requestId)
         node.carried.push(...(e.carries ?? []))
         const taken = new Set([e.requestId, ...(e.carries ?? [])])
@@ -400,8 +402,9 @@ export function fold(events: readonly Event[]): RunState {
         state.calls.set(callKey(e.node, e.callId), e.result)
         const lead = state.nodes.get(e.node)
         if (!e.ok || !lead) break
-        lead.reminders = 0
         const call = e.call
+        // Progress: a note or a send alone does not move the lead on, so it does not stop the reminders.
+        if (call.tool !== 'note' && call.tool !== 'send') lead.reminders = 0
         if (call.tool === 'spawn') {
           for (const c of call.children) {
             if (typeof c.agent === 'object') state.agents.agents![c.agent.name] = defineAgent(state.agents, c.agent)

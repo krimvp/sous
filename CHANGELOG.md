@@ -14,7 +14,9 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   turn is a Claude Code turn that only reads (Read, Glob and Grep, confined to the run's results by `--restricted`, no
   MCP server, no project hooks) and ends with its calls, which sous applies after the turn through the same checks as
   every lead call (call IDs `t<turn>.<index>`, so a recovered run applies each once); a refused call stops the rest of
-  its turn and gives the lead a turn with the results. The mechanism is the harness adapter's (`TurnSpec.lead`,
+  its turn, and the lead learns the results with its next delivery (a child's outcome, or a reminder when no child
+  works). For every lead, a `note` or `send` alone no longer counts as progress against the idle reminders, so a lead
+  answering each reminder with only a note fails after two, as one that does nothing does. The mechanism is the harness adapter's (`TurnSpec.lead`,
   `ParsedTurn.lead`, `LeadResult`), not Claude's: a harness leads once its certification passes the new lead tests
   (`LEAD_HARNESSES`). Codex has a lead mode that is not yet certified; Pi and Droid have none. A lead named on a harness
   that may not lead is refused before the run starts, with how to certify it.
