@@ -5,7 +5,8 @@
 ```
 sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
 sous resume [run-id] [--workspace <dir>]
-sous status [run-id] [--workspace <dir>]   (the tree, pending questions, and `usage: <in> tokens in (<cached> cached), <out> out; $<x> cost reported`)
+sous status [run-id] [--json] [--workspace <dir>]   (the run as a tree with a `usage:` line of tokens and reported cost, or as one JSON document: see below)
+sous wait [run-id] [--timeout <seconds>] [--json] [--workspace <dir>]   (blocks until the run needs you or is over)
 sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
 sous answer <node> "text" [run-id] [--workspace <dir>]
 sous approve <node> [run-id] [--workspace <dir>]
@@ -18,7 +19,7 @@ sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers le
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
-`run-id` defaults to the latest run; for `answer`, `approve` and `cancel`, to the one run that is running (with several
+`run-id` defaults to the latest run (for `wait` too: name the run you started); for `answer`, `approve` and `cancel`, to the one run that is running (with several
 running, name one). A command the run cannot apply is refused: up front, or as `command.refused` when it no longer
 applies by the time the run reads it (shown by the run and `sous status`). The integrator and splitters are not
 cancelled: cancel the node they work for. `--workspace` defaults to the current directory, or when that is inside a git
@@ -30,6 +31,51 @@ names an existing file is a graph file; anything else is a goal, except a single
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
 `sous answer <lead> "<changes>"`.
+
+## `status --json` and `wait`
+
+`sous status --json` prints one JSON document (type `RunStatus` in `src/types.ts`); `sous status` prints the same as
+text. `sous wait --json` prints it with `"wait"`, why it returned.
+
+```jsonc
+{
+  "id": "20261114T092641Z-ef7f",
+  "state": "running",            // running | stopped (not over, supervisor gone: resume) | completed | failed
+  "goal": "…", "mode": "git",    // git | folder
+  "summary": "…",                // run.completed's summary, once completed
+  "reason": "…",                 // run.failed's reason, once failed
+  "result": { "branch": "sous/20261114T092641Z-ef7f" },   // or { "folder": "<dir>" }; absent until there is one
+  "nodes": [                     // depth first; a node is followed by its subtree
+    { "id": "lead", "kind": "lead", "status": "running", "turns": 0 },
+    { "id": "w", "kind": "work", "parent": "lead", "status": "running", "agent": "claude", "turns": 1,
+      "summary": "…",            // failure reason, completion summary, last turn's result summary, or a check's last output line
+      "failedChecks": ["c"],     // a lead that completed over failed checks
+      "turn": { "number": 1, "startedAt": "…", "ageSeconds": 75, "lastOutputAt": "…", "lastOutputAgeSeconds": 3 } }
+  ],                             // status: pending ready running waiting merging idle completed failed; "standing": true for the integrator and splitters
+  "waiting": [                   // what waits for you
+    { "kind": "gate", "node": "ship", "text": "Ship it?", "seq": 8,
+      "commands": { "approve": "sous approve ship", "reject": "sous cancel ship" } },
+    { "kind": "question", "node": "lead", "text": "Which database?", "seq": 12,
+      "commands": { "answer": "sous answer lead \"<answer>\"" }, "sent": true }
+  ],                             // split: { "approve", "answer" (changes) }; "sent": an answer is sent, not yet applied
+  "refused": [{ "at": "…", "reason": "sous cancel nope: no node nope" }],   // the latest three, latest last
+  "resume": "sous resume 20261114T092641Z-ef7f",   // when stopped
+  "at": "…",                     // when it was read
+  "wait": "waiting"              // wait --json only
+}
+```
+
+Commands name the run (`… <run-id>`) when the workspace has more than one run. `sous wait` polls every 500 ms and only
+reads the run's files. It returns, with exit code:
+
+| exit | `wait` | when |
+|---|---|---|
+| 0 | `completed` | the run completed, no top-level lead over failed checks |
+| 3 | `failed` | the run failed, or completed with failed checks |
+| 4 | `waiting` | something waits for you that no sent command answers yet (also when it already waited before `wait` started) |
+| 5 | `stopped` | the run is not over and its supervisor is gone: `sous resume <id>` |
+| 6 | `timeout` | none of these within `--timeout` (default: no limit) |
+| 1, 2 | | sous refused the command (as for every command) |
 
 ## Definitions (graph file or `--agents` file)
 

@@ -1,12 +1,7 @@
 // Run state as a pure fold of the event log.
 import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, RunMode, TurnResult, Usage } from './types.ts'
-
-/** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
- * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
- * between requests. */
-export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'merging' | 'idle' | 'completed' | 'failed'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, NodeStatus, Role, RunMode, TurnResult, Usage } from './types.ts'
 
 export interface CheckState {
   command: string

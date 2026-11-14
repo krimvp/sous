@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
 import { listRuns, lockHolder, readEvents } from './log.ts'
 import { awaitsSplitApproval, fold, isFinal } from './state.ts'
+import { liveStatus } from './status.ts'
 import type { RunState } from './state.ts'
 import { loadRun, logView, runTokens, tokensOf, usagesOf, viewRun } from './trace/run.ts'
 import type { NodeView, ParseTurn, RunView } from './trace/run.ts'
@@ -104,13 +105,6 @@ function send(res: ServerResponse, status: number, type: string, body: string | 
 const json = (res: ServerResponse, body: unknown) => send(res, 200, 'application/json', JSON.stringify(body))
 
 // ---- Views -------------------------------------------------------------------------------------
-
-type Live = 'running' | 'stopped' | 'completed' | 'failed'
-
-/** A run's status as `sous status` reports it: a running run without a live supervisor is stopped. */
-function liveStatus(runDir: string, state: RunState): Live {
-  return state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
-}
 
 /** Levels of the node tree, top-level nodes being level 1. */
 function depthOf(view: RunView): number {

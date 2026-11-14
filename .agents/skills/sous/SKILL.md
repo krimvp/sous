@@ -57,15 +57,35 @@ Leads may read files before splitting. In folder mode, workers and checks run in
    graph files carry the same `agent`, `agents`, `models` keys. See [REFERENCE.md](REFERENCE.md). For
    consistent or stronger planning, define a `splitter` agent: it proposes every lead's split from the code, and
    `--approve-splits` lets the user approve each one.
-3. **Start it in the background** and keep the log: `$M run … > run.log 2>&1 &` (a run waits for answers and
-   approvals, so a foreground run can block your shell).
-4. **Watch** `run.log` for `completed with failed checks`, `node.failed`, `merge.conflict`, `merge.failed`, `-> person`, `run.completed`,
-   `run.failed`, and `turn.stalled` (a worker without output for 10 minutes: look before cancelling it, a long command
-   is silent too); `$M status` prints the live tree, each running turn's age and how long ago its output last grew,
-   pending questions and a `usage:` line (tokens in, cached and out, and the cost the harnesses reported; Ollama reports
-   none, so it may be partial, and it says how many turns reported no cost), also printed when the run ends; `$M runs`
-   lists the workspace's runs.
-5. **Steer from another shell** when needed:
+3. **Start it in the background** and keep its output: a run waits for answers and approvals, so a foreground run
+   blocks your shell. Take its id from the line `run <id> (<dir>)` it prints once the run exists (a run refused before
+   it starts prints why and exits):
+
+   ```bash
+   $M run "…" > run.log 2>&1 & pid=$!
+   until id=$(awk '$1 == "run" { print $2; exit }' run.log) && [ -n "$id" ]; do kill -0 $pid 2>/dev/null || { cat run.log; break; }; sleep 1; done
+   ```
+4. **Drive it with `wait`**: `$M wait $id --json --timeout 540` blocks until the run needs you or is over and prints
+   the run's status as JSON with `wait`, the reason; its exit code says the same:
+
+   | exit | `wait` | do |
+   |---|---|---|
+   | 0 | `completed` | check the result (step 6) |
+   | 3 | `failed` | the run failed, or completed with failed checks: read `reason`, `summary` and the failed nodes' `summary` |
+   | 4 | `waiting` | each `waiting` item has `kind` (question, gate, split), `node`, `text` and the `commands` that answer it: decide, or ask the user, run one, then `wait` again |
+   | 5 | `stopped` | the supervisor is gone (Ctrl-C, a crash): `$M resume $id > resume.log 2>&1 &`, then `wait` again |
+   | 6 | `timeout` | nothing changed yet: look at `nodes` if you want, then `wait` again |
+   | 1, 2 | | sous refused the command (no such run, a bad option): it says why on stderr |
+
+   The `commands` start with `sous`: run them as `$M …`, with `<answer>` or `<changes>` replaced.
+
+   Name the run (`$id`): without one `wait` follows the latest run, which until yours exists is an older one. An ask
+   you answered does not stop the next `wait` while the run applies the answer (`sent: true`); one you leave
+   unanswered stops every `wait` at once. A running node's `turn` gives its age and the age of its last output: a
+   worker silent for long (`turn.stalled` in the log after 10 minutes) may run a long command; look before cancelling
+   it. `$M status --json` (or `$M status` as text) is the same snapshot without waiting; its `usage` gives the tokens and the
+   cost the harnesses reported (Ollama reports none, so it may be partial: `unpriced` counts those turns); `$M runs` lists the runs.
+5. **Steer** when needed, from your shell or another (the run need not be waiting):
    - `$M answer <node> "text"`: reply to a question, or correct a lead (it reacts within seconds).
    - `$M approve <gate>` / `$M cancel <node>` (cancel stops the node and its subtree, or rejects a gate).
    - With `--approve-splits`: `$M approve <lead>` accepts its proposed split, `$M answer <lead> "…"` changes it.

@@ -738,6 +738,33 @@ from them, so traces can move between tools later.
 Both exporters are pure functions from the event log and turn files, so they can also run on a finished
 run or an older one.
 
+## Status and wait
+
+`sous status [run-id]` prints a run as a tree; `sous status --json` prints the same `RunStatus` (`src/types.ts`) as one
+JSON document, and the text is rendered from it (`src/status.ts`), so the two cannot drift. It is built from `fold`,
+the run's lock (a run that is not over without a live supervisor is `stopped`, as `sous runs` and `sous ui` call it),
+each running turn's output file (its age and its last output's age) and the person's command files not yet applied.
+It holds the run's id, state, goal, mode, summary or reason, result (branch or output folder), every node depth first
+(id, kind, parent, status, agent, turns, summary or failure reason, failed checks a lead completed over, a running
+turn), what waits for the person (`waiting`: questions, gates and proposed splits, each with its full text, the seq of
+the event that asked, and the commands that answer it), the latest three refused commands, and `sous resume <id>` when
+stopped. An ask is `sent` when a command file in `commands/` names its node (or cancels an ancestor) and no event
+records that file yet; `sous status` marks it `(answer sent)`.
+
+`sous wait [run-id] [--timeout <seconds>] [--json]` lets an agent drive a run without reading its printed log. It polls
+the same status every 500 ms (it only reads) and returns when the run is over, its supervisor is gone, or something
+waits for the person, printing why and the status (`--json`: the `RunStatus` with `wait`, the reason). Exit codes
+(`WAIT_EXIT_CODES`): 0 completed; 3 failed, or completed with a top-level lead that completed over failed checks; 4
+waits for the person; 5 stopped (resume needed); 6 timeout; 1 and 2 keep their meaning (a refusal, a command line not
+understood). A run seen without a live supervisor is looked at once more after a poll before it counts as stopped, as
+`sous run` releases the lock for a moment between creating the run and starting its supervisor.
+
+`wait` returns for any ask that waits, not only for one that appeared after it started: a run that asks before the
+agent's first `wait` must not leave it blocked. What makes `wait`, `answer`, `wait` correct is `sent`: an ask whose
+answer is in `commands/` and not yet applied does not count, so the second `wait` blocks until the supervisor applied
+the answer and the run moves on; if the supervisor refuses it (`command.refused`, the file gone) the ask counts again.
+An ask the agent leaves unanswered makes every `wait` return at once: it needs attention.
+
 ## The UI
 
 `sous ui [--port <n>]` (`src/ui.ts`, `src/ui.html`) serves one static page and a small JSON API with Node's `http`
