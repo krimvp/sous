@@ -3,6 +3,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { branchExists, commitsNotIn } from './git.ts'
 import { listRuns, lockHolder, readEvents } from './log.ts'
 import { ancestors, awaitsSplitApproval, completedText, fold, isFinal } from './state.ts'
 import type { NodeState, RunState } from './state.ts'
@@ -22,7 +23,9 @@ export const runRef = (workspace: string, id: string) => (listRuns(workspace).id
 /** The results of the run: its branch, or its output folder once it exists. */
 export function resultOf(state: RunState, runDir: string): RunStatus['result'] {
   if (state.mode === 'folder') return existsSync(join(runDir, 'output')) ? { folder: join(runDir, 'output') } : undefined
-  return state.integration && { branch: state.integration.branch }
+  if (!state.integration) return undefined
+  const { branch } = state.integration
+  return branchExists(state.workspace, branch) ? { branch } : { branch, deleted: true }
 }
 
 /** The run's tokens and the cost its harnesses reported, from the log alone, as the UI totals them; nothing when no turn
@@ -40,7 +43,23 @@ export function usageText(t: NonNullable<RunStatus['usage']>): string {
   return `usage: ${n(t.input)} tokens in (${n(t.cached)} cached), ${n(t.output)} out; ${cost}`
 }
 
-export const resultText = (result: NonNullable<RunStatus['result']>) => ('branch' in result ? `branch ${result.branch}` : `folder ${result.folder}`)
+/** For a finished git-mode run, the one line naming what the person may do next: look at the result, merge it, clean
+ * up; each only while it still applies. */
+export function nextSteps(state: RunState, runDir: string, r: string): string | undefined {
+  if (state.mode === 'folder' || state.status === 'running' || !state.integration) return undefined
+  const { branch } = state.integration
+  const exists = branchExists(state.workspace, branch)
+  const merged = exists && commitsNotIn(state.workspace, branch, ['HEAD']) === 0
+  const leftovers = readEvents(runDir).some((e) => (e.type === 'integration.created' || e.type === 'worktree.created') && existsSync(e.path))
+  const steps = [
+    ...(exists ? [`sous diff${r}`] : []),
+    ...(exists && !merged && state.status === 'completed' ? [`git merge ${branch}`] : []),
+    ...(merged ? [`sous clean --branches${r}`] : leftovers ? [`sous clean${r}`] : []),
+  ]
+  return steps.length ? `next: ${steps.join(', then ')}` : undefined
+}
+
+export const resultText = (result: NonNullable<RunStatus['result']>) => ('branch' in result ? `branch ${result.branch}${result.deleted ? ' (deleted)' : ''}` : `folder ${result.folder}`)
 
 /** Run `id`'s status now, from its log, its lock, its turns' output files and its waiting command files. */
 export function runStatus(workspace: string, id: string, runDir: string): RunStatus {
@@ -92,6 +111,7 @@ export function runStatus(workspace: string, id: string, runDir: string): RunSta
   const refused = events.flatMap((e) => (e.type === 'command.refused' ? [{ at: e.at, reason: e.reason }] : [])).slice(-3)
   const result = resultOf(state, runDir)
   const usage = runUsage(runDir)
+  const next = nextSteps(state, runDir, runRef(workspace, id))
   return {
     id, state: live, goal: state.goal, mode: state.mode,
     ...(state.summary !== undefined ? { summary: state.summary } : {}),
@@ -100,6 +120,7 @@ export function runStatus(workspace: string, id: string, runDir: string): RunSta
     ...(usage ? { usage } : {}),
     nodes, waiting, refused,
     ...(live === 'stopped' ? { resume: `sous resume ${id}` } : {}),
+    ...(next ? { next } : {}),
     at,
   }
 }
@@ -151,6 +172,7 @@ export function statusText(s: RunStatus, r: string): string {
   lines.push(...waitingLines(s.waiting, r))
   if (s.refused.length) lines.push('commands not applied (latest last):', ...s.refused.map((e) => `  ${e.at.slice(11, 19)} ${oneLine(e.reason)}`))
   if (s.resume) lines.push(`continue it with: ${s.resume}`)
+  if (s.next) lines.push(s.next)
   return lines.join('\n')
 }
 

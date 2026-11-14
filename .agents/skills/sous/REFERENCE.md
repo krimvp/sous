@@ -12,6 +12,8 @@ sous answer <node> "text" [run-id] [--workspace <dir>]
 sous approve <node> [run-id] [--workspace <dir>]
 sous cancel <node> [run-id] [--workspace <dir>]
 sous export atif|otlp [run-id] [--workspace <dir>]
+sous diff [run-id] [--stat] [--workspace <dir>]   (git diff from where sous/<run-id> started to its head; folder mode: the output files)
+sous clean [run-id] [--all] [--branches] [--unmerged] [--dry-run] [--workspace <dir>]   (remove a finished run's worktrees and merged node branches)
 sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
@@ -31,6 +33,12 @@ names an existing file is a graph file; anything else is a goal, except a single
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
 `--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
 `sous answer <lead> "<changes>"`.
+`sous clean` refuses (exit 1) a run whose supervisor is alive or that is stopped (resumable); `--all` cleans every
+finished run and skips those. It removes only the worktrees and branches the run's log records creating, keeps the
+result branch (`--branches` deletes it only once `HEAD` contains it, else refuses with exit 1), and keeps unmerged work,
+listed: a worktree with uncommitted changes and a node branch with commits the result lacks (`--unmerged` removes
+them). Folder mode removes `work/`, keeping `output/` (a never-collected work folder with files is kept unless
+`--unmerged`). The log stays, so `status`, `ui` and `export` work on a cleaned run.
 
 ## `status --json` and `wait`
 
@@ -44,7 +52,8 @@ text. `sous wait --json` prints it with `"wait"`, why it returned.
   "goal": "…", "mode": "git",    // git | folder
   "summary": "…",                // run.completed's summary, once completed
   "reason": "…",                 // run.failed's reason, once failed
-  "result": { "branch": "sous/20261114T092641Z-ef7f" },   // or { "folder": "<dir>" }; absent until there is one
+  "result": { "branch": "sous/20261114T092641Z-ef7f" },   // or { "folder": "<dir>" }; absent until there is one; "deleted": true once the branch is gone
+  "usage": { "input": 115414, "output": 2141, "cached": 75142, "costUsd": 0.73, "unpriced": 1 },   // tokens so far; costUsd only what was reported, unpriced: turns that reported none
   "nodes": [                     // depth first; a node is followed by its subtree
     { "id": "lead", "kind": "lead", "status": "running", "turns": 0 },
     { "id": "w", "kind": "work", "parent": "lead", "status": "running", "agent": "claude", "turns": 1,
@@ -60,6 +69,7 @@ text. `sous wait --json` prints it with `"wait"`, why it returned.
   ],                             // split: { "approve", "answer" (changes) }; "sent": an answer is sent, not yet applied
   "refused": [{ "at": "…", "reason": "sous cancel nope: no node nope" }],   // the latest three, latest last
   "resume": "sous resume 20261114T092641Z-ef7f",   // when stopped
+  "next": "next: sous diff, then git merge sous/…, then sous clean",   // a finished git-mode run: what is left to do
   "at": "…",                     // when it was read
   "wait": "waiting"              // wait --json only
 }
@@ -125,7 +135,7 @@ its first). New agents exist for the rest of the run. A lead child may set `role
   events.jsonl          the run's only state (one JSON event per line)
   nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn
   leads/<node>/         each lead's durable conversation
-  integration/          git mode: worktree of branch sous/<run-id> (the result)
+  integration/          git mode: worktree of branch sous/<run-id> (the result); `sous clean` removes it, keeping the branch
   worktrees/<node>/     git mode: each worker's worktree, branch sous/<run-id>.<node> (and the splitter's, reset per request)
   output/               folder mode: the result, the workers' files collected
   work/<node>/          folder mode: each worker's, check's or splitter's own folder, with links workspace/ and results/

@@ -32,7 +32,7 @@ test('--help, -h, help and <command> --help print the usage and exit 0; --versio
   assert.equal(one.output.split('\n').filter((l) => l.startsWith('  sous ')).length, 1)
   assert.match(one.output, /sous export atif\|otlp/)
   const all = await ran(['--help'])
-  for (const command of ['run', 'resume', 'status', 'wait', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'doctor', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
+  for (const command of ['run', 'resume', 'status', 'wait', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'diff', 'clean', 'doctor', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
 
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   for (const flag of ['--version', '-v']) assert.deepEqual(await ran([flag]), { code: 0, output: `${version}\n` })
@@ -56,6 +56,9 @@ test('a command that was not understood prints one diagnosis line before the usa
     [['status', '--timeout', '5'], '--timeout is for wait'],
     [['runs', '--json'], '--json is for status and wait'],
     [['doctor', 'a'], 'doctor takes no arguments'],
+    [['diff', 'a', 'b'], 'diff takes at most one argument: a run id'],
+    [['clean', 'a', 'b'], 'clean takes at most one argument: a run id'],
+    [['clean', 'a', '--all'], 'clean takes a run id or --all, not both'],
     [['answer', 'lead'], 'answer takes a node, the answer and optionally a run id'],
     [['approve'], 'approve takes a node and optionally a run id'],
     [['cancel', 'w', 'r1', 'extra'], 'cancel takes a node and optionally a run id'],

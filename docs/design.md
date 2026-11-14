@@ -27,7 +27,8 @@ cooks do it (workers), and plates are checked at the pass (merges and checks).
 ## Out of scope for now
 
 No sandbox (workers run as the user's own CLIs, in a git worktree or their own folder), no multi-host execution,
-no remote pushes or PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only
+no remote pushes or PRs, no merging into the person's branch and no automatic cleanup (`sous clean` is run by the
+person), no message service. These can come later behind the seams below. The UI (`sous ui`) only
 reads runs for now; steering a run from it is #60.
 
 Related projects: **Taskweave** is the heavy, durable, evidence-oriented
@@ -519,7 +520,7 @@ first work or check node starts. The workspace is the repository's top level eve
    in the integration worktree, so they check the merged result; they and merges take turns there. A lead's
    children are therefore merged before the lead hears they completed.
 6. **The result** is branch `sous/<run>`. Merging it into the person's own branch is their decision; `sous
-   status` and the end of `sous run` name the branch. `merge.done.files` lists the files the node's commits changed,
+   status` and the end of `sous run` name the branch. `sous diff` shows it and `sous clean` removes the worktrees afterwards (below). `merge.done.files` lists the files the node's commits changed,
    so its lead hears them with its outcome.
 7. **Traces.** Worktree and merge events are system steps in the node's ATIF trajectory and spans under the
    node in Langfuse; the integrator is its own trajectory under the root.
@@ -559,6 +560,31 @@ For non-code work and machines without git. Nothing runs git.
 3. **Nothing else git-specific applies:** no integrator, no conflict markers, no reset. A collection that fails (for
    example, a full disk) is `merge.failed`.
 4. **The result** is the output folder; `sous status` and the end of `sous run` name it.
+
+### After a run: diff and clean
+
+A finished git-mode run leaves its result branch, the integration worktree and a worktree and branch per work node.
+`sous run` and `sous status` end a finished git-mode run with one `next:` line naming what still applies:
+`sous diff`, `git merge sous/<run>` (a completed run not yet in `HEAD`), `sous clean` (worktrees left) or `sous clean
+--branches` (the result is in `HEAD`).
+
+- **`sous diff [run-id] [--stat]`** runs `git diff` from `integration.created.base` to the head of `sous/<run>`, with
+  git's own output (pager and colour on a terminal, plain when piped): what is merged, so far for a running run. In
+  folder mode it lists the output folder's files with their sizes.
+- **`sous clean [run-id] [--all] [--branches] [--unmerged] [--dry-run]`** never touches a run whose lock is held by a
+  live supervisor, nor one not over (a stopped run resumes in its worktrees): both are refused with the reason, and
+  `--all` skips them. It acts only on the worktrees and branches `worktree.created` and `integration.created` record
+  (paths inside the run directory, branches `sous/<run>` and `sous/<run>.<node>`), never on a name pattern. It removes
+  each recorded worktree with `git worktree remove` and prunes, then deletes each node branch that `sous/<run>` or
+  `HEAD` contains. **Unmerged work is kept by default**: a worktree with uncommitted changes (ignored files aside) and
+  its branch, and a node branch with commits neither contains (a failed or cancelled node that committed); each is
+  listed, and `--unmerged` removes them. The result branch stays unless `--branches`, which deletes it only when
+  `HEAD` contains it and otherwise refuses (exit 1); there is no force. Folder mode removes `work/<node>/` folders
+  (links are removed, not followed), except a work node's that was never collected and holds files (kept unless
+  `--unmerged`), and keeps `output/`. Cleaning writes no event: the log, turn files, lead storage and traces stay, so
+  `status`, `ui` and `export` work as before (they read no worktree; their worktree paths then name removed folders,
+  and `status` marks a deleted result branch `(deleted)`). A cleaned run is finished, so `sous resume` refuses it as
+  before. Cleaning twice removes nothing more.
 
 ## Recovery
 
@@ -805,6 +831,7 @@ and `cancel`.
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
   output/              folder mode: the results, where collected files land
   work/<node-id>/      folder mode: a work, check or splitter node's own folder, with links workspace and results
+                       (sous clean removes integration/, worktrees/ and work/ of a finished run; the rest stays)
   .collect-<uuid>      folder mode: a file being collected, briefly, before it is renamed into output/
   splits/<lead-id>.json the splitter's proposal for a lead
   trace.atif.json      written by sous export atif

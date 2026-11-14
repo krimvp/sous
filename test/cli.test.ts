@@ -42,8 +42,9 @@ test('sous run completes a work then check graph and sous status shows it', asyn
   const status = sous(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
   const id = runDir.split('/').at(-1)
-  assert.match(run.output(), new RegExp(`^result: branch sous/${id}$`, 'm'))
+  assert.match(run.output(), new RegExp(`^result: branch sous/${id}\nnext: sous diff, then git merge sous/${id}, then sous clean$`, 'm'))
   assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
+  assert.match(status.output(), new RegExp(`\nnext: sous diff, then git merge sous/${id}, then sous clean\n$`))
 })
 
 test("sous run and sous status print the run's tokens and the cost reported, counting a resumed session's cost once", async () => {
@@ -65,7 +66,7 @@ test("sous run and sous status print the run's tokens and the cost reported, cou
   const run = sous(['run', graph], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
   const line = 'usage: 115,414 tokens in (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)'
-  assert.match(run.output(), new RegExp(`\nresult: branch [^\n]+\n${line.replace(/[$().]/g, '\\$&')}\n$`))
+  assert.match(run.output(), new RegExp(`\nresult: branch [^\n]+\n${line.replace(/[$().]/g, '\\$&')}\nnext: sous diff, then git merge \\S+, then sous clean\n$`))
   const status = sous(['status'], workspace, sessions)
   assert.equal(await status.exit, 0)
   assert.match(status.output(), new RegExp(`^run \\S+ completed: write a greeting\n  result: branch [^\n]+\n  ${line.replace(/[$().]/g, '\\$&')}\n  write completed`))

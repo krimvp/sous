@@ -18,6 +18,12 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   stopped (resume needed) or 6 timeout; an ask whose answer was sent but not yet applied does not stop it, so `wait`,
   `answer`, `wait` neither repeats nor spins. `sous status` marks such an ask `(answer sent)`. The skill drives runs
   with `wait` and `status --json` instead of reading the run's output.
+- `sous diff [run-id] [--stat]` shows what a run changed (git diff of `sous/<run-id>` from where it started, through
+  git's pager; in folder mode, the output files with sizes), and `sous clean [run-id] [--all] [--branches] [--unmerged]
+  [--dry-run]` removes a finished run's worktrees and merged node branches (folder mode: its `work/` folders), keeping
+  the result branch, the log and any unmerged work, which it lists. It refuses a running or stopped run, deletes only
+  what the run's log records creating, and with `--branches` deletes the result branch only once `HEAD` contains it.
+  `sous run` and `sous status` end a finished git-mode run with a one-line `next:` hint.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked

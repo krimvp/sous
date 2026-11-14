@@ -433,7 +433,7 @@ export interface RunStatus {
   /** `run.failed`'s reason. */
   reason?: string
   /** Where the results are: the run's branch (git mode, once created) or its output folder (folder mode, once it exists). */
-  result?: { branch: string } | { folder: string }
+  result?: { branch: string; deleted?: true } | { folder: string }
   /** The run's tokens so far and the cost its harnesses reported, absent when no turn recorded usage. `costUsd` sums the
    * turns that reported a cost; `unpriced` counts those that reported none, so a partial sum is not taken for the price. */
   usage?: { input: number; output: number; cached: number; costUsd?: number; unpriced: number }
@@ -444,6 +444,9 @@ export interface RunStatus {
   refused: { at: string; reason: string }[]
   /** How to continue a stopped run: `sous resume <id>`. */
   resume?: string
+  /** For a finished git-mode run, what the person may do next, while it still applies: `next: sous diff, then git merge
+   * sous/<id>, then sous clean`. */
+  next?: string
   /** When this was read. */
   at: string
 }

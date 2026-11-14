@@ -213,3 +213,44 @@ export function withConflictMarkers(path: string, files: string[]): string[] {
     return new RegExp(`^(<{${n}}|\\|{${n}}|={${n}}|>{${n}})( |$)`, 'm').test(readFileSync(join(path, file), 'utf8'))
   })
 }
+
+// ---- After a run: sous diff and sous clean ------------------------------------------------------
+
+export function branchExists(workspace: string, branch: string): boolean {
+  return run(workspace, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]).status === 0
+}
+
+/** How many commits of `branch` none of `others` (branches or `HEAD`) contains: its unmerged work. */
+export function commitsNotIn(workspace: string, branch: string, others: string[]): number {
+  return Number(git(workspace, ['rev-list', '--count', `refs/heads/${branch}`, '--not', ...others]))
+}
+
+/** The real paths of the worktrees git has registered for the repository whose folders still exist. */
+export function worktreePaths(workspace: string): Set<string> {
+  const paths = git(workspace, ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
+  return new Set(paths.filter((p) => existsSync(p)).map((p) => realpathSync(p)))
+}
+
+/** `git worktree remove` (with `force`, even with uncommitted changes), then prune what git still lists. */
+export function removeWorktree(workspace: string, path: string, force: boolean): void {
+  git(workspace, ['worktree', 'remove', ...(force ? ['--force'] : []), path])
+}
+
+export function pruneWorktrees(workspace: string): void {
+  git(workspace, ['worktree', 'prune'])
+}
+
+/** Deletes `branch`; the caller has decided its work is merged or is not wanted. */
+export function deleteBranch(workspace: string, branch: string): void {
+  git(workspace, ['branch', '-q', '-D', branch])
+}
+
+/** `git diff` from `base` to the head of `branch`, its output passed through (git's pager and colour on a terminal,
+ * plain when piped). Returns git's exit code; false when there is no change. */
+export function showDiff(workspace: string, base: string, branch: string, stat: boolean): number | false {
+  const args = ['diff', ...(stat ? ['--stat'] : []), base, `refs/heads/${branch}`, '--']
+  if (run(workspace, [...args.slice(0, 1), '--quiet', ...args.slice(1)]).status === 0) return false
+  const r = spawnSync('git', args, { cwd: workspace, stdio: 'inherit' })
+  if (r.error) throw new Error(`git diff in ${workspace}: ${r.error.message}`)
+  return r.status ?? 1
+}
