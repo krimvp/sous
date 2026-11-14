@@ -1,12 +1,21 @@
 # sous design
 
-sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
-lead agents plan and split, worker agents (Claude Code, Codex, Pi, Factory Droid or a custom agent) do it, and plain
-code keeps everything moving. It is local only, keeps runtime dependencies to the lead runner, and keeps its
-whole state in files you can read.
+sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work: lead agents plan
+and split, worker agents (Claude Code, Codex, Pi, Factory Droid or a custom agent) do the work, and plain code keeps
+everything moving. sous is local only. Only the lead runner has runtime dependencies. The whole state is in files
+that you can read.
 
-The name comes from the kitchen brigade: you call the order, the sous chef splits it across stations (leads),
-cooks do it (workers), and plates are checked at the pass (merges and checks).
+The name comes from the kitchen brigade: the sous chef splits an order across the stations (leads), cooks do the
+work (workers), and each plate is inspected before it leaves (merges and checks).
+
+This document is the reference for contributors. It uses "the person" for the human who runs sous.
+
+**Contents:** [Principles](#principles) · [Out of scope](#out-of-scope-for-now) · [Concepts](#concepts) · [Architecture](#architecture) ·
+[Messaging across levels](#messaging-across-levels) · [Leads](#leads) · [Roles](#roles) · [Splitting](#splitting) ·
+[Agents](#agents) · [Merging](#merging) · [Recovery](#recovery) · [Harness conformance](#harness-conformance) ·
+[Harness facts](#harness-facts-spike-2026-10-11) · [Traces](#traces-atif-and-langfuse) · [The UI](#the-ui) ·
+[Storage layout](#storage-layout) · [Implementation](#implementation) · [Roadmap](#roadmap) ·
+[Open questions](#open-questions)
 
 ## Principles
 
@@ -30,10 +39,8 @@ No sandbox (workers run as the user's own CLIs, in a git worktree or their own f
 no remote pushes or PRs, no message service. These can come later behind the seams below. The UI (`sous ui`) only
 reads runs for now; steering a run from it is #60.
 
-Related projects: **Taskweave** is the heavy, durable, evidence-oriented
-product; sous shares no code with it. **Orchy** runs declared, fixed flows;
-sous focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
-engine can be tested without a lead.
+sous focuses on trees that leads grow at runtime. Fixed graph files also run: they test the engine without a lead,
+and they fix the steps around leads when the person wants that.
 
 ## Concepts
 
@@ -197,8 +204,8 @@ Agents address nodes, not processes, and the supervisor is the only router.
   lead turn, resume an idle worker, queue for a running worker, or interrupt it.
 - **Escalation goes up a level.** The person is the root's parent: `sous answer <node> "…"`.
 
-Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
-things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
+No message service is used: the supervisor is the only writer and already wakes everyone, which are the two
+things a message service would provide. An `onEvent` hook is the seam for mirroring events to such a service
 later, when an agent the supervisor did not launch needs to take part.
 
 ### Worker messages
@@ -367,8 +374,8 @@ A **role** is a job an agent does for every lead of a subtree, rather than a nod
 ## Splitting
 
 A lead both plans (splits its task into children) and coordinates (reacts to their outcomes). A run may give the
-planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex` or
-`pi`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
+planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex`, `pi` or
+`droid`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
 part per module", "tests first") and its model may differ from the leads': a strong splitter with cheap leads.
 Without a splitter, leads split on their own, as before.
 
@@ -459,7 +466,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
   between them, and never completes on its own. The integrator and the splitter are the first ones; later, agents outside the
-  run (for example over Comitia) can take this role.
+  run (for example over a message service) can take this role.
 
 ## Merging
 
@@ -503,7 +510,7 @@ first work or check node starts. The workspace is the repository's top level eve
    the integration worktree; after a failing check the merge commit stays and the integrator fixes on top.
    Nothing else merges while the integrator works: the queue waits. The integrator is a standing node with id
    `integrator`, run by the graph's `integrator` agent if defined, else the first available of `codex`,
-   `claude`, `pi`. It is created on the first conflict, with a short role brief, and resumed in the same
+   `claude`, `pi`, `droid`. It is created on the first conflict, with a short role brief, and resumed in the same
    session for later requests. Each request is a message in its inbox naming the node, its branch, the
    conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
    It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
@@ -638,10 +645,9 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 
 ## Harness facts (spike, 2026-10-11)
 
-Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
-stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
-tree, since the facts they established are written down here and `npm run certify` supersedes the second; they remain
-on the branch `archive/site-notes-and-spikes` (at 0.1.1).
+Two spikes fed the decisions in this document: the pi-durable lead runner and a script that
+stops each harness CLI mid-command and resumes it. Both have been removed from the
+tree, since the facts they established are written down here and `npm run certify` supersedes the second.
 
 The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with
 SIGKILL, then resumes the session and asks for a codeword given before the stop. All six combinations
@@ -861,7 +867,7 @@ told its sibling `app` on Codex the function it chose, then a correction (Common
 Claude's init listed `sous` as its only MCP server. `app` reported to its lead twice with `sous send`; the lead got
 both and copies of `fmt`'s messages, the run completed and `node app.js` printed the expected name. Single turns
 showed Codex calling the MCP `send` tool and Pi (with `--no-mcp`) running the brief's `sous send` command. Two
-findings: `app` first read the person's global Comitia skill, since harnesses still load the person's own
+findings: `app` first read one of the person's global skills, since harnesses still load the person's own
 instructions and skills; and it read `events.jsonl` to learn its messages before its turn ended, since a worker
 receives messages only between turns.
 
@@ -894,6 +900,6 @@ the work merged and the check passed.
   worktrees outside the workspace.
 - Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
   `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
-  smallest step is a bridge process that mirrors chosen events to Comitia and turns Comitia messages into command
-  files, keeping the supervisor the only writer. Next would be a runtime whose turns are Comitia requests with a
-  deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.
+  smallest step is a bridge process that mirrors chosen events to a message service and turns its messages into
+  command files, keeping the supervisor the only writer. Next would be a runtime whose turns are requests over that
+  service with a deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.

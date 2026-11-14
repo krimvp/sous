@@ -5,6 +5,9 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- Docs: the README is rewritten for new users (how it works, requirements, a quick start, a command table, lead
+  providers, security). `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to
+  private projects or branches are removed.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked

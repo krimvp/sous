@@ -1,8 +1,8 @@
-# sous: landing page copy (pass scene, v4, editor's cut)
+# sous: landing page copy
 
-Visible text only, in page order. Notes in *italics* are for the builder and are not shown on the page.
-*Scene labels (Orders, Sous · head lead, Station lead, Cooks, Brigade board, Check, Bell, You) and the
-animated captions stay exactly as approved in FACTS-3.*
+The visible text of `site/index.html`, in page order. Notes in *italics* are for the builder and are not shown on
+the page. *Keep the scene labels (Orders, Sous · head lead, Station lead, Cooks, Brigade board, Check, Bell, You) and
+the animated captions as they are in the page.*
 
 ## Hero
 
@@ -80,7 +80,9 @@ A calculator, built by a tree five levels deep on cheap Ollama models.
 
 ## Get started
 
-Node 22.19+, git, and one harness logged in: Claude Code, Codex, Pi or Droid. Leads use your Pi login.
+Node 22.19+, git, and one harness logged in: Claude Code, Codex, Pi or Droid. Leads use `OLLAMA_API_KEY` or your
+Pi login to Anthropic or ChatGPT (an Anthropic or OpenAI key works too, but Claude Code and Codex workers would then
+bill it as well).
 
 *"harness" links to docs/harnesses.md on GitHub.*
 
@@ -96,12 +98,12 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 
 ---
 
-## Fact sources (sous repo, ~/workspace/sous)
+## Fact sources
 
 - Leads, sub-leads, depth 3 by default and 1–8 with `--max-depth`: docs/design.md §Leads; src/cli.ts.
 - Worktree per worker; merges one at a time; conflicts to the integrator: docs/design.md §Merging 2–4.
 - Checks: a shell command, exit 0 passes, check nodes run in the integration worktree: docs/design.md §Node kinds, §Merging 5.
-- Bell: a work part completes on `merge.done`; every work part in #0143 has a check (scene note): docs/design.md §Merging 5; FACTS-3.
+- Bell: a work part completes on `merge.done`; every work part in #0143 has a check (scene note): docs/design.md §Merging 5.
 - `--agents`, `models` binds what leads choose: REFERENCE.md §Definitions; docs/design.md §Agents.
 - `approve`/`answer`/`cancel`: README; REFERENCE.md §Commands.
 - Resume without repeating finished turns: README; SKILL.md step 5; docs/design.md §Recovery.
@@ -109,30 +111,5 @@ sous · runs on your machine · harnesses · github.com/krimvp/sous
 - Requirements and the Pi login for leads: README; package.json `engines`.
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/types.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
-- Order #0142: site/index.html §A real service; "30 checks" comes from the brief's run record.
-- `@krimvp/sous`: package.json `name`; published to npm as 0.1.1.
-
-## Changelog
-
-**v4.1 → v4.2:** the install card drops "(coming to npm)": `@krimvp/sous` is on npm.
-
-**v4 → v4.1:** Get started names Droid and links "harness" to docs/harnesses.md; the footer links it too.
-
-**v3 → v4 (editor's cut, owner: "no one will read this")**
-- Visible words went from 1,817 (pass-v4.html) to about 290 (243 of copy, plus about 44 scene and UI labels). Every remaining sentence is a shortened form of
-  wording FACTS-3 approved; no qualifier that a fact check required was dropped.
-- Hero: a 13-word subtitle; the intro paragraph is cut, and one scene line is kept.
-- Read the pass: the paragraph is cut, and the 8 cards are now a label plus at most 8 words each.
-  The flag line is dropped (no separate flag in the key).
-- How a service runs: merged into the key and live ticket (see the note there).
-- How a big order is split: 25 words plus diagram labels; the 12-children caption is cut.
-- The brigade: cut, because it repeated the key. Harnesses are named once, in Get started.
-  The default lead model is no longer shown.
-- What you control: 4 bullets, down from 7 (fixed graph files are cut).
-- Built for a real service: 3 bullets, down from 5. Cut: the single-writer log, the verification details,
-  and the local-files line.
-- #0142: one line plus six stats. The parser-wait note is cut.
-- Get started: a 15-word requirement line and 3 cards, down from 7.
-
-**v2 → v3:** fixed all 12 points in FACTS-1; cooks are no longer named by harness; added the teams section,
-the live ticket and the bell meaning; commands became cards.
+- Order #0142: site/index.html §A real service.
+- `@krimvp/sous`: package.json `name`.
