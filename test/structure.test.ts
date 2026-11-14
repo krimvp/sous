@@ -19,7 +19,7 @@ const ALLOWED: Record<string, string[]> = {
   commands: ['contracts', 'run'],
   prompts: ['contracts', 'definitions', 'run', 'self'],
   trace: ['contracts', 'definitions', 'run', 'self'],
-  adapters: ['contracts', 'commands', 'self'],
+  adapters: ['contracts', 'self'],
   lead: ['contracts', 'definitions'],
   ui: ['contracts', 'run', 'trace'],
   supervisor: ['contracts', 'definitions', 'run', 'workspace', 'commands', 'prompts'],

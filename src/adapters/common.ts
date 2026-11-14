@@ -3,8 +3,7 @@
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { withoutIdentity } from '../commands/index.ts'
-import { TURN_RESULT_SCHEMA } from '../contracts/index.ts'
+import { TURN_RESULT_SCHEMA, withoutIdentity } from '../contracts/index.ts'
 import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../contracts/index.ts'
 import { MCP_PROGRAM } from '../self.ts'
 

@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process'
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { withoutIdentity } from '../commands/index.ts'
+import { withoutIdentity } from '../contracts/index.ts'
 import { procStartTime } from '../run/index.ts'
 import type { TurnState } from '../run/index.ts'
 

@@ -9,12 +9,6 @@ import type { Command } from '../contracts/index.ts'
 import { fold, isFinal, readEvents, writeCommand } from '../run/index.ts'
 import type { InboxMessage, RunState } from '../run/index.ts'
 
-/** The supervisor's environment without any SOUS_* variable, for what it starts (turns, checks): an identity comes from
- * a turn alone, so an outer run's (sous running inside a sous worker) never reaches them. */
-export function withoutIdentity(): Record<string, string | undefined> {
-  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SOUS_')))
-}
-
 /** Messages a worker may send over the whole run. */
 export const MAX_SENDS = 5
 

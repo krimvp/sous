@@ -71,6 +71,12 @@ export interface TurnSpec {
   env?: Record<string, string>
 }
 
+/** The supervisor's environment without any SOUS_* variable, for what it starts (turns, checks): an identity comes from
+ * a turn alone, so an outer run's (sous running inside a sous worker) never reaches them. */
+export function withoutIdentity(): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('SOUS_')))
+}
+
 export interface RunningTurn {
   /** Leader of the turn's own process group: signal `-pid` to stop the whole turn. */
   pid: number
