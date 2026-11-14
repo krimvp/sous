@@ -5,7 +5,7 @@ import { RUNTIMES } from './agents.ts'
 import type { childAgents } from './agents.ts'
 import { completedText } from './state.ts'
 import type { InboxMessage, NodeState, SplitState } from './state.ts'
-import type { ChildSpec, ModelLimits, NodeSpec, RunMode } from './types.ts'
+import type { ChildSpec, LeadCall, ModelLimits, NodeSpec, RunMode } from './types.ts'
 
 const RESULT = [
   'When you finish, end your turn with the structured result:',
@@ -171,16 +171,46 @@ function rolesSection(roles: { splitter?: string; choices: string[] }): string[]
   ].join(' ')]
 }
 
+// The rules every lead gets in its role, on either runtime.
+const SPLIT_RULE = '- Split your goal into children with spawn. Give each a self-contained brief and acceptance criteria; use a check child for anything a command can verify.'
+const LEAD_RULES = [
+  '- Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.',
+  '- Answer your children\'s questions; escalate the ones you cannot answer.',
+  '- Limits: at most 12 children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.',
+]
+
+/** The role of a lead run by the lead runner, which acts through its tools (src/lead/tools.ts). */
+export const LEAD_ROLE = [
+  'You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, only the tools below.',
+  '- You may look at files with list_files and read_file before you decide how to split; keep it brief, your children do the work.',
+  SPLIT_RULE,
+  '- After acting, end your turn by answering briefly. Each child\'s outcome, question or message wakes you as a new message.',
+  ...LEAD_RULES,
+].join('\n')
+
+/** The role of a lead on a CLI harness (`TurnSpec.lead.system`), which acts through the calls of its turn's result. */
+export const HARNESS_LEAD_ROLE = [
+  'You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, and you change no file.',
+  '- You may look at files with your read tools before you decide how to split; keep it brief, your children do the work.',
+  '- You act only through the calls in the result that ends each turn: {"answer": a short answer, "calls": [...]}. A call is',
+  '  one of spawn {children}, send {to, body, mode}, note {text}, cancel {node}, complete {summary}, fail {reason} and',
+  '  escalate {question}. They are applied in order once your turn ends; when one is refused, the calls after it are not',
+  '  applied. Your next turn starts with the result of each call. Return no calls when nothing is to be done now.',
+  SPLIT_RULE,
+  '- Never spawn and complete in one turn: complete waits until your children have finished. Each child\'s outcome, question or message starts your next turn.',
+  ...LEAD_RULES,
+].join('\n')
+
 /** A lead's first delivery, with its agent's standing instructions, the agents its children may name (with their
  * runtime when it differs from their name), the runtimes and models it may define agents on, the roles it may give
- * a lead child, and its proposed split. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }, mode: RunMode = 'git'): string {
+ * a lead child, and its proposed split. `harness`: the lead runs on a CLI harness and reads with its own tools. */
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }, mode: RunMode = 'git', harness = false): string {
   const names = (list: string[]) => agentNames(agents, list)
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
   parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
-  const look = `Before you split, you may look at the files with list_files and read_file: ${mode === 'git' ? 'paths are relative to the workspace, which includes the work merged so far.' : folderPaths('your')}`
+  const look = `Before you split, you may look at the files with ${harness ? 'your read tools' : 'list_files and read_file'}: ${mode === 'git' ? 'paths are relative to the workspace, which includes the work merged so far.' : folderPaths('your')}`
   parts.push(...fromLeads(notes), [
     `Split the task with spawn: ${kinds(mode)}`,
     'Their outcomes and questions arrive as messages. Answer a child with send; record',
@@ -225,6 +255,23 @@ export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
     ? `Child ${m.from} is waiting for your answer:\n${m.body}\n\nAnswer with send to ${m.from}.`
     : `Message from ${m.from}:\n${m.body}`
 }
+
+/** The first turn of a lead on a CLI harness after its turn `cut` was cut short or ended without a result. */
+const CUT = (turn: number) => `Your turn ${turn} ended before its result: none of its calls were applied. Continue from here.`
+
+/** The prompt of a lead turn on a CLI harness: the results of its last turn's calls, in order (`results`, with `skipped`
+ * calls after a refusal), a note when its last turn ended without a result (`cut`), and the deliveries it answers. */
+export function leadTurnPrompt(deliveries: string[], results: { call: LeadCall; result: string }[], skipped: LeadCall[], cut?: number): string {
+  const lines = [...results.map((r) => `${r.call.tool}: ${r.result}`), ...skipped.map((c) => `${c.tool}: not applied, since an earlier call was refused`)]
+  return [
+    ...(lines.length ? [`Results of the calls of your last turn, in order:\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`] : []),
+    ...(cut !== undefined ? [CUT(cut)] : []),
+    ...deliveries,
+  ].join('\n\n') + '\n'
+}
+
+/** Delivered to a lead on a CLI harness whose turn had a call refused, so that it acts on the results. */
+export const REFUSED_CALL = 'A call of your last turn was refused (see its result above), and the calls after it were not applied. Decide what to do now.'
 
 /** The one retry a lead gets when the runner could not get its last delivery answered. */
 export function retryPrompt(reason: string): string {

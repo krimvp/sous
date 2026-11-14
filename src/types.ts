@@ -152,6 +152,8 @@ export interface ParsedTurn {
   items: TraceItem[]
   /** Present when the harness reached its end-of-turn marker with a parsable result. */
   result?: TurnResult
+  /** A lead turn's result (`TurnSpec.lead`), present like `result`: at the end marker, when it parses. */
+  lead?: LeadResult
   /** True when the end-of-turn marker was seen (Claude `result`, Codex `turn.completed`, Pi `agent_end`, Droid `completion`). */
   ended: boolean
   usage?: Usage
@@ -175,6 +177,17 @@ export interface TurnSpec {
    * the agent's environment and, where the harness takes MCP servers, give it sous's server (src/mcp.ts) with it.
    * Every adapter loads no other MCP server, so what a worker says to others goes through sous. */
   env?: Record<string, string>
+  /** Set for a lead turn on a CLI harness (an adapter with `lead`): the turn is read only (the harness offers only its
+   * read tools, or runs in a read-only sandbox, as far as it allows: see the design's isolation table), loads no MCP
+   * server, and ends with a LeadResult instead of a TurnResult (`ParsedTurn.lead`). Lead turns get no `env`. */
+  lead?: LeadTurnSpec
+}
+
+export interface LeadTurnSpec {
+  /** The lead's role: the harness's system prompt where the harness can replace it, else put before the first prompt. */
+  system: string
+  /** Directories the lead may read besides `cwd` (folder mode: what its `workspace` and `results` links point to). */
+  readable?: string[]
 }
 
 export interface RunningTurn {
@@ -188,6 +201,8 @@ export interface RunningTurn {
 
 export interface WorkerAdapter {
   name: HarnessName
+  /** The adapter can run lead turns (`TurnSpec.lead`). A harness leads in a run only once it is in LEAD_HARNESSES. */
+  lead?: true
   start(spec: TurnSpec): RunningTurn
   resume(spec: TurnSpec & { sessionId: string }): RunningTurn
   /** Parse the raw contents of a turn's outFile. Must tolerate a truncated final line. */
@@ -234,6 +249,76 @@ export type LeadCall =
   | { tool: 'complete'; summary: string }
   | { tool: 'fail'; reason: string }
   | { tool: 'escalate'; question: string }
+
+/** How a lead turn on a CLI harness ends: its short answer and the calls it makes, which the supervisor applies in order
+ * after the turn, through the same policy as a lead runner's tool calls (`lead.call`, call IDs `t<turn>.<index>`). */
+export interface LeadResult {
+  answer: string
+  calls: LeadCall[]
+}
+
+const str = (description?: string) => ({ type: 'string', ...(description ? { description } : {}) }) as const
+const strings = (description: string) => ({ type: 'array', items: { type: 'string' }, description }) as const
+const call = <T extends LeadCall['tool']>(tool: T, properties: Record<string, object>, required: string[]) =>
+  ({ type: 'object', additionalProperties: false, required: ['tool', ...required], properties: { tool: { type: 'string', enum: [tool] }, ...properties } }) as const
+
+/** JSON Schema of LeadResult: one object per LeadCall variant, the fields of the lead tools (src/lead/tools.ts).
+ * Harnesses with a structured-output flag get it as is (Codex: in its strict form, see the adapter); the others are told
+ * the shape. The supervisor checks every call again (`lead.call`). */
+export const LEAD_RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answer', 'calls'],
+  properties: {
+    answer: str('A short answer that ends your turn: what you did and what you wait for'),
+    calls: {
+      type: 'array',
+      description: 'Your calls, applied in order after your turn; empty when nothing is to be done now',
+      items: {
+        anyOf: [
+          call('spawn', {
+            children: {
+              type: 'array', minItems: 1, items: {
+                type: 'object', additionalProperties: false, required: ['id', 'kind'],
+                properties: {
+                  id: str('Unique id for the child in the whole run, e.g. "api-tests"'),
+                  kind: { type: 'string', enum: ['work', 'check', 'lead', 'gate'] },
+                  brief: str('What to do, self-contained (work, lead), or what the person approves (gate)'),
+                  command: str('Shell command; exit code 0 passes (check)'),
+                  acceptance: strings('Criteria the result must meet'),
+                  needs: strings('Ids of earlier siblings that must complete first'),
+                  agent: {
+                    anyOf: [
+                      str('An agent your brief lists'),
+                      {
+                        type: 'object', additionalProperties: false, required: ['name', 'runs'],
+                        properties: { name: str(), runs: str('A runtime your brief lets you define agents on'), model: str(), instructions: str() },
+                      },
+                    ],
+                  },
+                  model: str("Overrides the model of the agent the child names; only a model your brief lists for that agent's runtime"),
+                  roles: { type: 'object', additionalProperties: false, properties: { splitter: str('An agent your brief lists for roles') } },
+                },
+              },
+            },
+          }, ['children']),
+          call('send', { to: str('A child id, your parent, or "person" if you are a top-level lead'), body: str(), mode: { type: 'string', enum: ['queue', 'interrupt'] } }, ['to', 'body', 'mode']),
+          call('note', { text: str() }, ['text']),
+          call('cancel', { node: str('A child id') }, ['node']),
+          call('complete', { summary: str() }, ['summary']),
+          call('fail', { reason: str() }, ['reason']),
+          call('escalate', { question: str() }, ['question']),
+        ],
+      },
+    },
+  },
+} as const
+
+/** The harnesses certified to run leads, in the order a lead that names no model falls back to them when no lead
+ * provider has a credential (see Lead runner in the design). A harness joins this list in the change that commits its
+ * passing lead certification (`SOUS_HARNESS=<name> npm run certify`, whose certified.json lists the lead tests as
+ * passed); the free conformance suite checks that every harness here has that evidence. */
+export const LEAD_HARNESSES: readonly HarnessName[] = ['claude']
 
 /** A lead's read-only look at the run's files: the workspace and the results so far. Paths are relative; in folder mode
  * they start with `workspace/` or `results/`. Reads change nothing and are recorded as `lead.read`. */
@@ -286,8 +371,9 @@ export const LEAD_PROVIDERS: readonly { id: string; model: string; credential: s
   { id: 'openai-codex', model: 'gpt-5.5', credential: 'run pi, then /login with ChatGPT' },
 ]
 
-/** What gets a credential for some lead provider: the fix when none has one. */
-export const ANY_LEAD_CREDENTIAL_FIX = 'set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login'
+/** What lets a lead run when none can: a credential for some lead provider, or a lead-certified harness (LEAD_HARNESSES)
+ * on PATH, logged in. */
+export const ANY_LEAD_CREDENTIAL_FIX = `set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login, or install ${LEAD_HARNESSES.join(' or ')} and log in`
 
 /** The lead model when nothing names one and availability was not consulted: the first lead provider's. */
 export const DEFAULT_LEAD_MODEL = `${LEAD_PROVIDERS[0].id}/${LEAD_PROVIDERS[0].model}`
@@ -308,8 +394,10 @@ export type EventBody =
    * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs.
    * `workerModels`: DEFAULT_WORKER_MODELS when the run was created, so a resumed run keeps running each node on what it
    * started with; absent (older logs) means none: every harness on its own default.
-   * `maxCost`: the run's cost budget in US dollars (`sous run --max-cost`), see `budget.reached`. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string; workerModels?: Partial<Record<HarnessName, string>>; maxCost?: number }
+   * `maxCost`: the run's cost budget in US dollars (`sous run --max-cost`), see `budget.reached`.
+   * `leadRuns`: lead agents that name no model run on this lead-certified CLI harness (LEAD_HARNESSES), chosen when no
+   * lead provider had a credential; `leadModel` is then the harness's model (absent: the harness's own default). */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string; leadRuns?: HarnessName; workerModels?: Partial<Record<HarnessName, string>>; maxCost?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. `model`: the model sous passed to
@@ -321,8 +409,9 @@ export type EventBody =
    * output) for the supervisor's stall time. The turn keeps running; nothing in the run's state changes. */
   | { type: 'turn.stalled'; node: string; turn: number; since: string }
   /** `error`: why the turn has no result. Without an end-of-turn marker after a non-zero exit, it ends with the last
-   * lines of the turn's stderr and the path of its `.err` file. */
-  | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
+   * lines of the turn's stderr and the path of its `.err` file. `lead`: a lead turn's result (a lead on a CLI harness);
+   * its calls are applied after this event, each as a `lead.call` with call ID `t<turn>.<index>`. */
+  | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; lead?: LeadResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
   /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */
   | { type: 'node.completed'; node: string; summary: string; command?: string }
@@ -341,10 +430,12 @@ export type EventBody =
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
    * one event in the fold, so a call applies atomically. `ok: false` means policy refused it and nothing changed. */
   | { type: 'lead.call'; node: string; callId: string; call: LeadCall; ok: boolean; result: string }
-  /** A lead listed or read files: what it looked at (`path`, as the lead gave it; absent for the top level) and how many
+  /** A lead runner's lead listed or read files (a lead on a CLI harness reads with its harness's tools, which its turn
+   * file records): what it looked at (`path`, as the lead gave it; absent for the top level) and how many
    * bytes of text it got back, or why the read was refused. The text itself is not recorded. */
   | { type: 'lead.read'; node: string; callId: string; tool: LeadRead['tool']; path?: string; offset?: number; bytes: number; refused?: string }
-  /** A lead answered a delivery and is idle again. */
+  /** A lead answered a delivery and is idle again. A lead on a CLI harness answers every delivery its turn's prompt
+   * carried, after its calls were applied; its usage is on that turn's `turn.ended`, so `usage` is absent here. */
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
