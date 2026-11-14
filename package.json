@@ -1,6 +1,6 @@
 {
   "name": "@krimvp/sous",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Runs a goal to completion on your machine with a tree of AI agents: leads plan, workers do, code keeps it moving.",
   "license": "MIT",
   "repository": {

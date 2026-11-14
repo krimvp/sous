@@ -1,9 +1,9 @@
 // Folder mode (no git) end to end through real `sous` processes, and the leads' read-only file tools in both modes.
 import assert from 'node:assert/strict'
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { fold, openLog, readEvents } from '../src/run/index.ts'
@@ -28,7 +28,7 @@ const work = (id: string, steps: FakeStep[], needs?: string[]) =>
 /** A PATH with a claude stand-in and the tools checks use, but no git: nothing in folder mode may run git. */
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const NO_GIT = fakeBin(['claude'], ['sh', 'grep', 'mkdir', 'sleep'])
-const plainDir = (prefix: string) => mkdtempSync(join(tmpdir(), prefix))
+const plainDir = (prefix: string) => mkdtempSync(join(realpathSync(tmpdir()), prefix))
 /** Every file under `dir`, relative, sorted. */
 const tree = (dir: string): string[] => (readdirSync(dir, { recursive: true, withFileTypes: true }) as import('node:fs').Dirent[])
   .filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name).slice(dir.length + 1)).sort()
@@ -182,7 +182,7 @@ test('lead file tools refuse paths outside the run, symbolic links out included;
       { tool: 'read_file', path: 'workspace/big.txt' },
       { tool: 'read_file', path: 'workspace/big.txt', offset: 32_768 },
       { tool: 'read_file', path: 'workspace/bin.dat' },
-      { tool: 'read_file', path: 'workspace/../../etc/hostname' },
+      { tool: 'read_file', path: `workspace/../${basename(outside)}/secret.txt` },
       { tool: 'read_file', path: 'workspace/link/secret.txt' },
       { tool: 'read_file', path: 'workspace/secret-link.txt' },
       { tool: 'list_files', path: 'workspace/link' },
@@ -203,7 +203,7 @@ test('lead file tools refuse paths outside the run, symbolic links out included;
   assert.equal(first, `${'é'.repeat(16_384)}\n\n[bytes 0-32768 of 40000; read on with offset 32768]`)
   assert.equal(rest, 'é'.repeat(3_616))
   assert.equal(binary, 'refused: workspace/bin.dat is not a text file (it has NUL bytes)')
-  assert.equal(dotdot, 'refused: workspace/../../etc/hostname is outside the run\'s files')
+  assert.equal(dotdot, `refused: workspace/../${basename(outside)}/secret.txt is outside the run's files`)
   assert.equal(linked, 'refused: workspace/link/secret.txt is outside the run\'s files')
   assert.equal(fileLink, 'refused: workspace/secret-link.txt is outside the run\'s files')
   assert.equal(linkedDir, 'refused: workspace/link is outside the run\'s files')

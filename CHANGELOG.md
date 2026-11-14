@@ -71,8 +71,15 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   them. What waits while the lead is answering goes out as one delivery when it is done (an interrupt still steers it at
   once). The run that motivated it, two workers that send and a check, takes four lead turns instead of seven.
   `lead.delivered.carries` names the further items a delivery carries.
-- Docs: `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to private projects or
-  branches are removed.
+
+## 0.2.0 (2026-11-14)
+
+- macOS: `sous resume` stops a turn that outlived a killed supervisor, and a run's lock tells a reused pid from its
+  holder. Both need a process's start time, which sous read only from Linux's `/proc`; without it, sous now asks `ps`,
+  which counts in seconds. The test suite passes on macOS.
+- Docs: the README is rewritten for new users (how it works, requirements, a quick start, a command table, lead
+  providers, security). `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to
+  private projects or branches are removed.
 - Docs: the README's "How it works" diagram is a drawn SVG with light and dark versions, made by
   `scripts/diagrams.mjs`.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits

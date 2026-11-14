@@ -24,7 +24,7 @@ it, budgets, agents and models, where leads run, graph files and the splitter. S
 npm install -g @krimvp/sous
 ```
 
-Node 22.19 or later, on Linux and macOS (the tests run on Linux). The npm package is the TypeScript sources compiled to
+Node 22.19 or later, on Linux and macOS (the tests run on both). The npm package is the TypeScript sources compiled to
 JavaScript; a checkout runs the sources directly, so from a checkout `node src/cli.ts` works the same as `sous` (after
 `npm install`, for the lead runner's Pi packages). State is plain files in `.sous/runs/<id>/` of the workspace.
 

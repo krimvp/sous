@@ -21,7 +21,7 @@ inspected before it leaves the kitchen.
 
 ## Quickstart
 
-You need Node.js 22.19 or later (Linux or macOS; the tests run on Linux), a logged-in
+You need Node.js 22.19 or later (Linux or macOS; the tests run on both), a logged-in
 [Claude Code](https://claude.com/claude-code), and, for code, a git repository with at least one commit. Workers see
 your last commit (`HEAD`) only, so commit what they need first. Codex, Pi or Droid can do the work instead of Claude
 Code, but then the lead needs a model credential of its own ([Where leads run](docs/usage.md#where-leads-run)).
