@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="400" viewBox="0 0 1040 400" role="img" aria-label="How sous works: you give a goal; leads split it; workers do the parts in parallel; a merge queue and checks verify the work; the result is a branch or folder. A supervisor of plain code runs every stage.">
+<title>How sous works</title>
+<defs><marker id="head-ab7df8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 z" fill="#ab7df8"/></marker><marker id="head-3fb950" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 z" fill="#3fb950"/></marker><marker id="head-656c76" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 1 L9 5 L0 9 z" fill="#656c76"/></marker></defs>
+<circle cx="34" cy="38" r="9" fill="#9198a1"/>
+<text x="34" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="middle">1</text>
+<text x="50" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#9198a1" text-anchor="start" letter-spacing="1.2">ASK</text>
+<circle cx="206" cy="38" r="9" fill="#ab7df8"/>
+<text x="206" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="middle">2</text>
+<text x="222" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#ab7df8" text-anchor="start" letter-spacing="1.2">PLAN</text>
+<rect x="188" y="64" width="192" height="232" rx="12" fill="#151b23" stroke="#3d444d"/>
+<circle cx="434" cy="38" r="9" fill="#4493f8"/>
+<text x="434" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="middle">3</text>
+<text x="450" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#4493f8" text-anchor="start" letter-spacing="1.2">WORK</text>
+<rect x="416" y="64" width="212" height="232" rx="12" fill="#151b23" stroke="#3d444d"/>
+<circle cx="682" cy="38" r="9" fill="#3fb950"/>
+<text x="682" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="middle">4</text>
+<text x="698" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#3fb950" text-anchor="start" letter-spacing="1.2">VERIFY</text>
+<rect x="664" y="64" width="188" height="232" rx="12" fill="#151b23" stroke="#3d444d"/>
+<circle cx="882" cy="38" r="9" fill="#d29922"/>
+<text x="882" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#0d1117" text-anchor="middle">5</text>
+<text x="898" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#d29922" text-anchor="start" letter-spacing="1.2">RESULT</text>
+<rect x="864" y="64" width="160" height="232" rx="12" fill="#151b23" stroke="#3d444d"/>
+<rect x="24" y="150" width="120" height="44" rx="22" fill="#f0f6fc"/>
+<text x="84" y="177" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#0d1117" text-anchor="middle">You</text>
+<rect x="196" y="96" width="176" height="60" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="204" y="108" width="3" height="36" rx="1.5" fill="#ab7df8"/>
+<text x="286" y="123" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Lead</text>
+<text x="286" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">splits the goal</text>
+<rect x="212" y="196" width="160" height="56" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="220" y="208" width="3" height="32" rx="1.5" fill="#ab7df8"/>
+<text x="294" y="221" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Sub-lead</text>
+<text x="294" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">splits a part</text>
+<path d="M292 156 V194" fill="none" stroke="#ab7df8" stroke-width="1.6" marker-end="url(#head-ab7df8)"/>
+<rect x="424" y="84" width="196" height="56" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="432" y="96" width="3" height="32" rx="1.5" fill="#4493f8"/>
+<text x="524" y="109" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Worker</text>
+<text x="524" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">Claude Code</text>
+<rect x="424" y="152" width="196" height="56" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="432" y="164" width="3" height="32" rx="1.5" fill="#4493f8"/>
+<text x="524" y="177" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Worker</text>
+<text x="524" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">Codex</text>
+<rect x="424" y="220" width="196" height="56" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="432" y="232" width="3" height="32" rx="1.5" fill="#4493f8"/>
+<text x="524" y="245" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Worker</text>
+<text x="524" y="262" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">Pi or Droid</text>
+<rect x="672" y="96" width="172" height="60" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="680" y="108" width="3" height="36" rx="1.5" fill="#3fb950"/>
+<text x="760" y="123" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Merge queue</text>
+<text x="760" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">one at a time</text>
+<rect x="672" y="196" width="172" height="56" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="680" y="208" width="3" height="32" rx="1.5" fill="#3fb950"/>
+<text x="760" y="221" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Check</text>
+<text x="760" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">exit 0 passes</text>
+<path d="M758 156 V194" fill="none" stroke="#3fb950" stroke-width="1.6" marker-end="url(#head-3fb950)"/>
+<rect x="872" y="136" width="144" height="76" rx="8" fill="#0d1117" stroke="#3d444d"/>
+<rect x="880" y="148" width="3" height="52" rx="1.5" fill="#d29922"/>
+<text x="946" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#f0f6fc" text-anchor="middle">Result</text>
+<text x="946" y="181" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" font-size="11.5" font-weight="400" fill="#f0f6fc" text-anchor="middle">sous/&lt;run-id&gt;</text>
+<text x="946" y="197" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">or output folder</text>
+<path d="M144 164 C170 164, 170 118, 194 118" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<text x="168" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">goal</text>
+<path d="M194 142 C170 142, 170 182, 146 182" fill="none" stroke="#656c76" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#head-656c76)"/>
+<text x="170" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="middle">questions</text>
+<path d="M372 126 C398 126, 398 112, 422 112" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M372 126 C398 126, 398 180, 422 180" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M372 224 C398 224, 398 248, 422 248" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M620 112 C646 112, 646 126, 670 126" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M620 180 C646 180, 646 126, 670 126" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M620 248 C646 248, 646 126, 670 126" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<path d="M844 224 C858 224, 858 182, 870 182" fill="none" stroke="#656c76" stroke-width="1.6" marker-end="url(#head-656c76)"/>
+<rect x="16" y="324" width="1008" height="60" rx="12" fill="#262c36"/>
+<text x="40" y="350" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#f0f6fc" text-anchor="start">Supervisor</text>
+<text x="40" y="369" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#9198a1" text-anchor="start">plain code, not a model</text>
+<circle cx="260" cy="354" r="3" fill="#9198a1"/>
+<text x="270" y="358" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#f0f6fc" text-anchor="start">starts every process</text>
+<circle cx="450" cy="354" r="3" fill="#9198a1"/>
+<text x="460" y="358" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#f0f6fc" text-anchor="start">delivers messages</text>
+<circle cx="640" cy="354" r="3" fill="#9198a1"/>
+<text x="650" y="358" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#f0f6fc" text-anchor="start">writes the event log</text>
+<circle cx="830" cy="354" r="3" fill="#9198a1"/>
+<text x="840" y="358" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#f0f6fc" text-anchor="start">recovers after a crash</text>
+</svg>

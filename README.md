@@ -21,19 +21,10 @@ inspected before it leaves the kitchen.
 
 ## How it works
 
-```mermaid
-flowchart TD
-  you([You]) -- goal --> lead[Lead]
-  lead -- splits --> sub[Sub-lead]
-  lead -- splits --> w1[Worker]
-  sub --> w2[Worker]
-  sub --> w3[Worker]
-  sub --> c1{{Check}}
-  w1 & w2 & w3 --> queue[Merge queue]
-  queue --> result[("Branch sous/run-id, or output folder")]
-  c1 -. tests .-> result
-  lead -- questions --> you
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.svg">
+  <img alt="How sous works: you give a goal; leads split it; workers do the parts in parallel; a merge queue and checks verify the work; the result is a branch or a folder. A supervisor of plain code runs every stage." src="docs/assets/how-it-works-light.svg" width="100%">
+</picture>
 
 A run is a tree of **nodes**. Each node has one kind:
 
