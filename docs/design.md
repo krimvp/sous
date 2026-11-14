@@ -768,10 +768,13 @@ and `cancel`.
   run.json             goal, workspace, graph or agents file, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
-  commands/            command files from sous answer, approve and cancel, until processed
+  commands/            command files from sous answer, approve and cancel, and from workers' send and receive
+                       (the commands or sous's MCP tools), until processed
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
+    turn-<k>.schema.json    Codex: the result schema passed with --output-schema
+    turn-<k>.settings.json  Droid: the runtime settings passed with --settings (MCP servers, hooks, skills)
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
