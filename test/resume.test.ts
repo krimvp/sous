@@ -1,7 +1,8 @@
 // `sous resume` after a SIGKILLed supervisor, and gate nodes, through real `sous` processes and fake workers.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -15,7 +16,8 @@ import { fakeBin, sous, runDirOf, waitFor } from './helpers/sous-proc.ts'
 import type { FakeStep } from './helpers/fake-worker.ts'
 
 const CRASH = new URL('./helpers/crash-supervisor.ts', import.meta.url).pathname
-const LONG: FakeStep = { sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
+/** A turn that has begun (it said something, so its session can be resumed) and runs until it is stopped. */
+const LONG: FakeStep = { say: 'working', sleepMs: 60_000, result: { status: 'done', summary: 'too late' } }
 
 function workspaceWith(nodes: NodeSpec[]) {
   const workspace = gitWorkspace('sous-resume-')
@@ -180,6 +182,71 @@ test('a node whose turn a supervisor stop cuts short after 3 recoveries fails', 
   assert.equal(state.status, 'failed')
 })
 
+/** A marker for a fake step's `stopEarly`, outside the workspace. */
+const earlyMarker = () => join(mkdtempSync(join(tmpdir(), 'sous-early-')), 'stopped')
+async function until(file: string) {
+  for (let i = 0; i < 400 && !existsSync(file); i++) await sleep(25)
+  assert.ok(existsSync(file), `${file} never appeared`)
+}
+const sessionPrompts = (sessions: string, sessionId: string) => JSON.parse(readFileSync(join(sessions, `${sessionId}.json`), 'utf8')).prompts as string[]
+
+test('a worker killed before its harness saved its session is started again from its brief, in a new session, and completes', async () => {
+  const marker = earlyMarker()
+  const { workspace, graph, sessions } = workspaceWith([
+    work('w', [{ stopEarly: marker, write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello' } }]),
+    { id: 'test', kind: 'check', command: 'grep -q hello hello.txt', needs: ['w'] },
+  ])
+  const run = sous(['run', graph], workspace, sessions)
+  await until(marker)
+  run.child.kill('SIGKILL')
+  await run.exit
+  const runDir = runDirOf(workspace)!
+
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.status, 'completed')
+  const [cut, again] = state.nodes.get('w')!.turns
+  assert.deepEqual([cut, again].map((t) => [t!.mode, t!.recovery ?? false, t!.result?.summary]), [['start', false, undefined], ['start', true, 'wrote hello']])
+  assert.ok(cut!.sessionId && again!.sessionId && again!.sessionId !== cut!.sessionId, 'a new session')
+  assert.equal(existsSync(join(sessions, `${cut!.sessionId}.json`)), false, 'the cut session was never saved')
+  const prompts = sessionPrompts(sessions, again!.sessionId!)
+  assert.equal(prompts.length, 1)
+  assert.match(prompts[0]!, /^You are one worker on a larger goal\./)
+})
+
+test('a turn cut before it began leaves the session established before it: resume continues that session, with what the cut turn took', async () => {
+  const marker = earlyMarker()
+  const { workspace, graph, sessions } = workspaceWith([
+    work('w', [
+      { result: { status: 'needs_input', summary: 'which colour?', question: 'Which colour?' } },
+      { stopEarly: marker, write: { 'colour.txt': 'blue\n' }, result: { status: 'done', summary: 'painted' } },
+    ]),
+  ])
+  const run = sous(['run', graph], workspace, sessions)
+  await waitFor(workspace, (e) => e.type === 'message' && e.from === 'w')
+  const answer = sous(['answer', 'w', 'Paint it blue.'], workspace, sessions)
+  assert.equal(await answer.exitWithin(), 0, answer.output())
+  await until(marker)
+  run.child.kill('SIGKILL')
+  await run.exit
+  const runDir = runDirOf(workspace)!
+
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const state = fold(readEvents(runDir))
+  assert.equal(state.status, 'completed')
+  const w = state.nodes.get('w')!
+  assert.deepEqual(w.turns.map((t) => [t.mode, t.recovery ?? false, t.result?.summary]), [
+    ['start', false, 'which colour?'], ['resume', false, undefined], ['resume', true, 'painted'],
+  ])
+  assert.equal(new Set(w.turns.map((t) => t.sessionId)).size, 1, 'one session')
+  // The session never saw the cut turn's prompt, so the answer comes again with the recovery note.
+  const prompts = sessionPrompts(sessions, w.turns[0]!.sessionId!)
+  assert.equal(prompts.length, 2)
+  assert.match(prompts[1]!, /^You were interrupted: sous stopped while you worked[\s\S]*Paint it blue\./)
+})
+
 test("a lead's delivery left unanswered by a SIGKILL is delivered again on resume, and the run completes", async () => {
   const { workspace, sessions } = workspaceWith([])
   const goal = `Ship it.\n${fakeLeadPlan([
@@ -207,6 +274,40 @@ test("a lead's delivery left unanswered by a SIGKILL is delivered again on resum
   assert.deepEqual(delivered, [requestId])
   assert.equal(events.filter((e) => e.type === 'lead.delivered' && e.requestId === requestId).length, 1)
   assert.equal(events.filter((e) => e.type === 'lead.turn' && e.requestId === requestId).length, 1)
+})
+
+test("a message held for a lead's next delivery when the supervisor is SIGKILLed is delivered once on resume, with that delivery", async () => {
+  const { workspace, sessions } = workspaceWith([])
+  const send = `'${process.execPath}' '${new URL('../src/cli.ts', import.meta.url).pathname}' send lead 'I moved util.js.'`
+  const goal = `Ship it.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [
+      work('a', [{ sh: send, ...LONG }, { result: { status: 'done', summary: 'a done' } }]),
+      work('b', [LONG, { result: { status: 'done', summary: 'b done' } }]),
+    ] }] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'shipped' }] },
+  ])}`
+  const run = sous(['run', goal], workspace, sessions)
+  const message = await waitFor(workspace, (e) => e.type === 'message' && e.sent === true)
+  await sleep(300) // the supervisor had its chance to deliver it, and held it: both children still work
+  run.child.kill('SIGKILL')
+  await run.exit
+  const runDir = runDirOf(workspace)!
+  const held = `evt-${message.seq}`
+  const carrying = (e: Event) => e.type === 'lead.delivered' && (e.requestId === held || e.carries?.includes(held))
+  assert.ok(!readEvents(runDir).some(carrying), 'the message was delivered before the stop')
+
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const events = readEvents(runDir)
+  assert.equal(fold(events).summary, 'shipped')
+  const deliveries = events.flatMap((e) => (e.type === 'lead.delivered' ? [e] : []))
+  assert.equal(deliveries.filter(carrying).length, 1)
+  assert.match(deliveries.find(carrying)!.text, /^Child a tells you while it works \(no answer needed\):\nI moved util\.js\.\n\nChild [ab] completed: [ab] done$/)
+  // Brief and two outcomes: the runner got each request once.
+  const requests = fakeLeadRecords(runDir).flatMap((r) => (r.op === 'deliver' ? [r.requestId] : []))
+  assert.deepEqual(requests, deliveries.map((d) => d.requestId))
+  assert.equal(deliveries.length, 3)
 })
 
 test('a gate waits for sous approve from another process, then its dependants run', async () => {

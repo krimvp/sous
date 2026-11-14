@@ -2,7 +2,7 @@
 // proposed split for the person with the command that answers it.
 import { PERSON } from '../contracts/index.ts'
 import type { Event } from '../contracts/index.ts'
-import { eventMessage } from '../run/index.ts'
+import { eventMessage, usd } from '../run/index.ts'
 import { duration, lastLine, oneLine } from './text.ts'
 
 /** Prints one line per event, every message to the person as a question to answer, and every gate's or proposed
@@ -12,7 +12,11 @@ export function printer(past: Event[], ref: () => string): (e: Event) => void {
   const nodes = new Map<string, { parent?: string; kind: string }>()
   // Leads whose proposed split came before their brief: their message to the person asks for its approval.
   const proposed = new Set<string>()
+  // The run's budget, and whether this process said yet that turns without a cost are not counted against it.
+  let maxCost: number | undefined
+  let toldUnpriced = false
   const track = (e: Event) => {
+    if (e.type === 'run.created' || (e.type === 'run.resumed' && e.maxCost !== undefined)) maxCost = e.maxCost
     if (e.type === 'node.added') nodes.set(e.node.id, e.node)
     if (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn') for (const c of e.call.children) nodes.set(c.id, { parent: e.node, kind: c.kind })
     if (e.type === 'split.proposed') proposed.add(e.node)
@@ -22,6 +26,11 @@ export function printer(past: Event[], ref: () => string): (e: Event) => void {
   return (e) => {
     track(e)
     printEvent(e)
+    const usage = e.type === 'turn.ended' || e.type === 'lead.turn' ? e.usage : undefined
+    if (maxCost !== undefined && !toldUnpriced && usage && usage.costUsd === undefined && usage.sessionCostUsd === undefined) {
+      toldUnpriced = true
+      console.log(`note: ${'node' in e ? e.node : 'a turn'} reported no cost; turns that report none are not counted against the ${usd(maxCost)} budget`)
+    }
     const m = eventMessage(e, (id) => nodes.get(id)?.parent)
     if (m?.to !== PERSON) return
     const r = ref()
@@ -43,25 +52,27 @@ function printEvent(e: Event): void {
   switch (e.type) {
     case 'run.created': text = `goal: ${e.goal}`; break
     case 'node.added': text = `${e.node.id} (${e.node.kind}${e.node.agent ? `, ${e.node.agent}` : ''})`; break
-    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}` : ''} pid ${e.pid}`; break
+    case 'turn.started': text = `${e.node} turn ${e.turn} ${e.mode}${e.agent ? ` on ${e.agent}${e.harness && e.harness !== e.agent ? ` (${e.harness})` : ''}` : ''} pid ${e.pid}`; break
     case 'turn.session': text = `${e.node} turn ${e.turn} session ${e.sessionId}`; break
     case 'turn.interrupted': text = `${e.node} turn ${e.turn} ${e.signal}: ${e.reason}`; break
     case 'turn.stalled': text = `${e.node} turn ${e.turn}: no output for ${duration(Date.parse(e.at) - Date.parse(e.since))}; it keeps running`; break
     case 'turn.ended':
-      text = `${e.node} turn ${e.turn} ` + (e.result ? `${e.result.status}: ${e.result.summary}` : `exit ${e.exitCode ?? e.signal}, ${e.error}`)
+      text = `${e.node} turn ${e.turn} ` + (e.result ? `${e.result.status}: ${e.result.summary}`
+        : e.lead ? `${e.lead.calls.length} call${e.lead.calls.length === 1 ? '' : 's'}: ${e.lead.answer}` : `exit ${e.exitCode ?? e.signal}, ${e.error}`)
       break
     case 'check.ended': text = `${e.node} exit ${e.exitCode}: ${lastLine(e.output)}`; break
     case 'node.completed': text = `${e.node}: ${e.summary}`; break
     case 'node.failed': text = `${e.node}: ${e.reason}`; break
     case 'message': text = `${e.from} -> ${e.to} (${e.mode})`; break
-    case 'lead.delivered': text = `${e.node} <- ${e.requestId} (${e.mode})`; break
+    case 'lead.delivered': text = `${e.node} <- ${[...(e.carries ?? []), e.requestId].join(', ')} (${e.mode})`; break
     case 'inbox.read': text = `${e.node} read its messages up to evt-${e.upTo}`; break
     case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
     case 'lead.read': text = `${e.node} ${e.tool} ${e.path ?? '.'}${e.offset ? ` from ${e.offset}` : ''}: ${e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`}`; break
     case 'lead.turn': text = `${e.node} ${e.status}: ${e.text}`; break
     case 'node.cancelled': text = `${e.node} by ${e.by}`; break
     case 'command.refused': text = e.reason; break
-    case 'run.resumed': text = 'unfinished turns and deliveries are recovered'; break
+    case 'run.resumed': text = `unfinished turns and deliveries are recovered${e.maxCost !== undefined ? `; budget ${usd(e.maxCost)}` : ''}`; break
+    case 'budget.reached': text = `${usd(e.spentUsd)} reported of a ${usd(e.maxCostUsd)} budget: no new turn starts, running turns are stopped`; break
     case 'integration.created': text = `${e.branch} at ${e.path}`; break
     case 'worktree.created': text = `${e.node} ${e.branch} at ${e.path}`; break
     case 'merge.queued': text = `${e.node}${e.branch ? ` ${e.branch}` : ''}`; break

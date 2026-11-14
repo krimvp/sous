@@ -22,8 +22,9 @@ const ALLOWED: Record<string, string[]> = {
   adapters: ['contracts', 'self'],
   lead: ['contracts'],
   ui: ['contracts', 'run', 'trace'],
+  status: ['contracts', 'run', 'workspace', 'trace'],
   supervisor: ['contracts', 'definitions', 'run', 'workspace', 'commands', 'prompts'],
-  cli: ['contracts', 'self', 'definitions', 'run', 'workspace', 'commands', 'supervisor', 'trace', 'ui'],
+  cli: ['contracts', 'self', 'definitions', 'run', 'workspace', 'commands', 'supervisor', 'trace', 'ui', 'status'],
   'cli.ts': ['cli', 'adapters', 'lead'],
   'mcp.ts': ['contracts', 'run', 'commands', 'self'],
 }

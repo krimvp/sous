@@ -3,7 +3,7 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
-import { CHILD_KINDS, MAX_CHILDREN, MAX_ENTRIES, MAX_READ, ROLES, RUNTIMES } from '../contracts/index.ts'
+import { CHILD_KINDS, LEAD_RULES, LEAD_SPLIT_RULE, MAX_ENTRIES, MAX_READ, ROLES, RUNTIMES } from '../contracts/index.ts'
 import type { LeadCall, LeadHost, LeadRead } from '../contracts/index.ts'
 
 const strict = { additionalProperties: false }
@@ -69,13 +69,15 @@ const descriptions: Record<LeadCall['tool'], string> = {
   escalate: 'Ask your parent (or the person) a question you cannot answer yourself.',
 }
 
-const role = `You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, only the tools below.
-- You may look at files with list_files and read_file before you decide how to split; keep it brief, your children do the work.
-- Split your goal into children with spawn. Give each a self-contained brief and acceptance criteria; use a check child for anything a command can verify.
-- After acting, end your turn by answering briefly. Each child's outcome, question or message wakes you as a new message.
-- Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.
-- Answer your children's questions; escalate the ones you cannot answer.
-- Limits: at most ${MAX_CHILDREN} children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
+/** The role of a lead run by the lead runner, which acts through the tools above. A lead on a CLI harness gets
+ * HARNESS_LEAD_ROLE (src/prompts/lead.ts) instead; both share LEAD_SPLIT_RULE and LEAD_RULES. */
+const role = [
+  'You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, only the tools below.',
+  '- You may look at files with list_files and read_file before you decide how to split; keep it brief, your children do the work.',
+  LEAD_SPLIT_RULE,
+  '- After acting, end your turn by answering briefly. Each child\'s outcome, question or message wakes you as a new message.',
+  ...LEAD_RULES,
+].join('\n')
 
 /** The orchestration extension of lead `node`. Every call goes to the host, which is idempotent per call ID, so a call
  * replayed after a crash returns exactly the original result: a different replay text made a model stop early. Reads

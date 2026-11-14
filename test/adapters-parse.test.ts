@@ -50,13 +50,13 @@ test('claude: parses a recorded stream-json turn', () => {
     status: 'done',
     summary: 'note.txt names the fruit mango. The file reads: "The secret fruit is mango."',
   })
-  // input_tokens 8 + cache writes 6712 + cache reads 46131.
+  // input_tokens 8 + cache writes 6712 + cache reads 46131. total_cost_usd is the session's running total.
   assert.deepEqual(turn.usage, {
     inputTokens: 52851,
     outputTokens: 213,
     cachedTokens: 46131,
     cacheWriteTokens: 6712,
-    costUsd: 0.0019110100000000003,
+    sessionCostUsd: 0.0019110100000000003,
   })
   assert.match((readCall(turn, 'Read').arguments as { file_path: string }).file_path, /\/note\.txt$/)
   assertPaired(turn)

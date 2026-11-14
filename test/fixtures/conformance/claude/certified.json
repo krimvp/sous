@@ -1,8 +1,8 @@
 {
   "cli": "claude",
-  "version": "2.1.296 (Claude Code)",
+  "version": "2.1.325 (Claude Code)",
   "model": "haiku",
-  "date": "2026-10-14",
+  "date": "2026-11-14",
   "passed": [
     "reads a file with one paired tool call and ends done",
     "ends needs_input with a question",
@@ -10,7 +10,13 @@
     "stopped mid-command by the supervisor: no result, nothing left running, and the session resumes",
     "killed mid-command: the session resumes",
     "two siblings settle a name through sous; no project MCP server starts",
-    "a supervisor killed mid-turn: sous resume completes the run"
+    "a supervisor killed mid-turn: sous resume completes the run",
+    "a supervisor killed as a worker turn starts: sous resume starts the worker again and completes the run",
+    "a lead turn reads the files and returns valid calls",
+    "a lead asked to create a file creates none",
+    "a resumed lead remembers its earlier turn",
+    "a sous run whose lead runs on the harness splits into work and a check and completes",
+    "a supervisor killed during a lead turn: sous resume completes the run, each spawn recorded once"
   ],
   "failed": []
 }

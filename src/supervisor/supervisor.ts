@@ -1,11 +1,13 @@
 // runSupervisor: open the log, build the context, recover on `sous resume`, then the main loop, which is the run's
-// scheduling policy: read commands, stop what must stop, fail what is blocked, end the run, route leads and gates, start
-// merges, splits, work and checks, and wait. Ctrl-C and the shutdown in `finally` stop every process group.
+// scheduling policy: read commands, stop at the budget, stop what must stop, fail what is blocked, end the run, route
+// leads and gates, start the turns of leads on a CLI harness, merges, splits, work and checks, and wait. Ctrl-C and the
+// shutdown in `finally` stop every process group.
 import { mkdirSync } from 'node:fs'
+import { basename } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { PERSON } from '../contracts/index.ts'
 import type { NodeSpec } from '../contracts/index.ts'
-import { childrenOf, completedText, fold, isFinal, openLog } from '../run/index.ts'
+import { budgetRefusal, childrenOf, completedText, fold, isFinal, openLog } from '../run/index.ts'
 import { readCommands } from './commands.ts'
 import { createContext } from './context.ts'
 import type { SupervisorOptions } from './context.ts'
@@ -15,7 +17,8 @@ import { recover } from './recover.ts'
 import { createSplitter } from './split.ts'
 import { runCheckNode, runWork } from './work.ts'
 
-export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted'
+/** `budget`: the run stopped at its cost budget (`budget.reached`), not over; `interrupted`: stopped otherwise. */
+export type SupervisorOutcome = 'completed' | 'failed' | 'interrupted' | 'budget'
 
 const MAX_CONCURRENT = 4
 /** How often `<runDir>/commands/` is checked for the person's `sous answer`, `sous approve` and `sous cancel`, and
@@ -25,34 +28,24 @@ const POLL_MS = 200
 export async function runSupervisor(opts: SupervisorOptions): Promise<SupervisorOutcome> {
   const log = openLog(opts.runDir, opts.onEvent, { takeOver: opts.resume })
   if (opts.resume) {
-    const { status } = fold(log.events)
-    if (status !== 'running') {
+    const state = fold(log.events)
+    if (state.status !== 'running') {
       log.close()
-      throw new Error(`the run already ${status}; a finished run is not resumed`)
+      throw new Error(`the run already ${state.status}; a finished run is not resumed`)
     }
-    log.append({ type: 'run.resumed' })
+    // A run stopped at its budget continues only with a higher one (checked by `sous resume` too).
+    const limit = opts.maxCost ?? state.maxCost
+    if (limit !== undefined && state.spent.costUsd >= limit) {
+      log.close()
+      throw new Error(budgetRefusal(basename(opts.runDir), state.spent.costUsd, limit))
+    }
+    log.append({ type: 'run.resumed', ...(opts.maxCost !== undefined ? { maxCost: opts.maxCost } : {}) })
   }
   const ctx = createContext(opts, log)
   mkdirSync(ctx.commandsDir, { recursive: true })
-  const { current, fail, resultsDir } = ctx
+  const { current, fail, resultsDir, nodeNow, agentOf, stop, checkBudget } = ctx
   const { groups, interruptedChecks, terminations, terminate } = ctx.processes
 
-  const stop = () => {
-    if (ctx.stopping) return
-    ctx.stopping = true
-    // Every group is stopped whatever the log does: it may be what failed (a full disk, a throwing onEvent), and then
-    // the interruptions go unrecorded.
-    let recording = true
-    for (const [pid, g] of groups) {
-      void terminate(pid)
-      if (g.turn === undefined || !recording) continue
-      try {
-        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason: 'supervisor stopped', signal: 'SIGTERM' })
-      } catch {
-        recording = false
-      }
-    }
-  }
   /** Ctrl-C (or SIGTERM) stops the run; a second one while it stops kills every group still being stopped. */
   const onSignal = () => {
     if (!ctx.stopping) return stop()
@@ -74,7 +67,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
   let merging: Promise<void> | undefined
   // The split in progress of each splitter agent: a splitter takes one request at a time, splitters run in parallel.
   const splitting = new Map<string, Promise<void>>()
-  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...splitting.values()]
+  // The turns of each lead on a CLI harness.
+  const leadTurns = new Map<string, Promise<void>>()
+  const tasks = () => [...[...inFlight.values()].map((f) => f.done), ...(merging ? [merging] : []), ...splitting.values(), ...leadTurns.values()]
 
   process.on('SIGINT', onSignal)
   process.on('SIGTERM', onSignal)
@@ -87,8 +82,9 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       if (!ctx.stopping) readCommands(ctx)
       const state = current()
       if (state.status !== 'running') return state.status
+      checkBudget()
       if (ctx.stopping) {
-        if (!tasks().length) return 'interrupted'
+        if (!tasks().length) return ctx.budgetStop ? 'budget' : 'interrupted'
         await Promise.race(tasks())
         continue
       }
@@ -139,6 +135,16 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       }
 
       for (const n of nodes) if (n.spec.kind === 'lead') leads.routeLead(state, n)
+      // A lead on a CLI harness with deliveries to answer (or a recorded result to settle) gets its turns.
+      for (const n of nodes) {
+        const id = n.spec.id
+        if (n.spec.kind !== 'lead' || isFinal(n) || !n.delivered.length || n.idle || leadTurns.has(id)) continue
+        const agent = agentOf(state, n)
+        if (typeof agent === 'string' || agent.runs === 'lead') continue
+        leadTurns.set(id, leads.driveLead(id)
+          .catch((err) => { if (!ctx.stopping && !isFinal(nodeNow(id))) leads.abandon(current(), id, `supervisor error: ${(err as Error).message}`) })
+          .finally(() => leadTurns.delete(id)))
+      }
       // A ready gate asks the person for approval and waits for `sous approve` or `sous cancel`.
       for (const n of nodes) {
         if (n.spec.kind === 'gate' && n.status === 'ready') log.append({ type: 'message', from: n.spec.id, to: PERSON, body: n.spec.brief ?? '', mode: 'queue' })

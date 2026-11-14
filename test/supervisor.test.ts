@@ -123,7 +123,7 @@ test("a check never sees an outer run's SOUS_* identity", async () => {
 
 test('a missing result gets one reminder; a second miss fails the node', async () => {
   const { state } = await runGraph([
-    work('ok', [{}, { result: done('done after reminder') }]),
+    work('ok', [{ say: 'working' }, { result: done('done after reminder') }]),
     work('never', [{}, {}]),
   ])
   assert.equal(state.nodes.get('ok')?.status, 'completed')
@@ -283,7 +283,7 @@ test('a lead spawns a child by agent name: a defined agent does it, an unknown a
   ])
   assert.deepEqual([started, state.nodes.get('r')!.turns[0].agent], [[['pi', undefined]], 'reviewer'])
   assert.match(promptOf(sessions, state.nodes.get('r')!), /Your standing instructions:\nOnly review\./)
-  assert.match(delivered(events)[0].text, new RegExp(`Agents a child may name: for work children ${HARNESSES.join(', ')}, reviewer \\(runs pi\\) \\(default claude\\); for lead children lead`))
+  assert.match(delivered(events)[0].text, new RegExp(`Agents a child may name: for work children ${HARNESSES.map((h) => `${h} \\(harness default model\\)`).join(', ')}, reviewer \\(runs pi, harness default model\\) \\(default claude\\); for lead children lead \\(model ollama-cloud/deepseek-v4.1-flash\\)`))
 })
 
 test('a lead defines hr on claude: its workers get its instructions and the default model, a later spawn names it', async () => {
@@ -363,21 +363,22 @@ test('models leads choose are limited by runtime, and a child model needs a name
   assert.match(delivered(events)[0].text, /You may define a new agent for a work or lead child with agent \{name, runs, model\?, instructions\?\}, on these runtimes: claude \(models haiku\)\./)
 })
 
-test('a lead child may run on an agent a lead defines on lead; a worker runtime cannot do a lead child', async () => {
+test('a lead child may run on an agent a lead defines on lead; a harness not certified to lead cannot do a lead child', async () => {
   const sub = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
   const { outcome, events, state, runDir } = await runGraph([lead([
     { calls: [
-      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { name: 'boss', runs: 'claude' } }] },
+      { tool: 'spawn', children: [{ id: 'bad', kind: 'lead', brief: 'x', agent: { name: 'boss', runs: 'pi' } }] },
       { tool: 'spawn', children: [{ id: 'sub', kind: 'lead', brief: sub, agent: { name: 'planner', runs: 'lead', instructions: 'Plan in two steps.' } }] },
     ] },
     { calls: [{ tool: 'complete', summary: 'done' }] },
   ])], undefined, { createLeadRunner: fakeLeadRunner }, [], { models: { claude: ['haiku'], lead: ['other/planner-model'] } })
   assert.equal(outcome, 'completed')
-  assert.equal(calls(events)[0].result, 'refused: child bad: a lead needs an agent that runs lead')
+  assert.equal(calls(events)[0].result, 'refused: child bad: agent boss runs pi, which is not certified to lead (leads run on lead, or on claude); ' +
+    'a harness leads once its adapter has a lead mode and SOUS_HARNESS=pi npm run certify passes its lead tests')
   assert.equal(state.nodes.get('sub')!.summary, 'planned')
   const brief = delivered(events, 'sub')[0].text
   assert.match(brief, /Your standing instructions:\nPlan in two steps\./)
-  assert.match(brief, /for lead children lead, planner \(runs lead\)/)
+  assert.match(brief, /for lead children lead \(model ollama-cloud\/deepseek-v4.1-flash\), planner \(runs lead, model other\/planner-model\)/)
   assert.deepEqual(fakeLeadRecords(runDir).find((r) => r.op === 'deliver' && r.node === 'sub'), { op: 'deliver', node: 'sub', requestId: 'sub:brief', mode: 'queue', model: 'other/planner-model' })
 })
 
@@ -464,17 +465,17 @@ test('an interrupt send stops a running worker and resumes it with the message',
   let outFile = ''
   const { outcome, state, sessions } = await runLead([
     { calls: [{ tool: 'spawn', children: [{ id: 'w', kind: 'work', brief: `Slow.\n${fakePlan([
-      { sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
+      { say: 'working', sleepMs: 60_000, result: done('slow') }, { result: done('redirected') },
     ])}` }] }] },
     { calls: [{ tool: 'complete', summary: 'ok' }] },
   ], (e, host) => {
     if (e.type === 'turn.started' && e.node === 'w' && e.turn === 1) outFile = e.outFile // <workspace>/run/nodes/w/turn-1.jsonl
     if (e.type !== 'turn.session' || e.node !== 'w' || e.turn !== 1) return
-    // Interrupt only once the worker has printed its session line, which it does after saving the session (the plan);
-    // stopped earlier, the resumed turn would find no plan and end without a result. Gives up after 10 s.
+    // Interrupt only once the worker has said something: its session is established, so the message resumes it.
+    // Gives up after 10 s.
     const deadline = Date.now() + 10_000
     const poll = setInterval(() => {
-      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"session"')
+      const printed = existsSync(outFile) && readFileSync(outFile, 'utf8').includes('"type":"message"')
       if (!printed && Date.now() < deadline) return
       clearInterval(poll)
       if (printed) host.act('lead', 'int', { tool: 'send', to: 'w', body: 'Change of plan.', mode: 'interrupt' })
@@ -498,6 +499,14 @@ test('an idle lead gets two reminders and then fails', async () => {
   assert.deepEqual(delivered(events).map((d) => d.requestId), ['lead:brief', turns[0], turns[1]])
   assert.match(delivered(events)[2].text, /^Reminder 2 of 2/)
   assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
+})
+
+test('a lead that answers its reminders with notes and sends alone still fails as idle', async () => {
+  const chatty = Array.from({ length: 8 }, (_, i) => ({ calls: [i % 2 ? { tool: 'note' as const, text: `n${i}` } : { tool: 'send' as const, to: 'person', body: `m${i}`, mode: 'queue' as const }] }))
+  const { outcome, events, state } = await runLead([{}, ...chatty])
+  assert.equal(outcome, 'failed')
+  assert.equal(state.nodes.get('lead')!.reason, 'idle after 2 reminders')
+  assert.equal(delivered(events).length, 3)
 })
 
 test('a delivery the runner could not get answered is retried once with the reason; a second failure fails the lead with it', async () => {
@@ -616,32 +625,46 @@ test('a second settled for a delivery already answered is ignored', async () => 
   assert.equal(turns.length, 2)
 })
 
+test('outcomes that arrive while the lead answers go out together once it is done, in order, as one turn', async () => {
+  const { outcome, events } = await runLead([
+    { calls: [{ tool: 'spawn', children: [['a', 0], ['b', 500], ['c', 500]].map(([id, sleepMs]) => ({ id: `${id}`, kind: 'work' as const, brief: `${id}\n${fakePlan([{ sleepMs: +sleepMs, result: done(`${id}`) }])}` })) }] },
+    { sleepMs: 2500 },
+    { calls: [{ tool: 'complete', summary: 'done' }] },
+  ])
+  assert.equal(outcome, 'completed')
+  const texts = delivered(events).map((d) => d.text)
+  assert.equal(texts.length, 3)
+  assert.equal(texts[1], 'Child a completed: a')
+  assert.match(texts[2], /^Child (b|c) completed: \1\n\nChild (b|c) completed: \2$/)
+  const [first, second] = texts[2].match(/Child (b|c)/g)!
+  assert.notEqual(first, second)
+  assert.equal(events.filter((e) => e.type === 'lead.turn').length, 3)
+})
+
 test('a lead that answers an earlier delivery while a later one waits is not idle and gets no reminder', async () => {
+  // Only an interrupt reaches a lead that has not answered yet; its parent sends one while sub's answer to its brief is
+  // reported late, after the interrupt was delivered, which sub then takes a while to answer.
   let held: (() => void) | undefined
   let deliveries = 0
-  const { outcome, events } = await runGraph([lead([
-    { calls: [{ tool: 'spawn', children: [
-      { id: 'a', kind: 'work', brief: `a\n${fakePlan([{ result: done('a') }])}` },
-      { id: 'b', kind: 'work', brief: `b\n${fakePlan([{ result: done('b') }])}`, needs: ['a'] },
-    ] }] },
-    {},
-    { calls: [{ tool: 'complete', summary: 'done' }] },
-  ])], undefined, {
+  const { outcome, events } = await runGraph([
+    lead([{}, { calls: [{ tool: 'complete', summary: 'done' }] }]),
+    lead([{}, { calls: [{ tool: 'complete', summary: 'sub done' }] }], { id: 'sub', parent: 'lead' }),
+  ], undefined, {
     createLeadRunner: (o) => {
-      // The answer to a's outcome is reported only after b's outcome was delivered, which the lead takes a while to answer.
       const runner = fakeLeadRunner({ ...o, host: { ...o.host, settled(node, turn) {
-        if (deliveries === 2) held = () => o.host.settled(node, turn)
-        else o.host.settled(node, turn)
+        if (node !== 'sub' || deliveries !== 1) return o.host.settled(node, turn)
+        held = () => o.host.settled(node, turn)
+        o.host.act('lead', 'int', { tool: 'send', to: 'sub', body: 'Change of plan.', mode: 'interrupt' })
       } } })
       return { ...runner, deliver(node, text, opts) {
-        if (++deliveries !== 3) return runner.deliver(node, text, opts)
+        if (node !== 'sub' || ++deliveries !== 2) return runner.deliver(node, text, opts)
         held!()
         return new Promise((r) => setTimeout(r, 300)).then(() => runner.deliver(node, text, opts))
       } }
     },
   })
   assert.equal(outcome, 'completed')
-  assert.deepEqual(delivered(events).map((d) => d.text.split(' ')[0]), ['You', 'Child', 'Child'])
+  assert.deepEqual(delivered(events, 'sub').map((d) => [d.text.split(' ')[0], d.mode]), [['You', 'queue'], ['Message', 'interrupt']])
 })
 
 test('a person command that does not apply is recorded as refused, with the command and why, and changes nothing', async () => {

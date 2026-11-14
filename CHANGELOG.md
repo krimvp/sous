@@ -3,6 +3,84 @@
 Releases of `@krimvp/sous`. Each release is a PR titled "Release x.y.z" and a `vx.y.z` git tag on its merge commit.
 Add changes under Unreleased as they merge; the release PR renames that heading.
 
+## Unreleased
+
+- **A logged-in Claude Code is all a run needs.** With no lead credential (`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY` or a Pi login), `sous run "goal"` now runs its lead on Claude Code, on `haiku`, through Claude's own
+  login, instead of refusing the run; the `agents:` line says `lead (haiku on claude: no lead provider had a
+  credential)`, `sous doctor` says where leads run and why and exits 0, and `run.created.leadRuns` keeps the choice on
+  resume. Nothing changes when you have a lead credential: leads run in process as before. An agents file or graph can
+  put a lead, or a lead child, on Claude Code explicitly: `{ "agents": { "lead": { "runs": "claude" } } }`. Such a lead's
+  turn is a Claude Code turn that only reads (Read, Glob and Grep, confined to the run's results by `--restricted`, no
+  MCP server, no project hooks) and ends with its calls, which sous applies after the turn through the same checks as
+  every lead call (call IDs `t<turn>.<index>`, so a recovered run applies each once); a refused call stops the rest of
+  its turn, and the lead learns the results with its next delivery (a child's outcome, or a reminder when no child
+  works). For every lead, a `note` or `send` alone no longer counts as progress against the idle reminders, so a lead
+  answering each reminder with only a note fails after two, as one that does nothing does. The mechanism is the harness adapter's (`TurnSpec.lead`,
+  `ParsedTurn.lead`, `LeadResult`), not Claude's: a harness leads once its certification passes the new lead tests
+  (`LEAD_HARNESSES`). Codex has a lead mode that is not yet certified; Pi and Droid have none. A lead named on a harness
+  that may not lead is refused before the run starts, with how to certify it.
+- **Fixed: `sous resume` no longer resumes a session the harness never saved.** A turn stopped in its first moments (a
+  `sous run` killed as a lead's or worker's turn started, an urgent message just after a start) names a session that
+  Claude Code and Pi were given up front but had not saved yet; sous resumed it, Claude answered "No conversation
+  found", and the node failed (the lead certification's killed-lead test failed this way twice; it had passed by
+  timing). Sous now resumes only an established session, one whose turn recorded a result or printed output other than
+  an error, and otherwise starts the node again in a new session: a worker from its brief with every message it was
+  given, the integrator and a splitter from their role with the pending request, a lead with its brief and every
+  delivery not yet answered. A session established earlier is still resumed after a later turn was cut before it began,
+  and the messages that turn took come again with the recovery note. Recovery still counts toward the three recoveries.
+
+- **Changed: Claude Code workers now run on `haiku` by default.** A work node whose agent, node and lead name no model
+  used to run on Claude Code's own default (for a person on a top model, the most expensive one); it now runs on
+  `haiku`, the model Claude Code is certified on (two workers on one small task: $1.39 before, $0.02 on `haiku`). Codex,
+  Pi and Droid workers keep their own default, since theirs depends on your login and settings. An agent's or a node's
+  `model`, and a lead's choice from `models`, still win; the integrator and splitters keep the harness's default. **To
+  get the old behaviour**, give the agent `"model": "default"`, for the built-in one in an agents file or graph:
+  `{ "agents": { "claude": { "runs": "claude", "model": "default" } } }`, or name the model you want. The `agents:`
+  line, `sous doctor` (`worker models:`) and a lead's brief show the model each agent's work runs on. A run keeps the
+  models it was created with when resumed (`run.created.workerModels`); runs created before this resume on the
+  harness's default as before. `turn.started.model` records the model passed.
+- Docs: the README is rewritten for new users as a quickstart: install, `sous doctor`, one `sous run --max-cost`, then `sous diff`, `git merge`
+  and `sous clean`, how a run works (with its diagram), the steering commands, and what to know before trusting it.
+  The reference it held (every command, git and folder mode, budgets, agents and models, where leads run, graph files,
+  the splitter) moved to `docs/usage.md`, listed in the documentation index.
+- `sous run --max-cost <usd>` sets a cost budget: once the cost the run's turns reported reaches it, no new turn
+  starts, the running turns are stopped as Ctrl-C stops them (they resume), `budget.reached` is recorded and `sous run`
+  ends with the run stopped, the spend and `sous resume <id> --max-cost <usd>`. `sous resume` refuses such a run without
+  a higher `--max-cost` (recorded in `run.resumed`). `sous status` (and `status --json`: `budget`, `usage.maxCostUsd`)
+  and `sous wait` (exit 5, `stopped`) show it. The budget bounds reported cost only: a cost is known when a turn ends,
+  so running turns can overshoot it, and Codex and Droid workers, and leads and Pi workers on Ollama, report none and
+  are not counted (`sous run` says so once). There is no turn timeout yet. The budget and the usage totals share one
+  rule for Claude's running session cost.
+
+- A resumed Claude Code turn is no longer charged again for the turns before it: Claude's `total_cost_usd` is the
+  session's running total, which sous summed per turn (a run that cost $1.39 showed $2.09). Each turn now costs what
+  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old (summed)
+  figures where only the log is read: the UI's run list, `sous status`, and the budget's spend, so resuming such a run
+  with `--max-cost` counts the inflated figure against the budget, while `sous ui`'s run view and `sous export`, which
+  read the turns' output, show the corrected one. `sous status`, and `sous run`/`sous resume` when
+  the run ends, print the run's tokens and the cost reported, the same totals the UI shows: `usage: 115,414 tokens in
+  (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)`.
+- `sous status --json` prints a run's status as one JSON document (`RunStatus`: state, result, the node tree with
+  running turns' ages, what waits for the person with the commands that answer it, refused commands); the text status
+  is rendered from the same structure. `sous wait [run-id] [--timeout <seconds>] [--json]` blocks until the run needs
+  the person or is over and exits 0 completed, 3 failed (or completed with failed checks), 4 waits for the person, 5
+  stopped (resume needed) or 6 timeout; an ask whose answer was sent but not yet applied does not stop it, so `wait`,
+  `answer`, `wait` neither repeats nor spins. `sous status` marks such an ask `(answer sent)`. The skill drives runs
+  with `wait` and `status --json` instead of reading the run's output.
+- `sous diff [run-id] [--stat]` shows what a run changed (git diff of `sous/<run-id>` from where it started, through
+  git's pager; in folder mode, the output files with sizes), and `sous clean [run-id] [--all] [--branches] [--unmerged]
+  [--dry-run]` removes a finished run's worktrees and merged node branches (folder mode: its `work/` folders), keeping
+  the result branch, the log and any unmerged work, which it lists. It refuses a running or stopped run, deletes only
+  what the run's log records creating, and with `--branches` deletes the result branch only once `HEAD` contains it.
+  `sous run` and `sous status` end a finished git-mode run with a one-line `next:` hint.
+- Fewer lead turns that need no decision: what a worker tells its lead while it works, and the copy of what it tells a
+  sibling, no longer wake the lead on their own; they wait for the lead's next delivery that needs it (a child's
+  outcome, a question, a message), or go out once no child is working, and the lead still cannot complete before it has
+  them. What waits while the lead is answering goes out as one delivery when it is done (an interrupt still steers it at
+  once). The run that motivated it, two workers that send and a check, takes four lead turns instead of seven.
+  `lead.delivered.carries` names the further items a delivery carries.
+
 ## 0.2.0 (2026-11-14)
 
 - macOS: `sous resume` stops a turn that outlived a killed supervisor, and a run's lock tells a reused pid from its

@@ -8,14 +8,15 @@ const work = (id: string, needs?: string[]) => ({ id, kind: 'work', brief: `do $
 test('nodes and the graph name built-in or defined agents; an unknown or unfit agent is rejected', () => {
   const graph = validateGraph({
     goal: 'g', agent: 'reviewer', agents: { reviewer: { runs: 'codex', instructions: 'Be strict.' } },
-    nodes: [work('a'), { ...work('b', ['a']), agent: 'pi', model: 'm' }, { id: 'l', kind: 'lead', brief: 'lead', agent: 'lead' }],
+    nodes: [work('a'), { ...work('b', ['a']), agent: 'pi', model: 'm' }, { id: 'l', kind: 'lead', brief: 'lead', agent: 'lead' },
+      { id: 'l2', kind: 'lead', brief: 'lead on a lead-certified harness', agent: 'claude' }],
   })
-  assert.deepEqual(graph.nodes.map((n) => [n.agent, n.model]), [[undefined, undefined], ['pi', 'm'], ['lead', undefined]])
+  assert.deepEqual(graph.nodes.map((n) => [n.agent, n.model]), [[undefined, undefined], ['pi', 'm'], ['lead', undefined], ['claude', undefined]])
   const rejects = (raw: object, error: RegExp) => assert.throws(() => validateGraph(raw), error)
   rejects({ goal: 'g', agents: { r: { runs: 'pi' } }, nodes: [{ ...work('a'), agent: 'gpt' }] }, new RegExp(`node a: unknown agent gpt \\(known: ${HARNESSES.join(', ')}, lead, r\\)`))
   rejects({ goal: 'g', agent: 'nobody', nodes: [work('a')] }, /graph: unknown agent nobody/)
   rejects({ goal: 'g', nodes: [{ ...work('a'), agent: 'lead' }] }, /node a: agent lead runs lead; a work node needs a worker agent/)
-  rejects({ goal: 'g', nodes: [{ id: 'l', kind: 'lead', brief: 'b', agent: 'pi' }] }, /node l: agent pi runs pi; a lead needs an agent that runs lead/)
+  rejects({ goal: 'g', nodes: [{ id: 'l', kind: 'lead', brief: 'b', agent: 'pi' }] }, /node l: agent pi runs pi, which is not certified to lead \(leads run on lead, or on claude\); a harness leads once its adapter has a lead mode and SOUS_HARNESS=pi npm run certify passes its lead tests/)
   rejects({ goal: 'g', nodes: [{ id: 't', kind: 'check', command: 'true', agent: 'pi' }] }, /node t: check nodes have no agent/)
   rejects({ goal: 'g', agents: { x: { runs: 'gpt' } }, nodes: [work('a')] }, new RegExp(`agent x: runs must be one of ${HARNESSES.join(', ')}, lead`))
   rejects({ goal: 'g', model: 'm', nodes: [work('a')] }, /graph: unknown field model/)

@@ -1,12 +1,13 @@
 // The state every part of the supervisor shares, as one object built once per run: the resolved options, the log and
-// the state folded from it, completing and failing nodes, the stopping/closed flags, the main loop's wake-up, the live
-// process groups, and where the results gather (the integration worktree, or the output folder and node folders).
+// the state folded from it, completing and failing nodes, the stopping/closed flags, stopping the run (on Ctrl-C, or once
+// the run's reported cost reaches its budget), the main loop's wake-up, the live process groups, and where the results
+// gather (the integration worktree, or the output folder and node folders).
 import { mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { CreateLeadRunner, Event, HarnessName, WorkerAdapter } from '../contracts/index.ts'
 import { agentFor } from '../definitions/index.ts'
 import type { Agent, Unavailable } from '../definitions/index.ts'
-import { fold, openLog } from '../run/index.ts'
+import { fold, openLog, overBudget } from '../run/index.ts'
 import type { NodeState, RunState } from '../run/index.ts'
 import { createIntegration, currentBranch, ensureRepo } from '../workspace/index.ts'
 import { createProcesses } from './processes.ts'
@@ -28,6 +29,8 @@ export interface SupervisorOptions {
   resume?: boolean
   /** What was missing when the run started or resumed (`checkAgents`); default: nothing. */
   unavailable?: Unavailable
+  /** `sous resume --max-cost`: the run's budget from here on, recorded in `run.resumed`. */
+  maxCost?: number
 }
 
 /** A turn whose output has not grown for this long is reported once with `turn.stalled`; it keeps running. */
@@ -54,6 +57,15 @@ export interface Context {
   stopping: boolean
   /** Set once the run is over: later tool calls and turns of a closing runner are not recorded. */
   closed: boolean
+  /** Set when the cost reported reached the run's budget (`checkBudget`): the run stopped as on a supervisor stop. */
+  budgetStop: boolean
+  /** Stop the run: set `stopping`, stop every process group and record each running turn as interrupted with `reason`. */
+  readonly stop: (reason?: string) => void
+  /** Once the cost the run's turns reported reaches its budget: record `budget.reached` and stop, so no new turn starts
+   * and the running ones are stopped as on Ctrl-C (their sessions resume). Called whenever a turn's cost is recorded (a
+   * worker's `turn.ended`, a lead's `lead.turn`), on `sous resume` and on every pass of the main loop. A cost is known
+   * only when a turn ends, so the turns in flight may spend past the budget; turns that report no cost are not counted. */
+  readonly checkBudget: () => void
   /** Wakes the main loop from its wait; the main loop replaces it before each wait. */
   wakeUp: () => void
   /** The live process groups of turns and checks. */
@@ -114,12 +126,41 @@ export function createContext(opts: SupervisorOptions, log: EventLog): Context {
     return output
   }
 
-  return {
+  const processes = createProcesses(graceMs)
+  const stop = (reason = 'supervisor stopped') => {
+    if (ctx.stopping) return
+    ctx.stopping = true
+    // Every group is stopped whatever the log does: it may be what failed (a full disk, a throwing onEvent), and then
+    // the interruptions go unrecorded.
+    let recording = true
+    for (const [pid, g] of processes.groups) {
+      void processes.terminate(pid)
+      if (g.turn === undefined || !recording) continue
+      try {
+        log.append({ type: 'turn.interrupted', node: g.node, turn: g.turn, reason, signal: 'SIGTERM' })
+      } catch {
+        recording = false
+      }
+    }
+  }
+  const checkBudget = () => {
+    if (ctx.stopping) return
+    const state = current()
+    if (!overBudget(state)) return
+    log.append({ type: 'budget.reached', spentUsd: state.spent.costUsd, maxCostUsd: state.maxCost! })
+    ctx.budgetStop = true
+    stop('the run reached its cost budget')
+  }
+
+  const ctx: Context = {
     workspace, runDir, runId, getAdapter, unavailable, graceMs, stallMs, log, commandsDir, folder,
     stopping: false,
     closed: false,
+    budgetStop: false,
+    stop, checkBudget,
     wakeUp: () => {},
-    processes: createProcesses(graceMs),
+    processes,
     current, nodeNow, agentOf, complete, fail, nodeFolder, integrationTree, resultsDir,
   }
+  return ctx
 }

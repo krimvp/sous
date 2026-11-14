@@ -1,9 +1,18 @@
-// Plain files: collecting a work node's folder into the run's output folder (folder mode), and the leads' read-only look
-// at the workspace and the results so far.
+// Plain files: collecting a work node's folder into the run's output folder (folder mode), the leads' read-only look
+// at the workspace and the results so far, and the files of a folder as `sous diff` and `sous clean` list them.
 import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { extname, join, resolve, sep } from 'node:path'
 import { MAX_ENTRIES, MAX_READ } from '../contracts/index.ts'
+
+/** The paths of the files and links under `dir`, relative to it, sorted; links are not followed and nothing is skipped
+ * (`sous diff` lists an output folder with it, `sous clean` counts a work folder's files). */
+export function filesIn(dir: string, prefix = ''): string[] {
+  return readdirSync(dir).sort().flatMap((name) => {
+    const path = join(dir, name)
+    return lstatSync(path).isDirectory() ? filesIn(path, `${prefix}${name}/`) : [`${prefix}${name}`]
+  })
+}
 
 /** Names that are never collected or listed (in a git worktree `.git` is a file). */
 const SKIP = new Set(['.git', '.sous', 'node_modules'])

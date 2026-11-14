@@ -19,6 +19,49 @@ inspected before it leaves the kitchen.
 - **Your branch stays yours.** In a git repository the result is a new branch. sous does not change your checkout.
 - **Open traces.** Runs export to [ATIF](https://github.com/laude-institute/harbor) and to Langfuse over OTLP.
 
+## Quickstart
+
+You need Node.js 22.19 or later (Linux or macOS; the tests run on both), a logged-in
+[Claude Code](https://claude.com/claude-code), and, for code, a git repository with at least one commit. Workers see
+your last commit (`HEAD`) only, so commit what they need first. Codex, Pi or Droid can do the work instead of Claude
+Code, but then the lead needs a model credential of its own ([Where leads run](docs/usage.md#where-leads-run)).
+
+```bash
+npm install -g @krimvp/sous
+sous doctor                    # could a run start here?
+sous run --max-cost 1 "Add greeting.txt containing hello, with a check that verifies it"
+sous diff                      # what the run changed, on branch sous/<run-id>
+git merge sous/<run-id>        # take it into your branch
+sous clean                     # remove the run's worktrees; keeps sous/<run-id> and the log
+```
+
+With only Claude Code logged in and no lead credential, `sous doctor` prints, for example:
+
+```
+claude: 2.1.325 (Claude Code); login not checked
+codex: not on PATH
+pi: not on PATH
+droid: not on PATH
+lead credentials: none
+lead: on claude (haiku), the first lead-certified harness on PATH, as no lead provider has a credential
+worker models: claude (haiku)
+workspace: /home/you/project, git repository at its top level, no uncommitted changes
+ready: lead on claude (haiku), workers on claude
+```
+
+`sous run` prints the agents it can use and `run <id> (<dir>)`, then its progress, and at the end the result
+(`result: branch sous/<run-id>`, or `result: folder .../.sous/runs/<run-id>/output` in folder mode), the tokens and
+cost reported, and a `next:` line with the steps above that still apply. `--max-cost 1` stops the run once its turns
+reported $1 of cost. `sous run` exits 0 only when the run completed.
+
+If a question or an approval request appears, answer it from a second terminal with the command the run prints. If
+the run stops (Ctrl-C, a crash, a closed terminal), it prints `stopped; continue with: sous resume <run-id>`. If it
+fails, `sous status` shows each node with its reason, and `.sous/runs/<run-id>/nodes/<node>/turn-<k>.err` holds a
+failed worker's stderr.
+
+To run from a clone instead, use `node src/cli.ts` in place of `sous` (after `npm install`). Node runs the TypeScript
+sources directly.
+
 ## How it works
 
 <picture>
@@ -26,268 +69,69 @@ inspected before it leaves the kitchen.
   <img alt="How sous works: you give a goal; leads split it; workers do the parts in parallel; a merge queue and checks verify the work; the result is a branch or a folder. A supervisor of plain code runs every stage." src="docs/assets/how-it-works-light.svg" width="100%">
 </picture>
 
-A run is a tree of **nodes**. Each node has one kind:
+- A **lead** agent splits the goal into workers, checks and sub-leads (3 levels deep by default), answers their
+  questions, and asks you when it cannot. It may read your files before it splits.
+- **Workers** run in parallel, each in its own git worktree, on Claude Code (on `haiku` unless you name a model),
+  Codex, Pi or Droid. They can tell a sibling or their lead what the others must know while they work.
+- **Checks** are shell commands; a check passes when it exits 0. A **gate** waits for you to approve it.
+- Each finished worker's branch goes through a **merge queue**, one merge at a time, into `sous/<run-id>`. A conflict,
+  or a check that fails after a merge, goes to an **integrator** agent that resolves it.
+- The **result** is the branch `sous/<run-id>`. Your own checkout is not touched; merging is up to you.
+- Outside a git repository, sous uses **folder mode**: workers write into folders of their own and their files are
+  collected into `.sous/runs/<run-id>/output/`. Good for research and summaries of many documents.
+- Plain code (the supervisor, one process per run) starts every agent, delivers messages between levels, writes every
+  decision to an append-only event log under `.sous/runs/<run-id>/`, and recovers after a crash. Status, traces and
+  recovery all come from that log.
 
-| Kind | Done by | What it does |
-|---|---|---|
-| `lead` | a language model with planning tools | Splits its task into child nodes, reacts to their results, and completes. |
-| `work` | a worker CLI | Does one part of the work in its own git worktree or folder. |
-| `check` | a shell command | Passes when the command exits with code 0. |
-| `gate` | you | Waits until you approve it with `sous approve` or reject it with `sous cancel`. |
+## Watching and steering
 
-Each node runs in **turns**. A turn is one start of a worker process, or one call to the lead's model. A message to
-a node waits in its inbox until the next turn, or it interrupts the current turn. The supervisor writes every
-decision to an append-only event log. Status, traces and recovery all come from that log.
-
-## Requirements
-
-- **Node.js 22.19 or later**, on Linux or macOS. The tests run on both.
-- **At least one worker CLI**, installed and logged in: [Claude Code](https://claude.com/claude-code),
-  [Codex](https://github.com/openai/codex), [Pi](https://github.com/earendil-works/pi) or
-  [Factory Droid](https://docs.factory.ai/cli/getting-started/overview). See [docs/harnesses.md](docs/harnesses.md).
-- **A model credential for the lead.** A worker CLI's login does not count. See [Lead models](#lead-models).
-- **git** for code work. Without git, sous uses [folder mode](#where-the-result-goes).
-
-## Install
-
-```bash
-npm install -g @krimvp/sous
-```
-
-To run from a clone instead, use `node src/cli.ts` in place of `sous`. Node runs the TypeScript sources directly.
-
-## Quick start
-
-1. Give the lead a model credential. For example, an Ollama Cloud key:
-
-   ```bash
-   export OLLAMA_API_KEY=...
-   ```
-
-2. Go to the repository the agents must work in, and commit the files they need. Workers see only your last
-   commit (`HEAD`). sous warns you when the checkout has uncommitted changes. When you start it in a subdirectory,
-   it uses the repository root and tells you so.
-
-3. Make sure that a run can start:
-
-   ```bash
-   sous doctor
-   ```
-
-   `sous doctor` lists the worker CLIs on your `PATH`, the lead credentials and model, and the git state. It does not
-   check that a worker CLI is logged in.
-
-4. Start the run:
-
-   ```bash
-   sous run "Add greeting.txt containing hello, with a check that verifies it"
-   ```
-
-5. When the run is complete, examine the result it names on its last line: `result: branch sous/<run-id>` in git mode,
-   or `result: folder .../.sous/runs/<run-id>/output` in folder mode. Merging that branch is your decision.
-
-If a question or an approval request appears, answer it from a second terminal with the command the run prints. If
-the run stops (Ctrl-C, a crash, a closed terminal), it prints `stopped; continue with: sous resume <run-id>`. If it
-fails, `sous status` shows each node with its reason, and `.sous/runs/<run-id>/nodes/<node>/turn-<k>.err` holds a
-failed worker's stderr. `sous run` exits 0 only when the run completed.
-
-## Commands
+From another terminal, while the run runs:
 
 | Command | What it does |
 |---|---|
-| `sous run "<goal>"` | Starts a run. A lead splits the goal. |
-| `sous run <graph.json>` | Starts a run from a fixed graph file. |
-| `sous status [run-id]` | Shows the tree of the latest run, the running turns, and what waits for you. |
-| `sous runs` | Lists the runs of this workspace, newest first. |
-| `sous answer <node> "<text>"` | Answers a question from a node, or gives a lead a correction. |
-| `sous approve <node>` | Approves a gate, or a proposed split. |
-| `sous cancel <node>` | Stops a node and its subtree, or rejects a gate. |
-| `sous resume [run-id]` | Continues a run after Ctrl-C or a crash. |
-| `sous ui [--port <n>]` | Serves a local web page that shows the runs, live or finished. It listens on `127.0.0.1` only, needs the token in the address it prints, and only reads the runs. |
-| `sous export atif [run-id]` | Writes `.sous/runs/<run-id>/trace.atif.json`. |
-| `sous export otlp [run-id]` | Sends the trace to Langfuse. Needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. |
-| `sous doctor` | Shows if a run could start here, and what is missing. |
-| `sous send <to> '<text>'`, `sous receive [seconds]` | For workers inside a run: tell a sibling or the lead something, or read the messages waiting (see [While a run works](#while-a-run-works)). |
-| `sous --help`, `sous --version` | Shows the usage, or the installed version. `sous <command> --help` shows one command. |
+| `sous wait [--timeout <s>]` | Block until the run needs you or is over; exit 0 completed, 3 failed, 4 waits for you, 5 stopped, 6 timeout |
+| `sous status [--json]` | The run as a tree, what waits for you and the command that answers it, tokens and cost |
+| `sous answer <node> "text"` | Answer a question the run printed, or correct a lead |
+| `sous approve <node>` | Approve a gate or a proposed split |
+| `sous cancel <node>` | Stop a node and its subtree, or reject a gate |
+| `sous resume [--max-cost <usd>]` | Continue after Ctrl-C, a crash or the budget, without repeating finished turns |
+| `sous ui` | A local page with every run, live or finished: trees, timelines, each lead's decisions and worker's turns. It listens on `127.0.0.1` only, needs the token in the address it prints, and only reads the runs |
+| `sous runs` | The workspace's runs, newest first |
 
-Send `answer`, `approve` and `cancel` from a second terminal while the run is active. When more than one run is
-active, add the run id at the end.
+When more than one run is active, add the run id at the end. Every command, graph files of fixed steps, agents files,
+models, the splitter, folder mode and exports: [docs/usage.md](docs/usage.md).
 
-Useful options for `sous run`:
-
-- `--max-depth <n>`: how deep leads can nest, from 1 to 8. The default is 3.
-- `--agents <file>`: agent definitions and model limits for a goal run. See [Agents](#agents).
-- `--approve-splits`: each split that a splitter proposes waits for your approval. It needs a possible splitter: an
-  agent named `splitter`, a lead with `roles.splitter` in a graph file, or any agent you define that does not run
-  `lead` (a lead may give it the splitter role). See [Splitter](#splitter).
-
-Every command also accepts `--workspace <dir>`: the directory to work in. The default is the current directory, or
-the repository root when you are inside a git repository.
-
-## Lead models
-
-A lead runs on one of these providers:
-
-| Provider | Default model | Credential |
-|---|---|---|
-| Ollama Cloud | `ollama-cloud/deepseek-v4.1-flash` | `OLLAMA_API_KEY` |
-| Anthropic | `anthropic/claude-haiku-5-5` | `ANTHROPIC_API_KEY`, or a Pi login |
-| OpenAI | `openai/gpt-6-luna` | `OPENAI_API_KEY`, or a Pi login |
-| ChatGPT subscription | `openai-codex/gpt-5.5` | a Pi login |
-
-When a lead names no model, sous uses the first provider in this table that has a credential. The run prints its
-choice on the `agents:` line and keeps it when you resume the run. When no provider has a credential, sous refuses
-the run and tells you what to do. The Anthropic and OpenAI leads have not had a live test yet.
-
-To use a Pi login, install Pi, start it, and type `/login`:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-sous reads the login from `~/.pi/agent/auth.json` and does not refresh it. When the login expires, start `pi` once
-to refresh it.
-
-> [!WARNING]
-> Workers inherit your environment. If `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set, Claude Code (and possibly
-> Codex) workers bill that API key instead of your subscription. If your workers use a subscription, give the lead
-> `OLLAMA_API_KEY` or a Pi login.
-
-## Agents
-
-An **agent** is a named way to do work. Each agent runs on one runtime: `claude`, `codex`, `pi`, `droid`, or `lead`.
-An agent can also have a `model` and standing `instructions`, which sous adds to every brief the agent gets.
-
-- The built-in agents `claude`, `codex`, `pi`, `droid` and `lead` need no definition.
-- A work node that names no agent uses the run's `agent`, when the graph or agents file sets one. If not, it uses
-  the first worker CLI on your `PATH`, in this order: Claude Code, Codex, Pi, Droid. Each uses its own default model.
-- A node's `model` overrides its agent's model.
-- A goal can ask for an agent, for example "use agent pi for every work child".
-- Merge conflicts go to the **integrator**, an agent that resolves them. By default it is the first available of
-  Codex, Claude Code, Pi and Droid. To choose it, define an agent named `integrator`.
-
-Define agents in a file and give it to `sous run --agents agents.json "..."`:
-
-```json
-{
-  "agents": {
-    "lead": { "runs": "lead", "model": "anthropic/claude-sonnet-5-5" },
-    "reviewer": { "runs": "codex", "instructions": "Review only. Do not change files." }
-  },
-  "models": { "claude": ["haiku"], "pi": ["ollama-cloud/glm-5.2"] }
-}
-```
-
-`models` sets which models a lead can choose for each runtime. A lead can also define a new agent for a child, for
-example `{ "name": "hr", "runs": "pi", "instructions": "..." }`. It can do this only on a runtime that `models`
-lists, and only with one of the listed models. When the lead names no model, the agent gets the first listed model.
-The lists also limit the model that a lead sets on a child. When a runtime has no list, a lead cannot define agents on
-it or choose a model for it. The agents and models that you write yourself have no such limit.
-
-## Fixed graphs
-
-In a graph file, you write the nodes yourself. A graph can also contain leads.
-
-```json
-{
-  "goal": "Add a greeting",
-  "agent": "claude",
-  "agents": { "reviewer": { "runs": "codex", "instructions": "Review only. Do not change files." } },
-  "nodes": [
-    { "id": "write",  "kind": "work",  "brief": "Create greeting.txt containing: hello" },
-    { "id": "review", "kind": "work",  "agent": "reviewer", "needs": ["write"], "brief": "Review greeting.txt" },
-    { "id": "verify", "kind": "check", "needs": ["write"], "command": "grep -qx hello greeting.txt" },
-    { "id": "ship",   "kind": "gate",  "needs": ["verify"], "brief": "Keep greeting.txt?" }
-  ]
-}
-```
-
-```bash
-sous run graph.json
-```
-
-`needs` lists the nodes that must complete first. The skill reference lists every field:
-[.agents/skills/sous/REFERENCE.md](.agents/skills/sous/REFERENCE.md).
-
-## Splitter
-
-A **splitter** is an agent that plans the split for every lead. Use it when you want one planning strategy, or a
-stronger model for planning than for leading. Define an agent named `splitter` on a worker runtime, with the strategy
-as its instructions:
-
-```json
-{ "agents": { "splitter": { "runs": "claude", "model": "opus", "instructions": "One part per module, tests first." } } }
-```
-
-Before each lead gets its brief, the splitter reads the work merged so far and proposes the lead's children. The lead
-can use the proposal, change it, or ignore it. With `sous run --approve-splits`, each proposal waits for you: use
-`sous approve <lead>`, or `sous answer <lead> "<changes>"`.
-
-To give one subtree a different splitter, set `"roles": { "splitter": "<agent>" }` on a lead in a graph file. Its
-sub-leads use the same splitter.
-
-## Where the result goes
-
-sous selects the mode when the run starts. In both modes, work nodes run in parallel, and at most 4 workers and
-checks run at the same time.
-
-**Git mode** (the workspace is in a git repository). The repository must have at least one commit. If it has none,
-the run fails.
-
-- Each work node runs in its own git worktree.
-- When a node is done, sous merges its branch into the run's branch `sous/<run-id>`, one merge at a time.
-- A conflict, or a check that fails after a merge, goes to the integrator.
-- Your checkout does not change. `sous status` names the result branch.
-
-**Folder mode** (git is not installed, or the workspace is not in a git repository). Use it for research, writing and summaries:
-
-- Each worker runs in its own folder. The folder has two links: `workspace/` (your files) and `results/` (the
-  results so far). Workers are told to read these and write only at the top of their own folder.
-- sous copies each worker's files into `.sous/runs/<run-id>/output/`, one node at a time.
-- When two nodes write different files with the same name, sous keeps both. The second gets a name such as
-  `report.<node>.md`. Nothing in the output is replaced.
-- Your files are only read. `sous status` names the output folder.
-
-A lead can complete even when a check failed. Then `sous run` and `sous status` show
-"completed with failed checks: ...".
-
-## While a run works
-
-- **Workers can talk.** A worker can tell a sibling or its lead something the others must know, such as an interface
-  it settled. It uses the `send` and `receive` tools of sous's MCP server, or the commands `sous send` and
-  `sous receive`. The lead sees every message, and the event log records it.
-- **Workers are kept apart from your setup.** Workers get sous's MCP server, and as few of your own MCP servers,
-  skills, hooks and settings as each CLI allows. Some parts still load: for example, Codex reads your global
-  `~/.codex/AGENTS.md`, and Claude Code reads the `CLAUDE.md` files above the worktree. The project's own instruction
-  files apply. [docs/harnesses.md](docs/harnesses.md) gives the details for each CLI.
-- **Leads can look first.** Before it splits its task, a lead can list and read the files of the workspace and the
-  results so far. It cannot change them.
-- **You can watch.** `sous status` shows each running turn's age and the last time its output grew. A turn with no
-  output for 10 minutes is reported once as `turn.stalled`. `sous ui` shows the tree, a timeline, each lead's decisions
-  and each worker's turns.
-- **You can stop and continue.** Press Ctrl-C to stop a run. `sous resume` continues it. A finished turn is recorded and
-  not repeated. An interrupted worker continues its session with a note to examine the workspace again. A node whose turn is
-  cut short by a stop more than 3 times fails.
-
-## Security
+## Before you trust it
 
 > [!CAUTION]
 > Workers are not sandboxed. They run as you, with full permissions in their worktree or folder, and they have your
 > shell, your files and your network.
 
-A worker, or a program it starts, can also write the files that `sous answer`, `approve` and `cancel` write. Thus a
-worker can forge an approval, an answer or a cancel. Until workers are sandboxed
-([#43](https://github.com/krimvp/sous/issues/43)), a gate protects you only as much as you trust the agents you run.
+- **A gate protects only as far as you trust the agents.** A worker, or anything it runs, can also write the run's
+  command files and so forge an approval, an answer or a cancel. Until workers are sandboxed
+  ([#43](https://github.com/krimvp/sous/issues/43)), a gate protects you only as much as you trust the agents you run.
+- **Workers see `HEAD` only.** Uncommitted changes are not in their worktrees; sous warns when there are some.
+- **An API key moves workers to API billing.** Claude Code and Codex workers inherit the environment, so an
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` there moves them from your subscription to API billing. Such a key also moves
+  the lead from Claude Code to an in-process provider ([Where leads run](docs/usage.md#where-leads-run)).
+- **The budget counts only reported cost.** A cost is known when a turn ends, so turns in flight can overshoot
+  `--max-cost`, and Codex and Droid workers, and leads and Pi workers on Ollama, report no cost and are not counted.
+  There is no turn timeout yet.
+- **What is certified.** All four harnesses are certified as workers by the same conformance suite; only Claude Code
+  is certified to lead so far ([docs/harnesses.md](docs/harnesses.md)).
 
 ## Documentation
 
 [docs/README.md](docs/README.md) lists every document and who it is for:
 
+- [docs/usage.md](docs/usage.md): every command and option, git and folder mode, budgets, agents and models, where
+  leads run, graph files, the splitter.
 - [docs/design.md](docs/design.md): concepts, architecture, recovery, merging and the roadmap.
-- [docs/harnesses.md](docs/harnesses.md): the worker CLIs, what sous keeps out of them, and how to add one.
+- [docs/harnesses.md](docs/harnesses.md): the worker CLIs, what sous keeps out of them, why a worker fails at once,
+  and how to add one.
 - [docs/architecture.md](docs/architecture.md): the code map, for contributors.
-- [.agents/skills/sous](.agents/skills/sous/SKILL.md): a skill that teaches a coding agent to start, watch, steer and
-  export runs. Claude Code finds it through `.claude/skills`.
+- [.agents/skills/sous](.agents/skills/sous/SKILL.md): a skill that teaches a coding agent to start, watch, steer,
+  resume and export runs. Claude Code finds it through `.claude/skills`.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to build, test and send changes.
 - [AGENTS.md](AGENTS.md): the rules for coding agents that work on sous.
 - [CHANGELOG.md](CHANGELOG.md): the changes in each release.

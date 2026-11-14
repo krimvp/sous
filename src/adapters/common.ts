@@ -3,8 +3,8 @@
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { TURN_RESULT_SCHEMA, withoutIdentity } from '../contracts/index.ts'
-import type { ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../contracts/index.ts'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA, withoutIdentity } from '../contracts/index.ts'
+import type { LeadCall, LeadResult, ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../contracts/index.ts'
 import { MCP_PROGRAM } from '../self.ts'
 
 export type Exit = Awaited<RunningTurn['exit']>
@@ -111,13 +111,71 @@ export const RESULT_INSTRUCTION = 'End your final message with your structured r
 /** The result in a final message: the last ```json fence (any case; its tag ends the line, or the object follows at once)
  * that holds one, else the whole message as a bare object. A later fence that holds none, such as an example, is
  * skipped, and so is "```json" in prose. */
-export function resultFromText(text: string): TurnResult | undefined {
+export const resultFromText = (text: string): TurnResult | undefined => fenced(text, toTurnResult)
+
+/** What `read` makes of the last ```json fence of `text` that it reads, else of the whole text. */
+function fenced<T>(text: string, read: (raw: string) => T | undefined): T | undefined {
   const fences = [...text.matchAll(/```json[ \t]*(?:\r?\n|(?=\{))([\s\S]*?)```/gi)]
   for (const fence of fences.reverse()) {
-    const result = toTurnResult(fence[1]!.trim())
+    const result = read(fence[1]!.trim())
     if (result) return result
   }
-  return toTurnResult(text.trim())
+  return read(text.trim())
+}
+
+/** The fields each lead call takes (LEAD_RESULT_SCHEMA); other keys are dropped. */
+const CALL_FIELDS: Record<string, string[]> = Object.fromEntries(LEAD_RESULT_SCHEMA.properties.calls.items.anyOf.map((v) =>
+  [v.properties.tool.enum[0], Object.keys(v.properties).filter((k) => k !== 'tool')]))
+
+/** `value` without the nulls a strict schema sends for absent optional fields (Codex), at any depth. */
+function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutNulls)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== null).map(([k, v]) => [k, withoutNulls(v)]))
+}
+
+/** A LeadResult from a parsed object or a JSON string, or undefined when it is not one: an `answer` string and a `calls`
+ * array of objects, each with a known `tool`. Each call keeps only its tool's fields; whether the call is valid is the
+ * supervisor's to decide when it applies it, as for a lead runner's tool calls. */
+export function toLeadResult(value: unknown): LeadResult | undefined {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return undefined
+    }
+  }
+  value = withoutNulls(value)
+  if (!value || typeof value !== 'object') return undefined
+  const { answer, calls } = value as Record<string, unknown>
+  if (typeof answer !== 'string' || !Array.isArray(calls)) return undefined
+  const known = calls.every((c) => c && typeof c === 'object' && Object.hasOwn(CALL_FIELDS, (c as { tool?: unknown }).tool as string))
+  if (!known) return undefined
+  return {
+    answer,
+    calls: calls.map((c) => Object.fromEntries(Object.entries(c).filter(([k]) => k === 'tool' || CALL_FIELDS[c.tool].includes(k))) as LeadCall),
+  }
+}
+
+/** The lead result in a final message, found as `resultFromText` finds a worker's: for a harness that may wrap its
+ * structured output in a fence, and for harnesses without a structured-output flag once one gets a lead mode. */
+export const leadFromText = (text: string): LeadResult | undefined => fenced(text, toLeadResult)
+
+/** `schema` in the form OpenAI's strict structured output takes (Codex `--output-schema`): every object lists all its
+ * properties as required, the optional ones nullable (`toLeadResult` drops the nulls again), and no `minItems` (the
+ * supervisor refuses an empty spawn itself). Not yet run against Codex: Codex is not certified to lead. */
+export function strictSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(strictSchema)
+  if (!schema || typeof schema !== 'object') return schema
+  const s = Object.fromEntries(Object.entries(schema).filter(([k]) => k !== 'minItems').map(([k, v]) => [k, k === 'properties' ? v : strictSchema(v)])) as Record<string, any>
+  if (s.properties) {
+    const required: string[] = s.required ?? []
+    s.properties = Object.fromEntries(Object.entries(s.properties as Record<string, unknown>).map(([k, v]) =>
+      [k, required.includes(k) ? strictSchema(v) : { anyOf: [strictSchema(v), { type: 'null' }] }]))
+    s.required = Object.keys(s.properties)
+    s.additionalProperties = false
+  }
+  return s
 }
 
 /** Poll a turn's output until `parse` finds its session ID; reject if the process exits first. For harnesses that

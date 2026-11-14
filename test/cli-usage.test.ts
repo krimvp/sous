@@ -31,8 +31,10 @@ test('--help, -h, help and <command> --help print the usage and exit 0; --versio
   const one = await ran(['export', '--help'])
   assert.equal(one.output.split('\n').filter((l) => l.startsWith('  sous ')).length, 1)
   assert.match(one.output, /sous export atif\|otlp/)
+  assert.match((await ran(['run', '--help'])).output, /^ {2}sous run .*\[--max-cost <usd>\]/m)
+  assert.match((await ran(['resume', '--help'])).output, /^ {2}sous resume \[run-id\] \[--max-cost <usd>\]/m)
   const all = await ran(['--help'])
-  for (const command of ['run', 'resume', 'status', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'doctor', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
+  for (const command of ['run', 'resume', 'status', 'wait', 'runs', 'answer', 'approve', 'cancel', 'send', 'receive', 'export', 'diff', 'clean', 'doctor', 'ui']) assert.match(all.output, new RegExp(`^ {2}sous ${command} `, 'm'))
 
   const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   for (const flag of ['--version', '-v']) assert.deepEqual(await ran([flag]), { code: 0, output: `${version}\n` })
@@ -44,6 +46,9 @@ test('a command that was not understood prints one diagnosis line before the usa
     [['run', 'a', 'b'], 'run takes one argument'],
     [['run'], 'run takes one argument'],
     [['run', 'g', '--max-depth', '9'], '--max-depth must be a whole number from 1 to 8'],
+    [['run', 'g', '--max-cost', '0'], '--max-cost must be a positive number of US dollars'],
+    [['resume', '--max-cost', '$5'], '--max-cost must be a positive number of US dollars'],
+    [['status', '--max-cost', '5'], '--max-cost is for run and resume'],
     [['export', 'csv'], 'unknown exporter csv'],
     [['export'], 'export takes an exporter'],
     [['ui', '--port', 'abc'], '--port must be a number from 0 to 65535'],
@@ -51,7 +56,19 @@ test('a command that was not understood prints one diagnosis line before the usa
     [['ui', 'extra'], 'ui takes no arguments'],
     [['status', 'a', 'b'], 'status takes at most one argument: a run id'],
     [['runs', 'a'], 'runs takes no arguments'],
+    [['wait', 'a', 'b'], 'wait takes at most one argument: a run id'],
+    [['wait', '--timeout', 'soon'], '--timeout must be a number of seconds'],
+    [['status', '--timeout', '5'], '--timeout is for wait'],
+    [['runs', '--json'], '--json is for status and wait'],
+    [['status', '--stat'], '--stat is for diff'],
+    [['status', '--unmerged'], '--unmerged is for clean'],
+    [['diff', '--all'], '--all is for clean'],
+    [['run', 'g', '--branches'], '--branches is for clean'],
+    [['resume', '--dry-run'], '--dry-run is for clean'],
     [['doctor', 'a'], 'doctor takes no arguments'],
+    [['diff', 'a', 'b'], 'diff takes at most one argument: a run id'],
+    [['clean', 'a', 'b'], 'clean takes at most one argument: a run id'],
+    [['clean', 'a', '--all'], 'clean takes a run id or --all, not both'],
     [['answer', 'lead'], 'answer takes a node, the answer and optionally a run id'],
     [['approve'], 'approve takes a node and optionally a run id'],
     [['cancel', 'w', 'r1', 'extra'], 'cancel takes a node and optionally a run id'],
@@ -194,11 +211,11 @@ test('a graph run lists only the agents its work nodes use; a goal run lists eve
   writeFileSync(graph, JSON.stringify({ goal: 'g', nodes: [{ id: 'a', kind: 'work', agent: 'codex', brief }, { id: 'b', kind: 'work', agent: 'claude', brief }, { id: 'c', kind: 'check', command: 'true' }] }))
   const named = sous(['run', graph], workspace, sessions, fakeBin(['claude', 'codex'], ['git', 'sh']))
   assert.equal(await named.exit, 0, named.output())
-  assert.match(named.output(), /^agents: claude, codex$/m)
+  assert.match(named.output(), /^agents: claude \(haiku\), codex \(harness default\)$/m)
 
   const goal = sous(['run', complete('Anything.')], workspace, sessions, fakeBin(['claude']))
   assert.equal(await goal.exit, 0, goal.output())
-  assert.match(goal.output(), /^agents: claude, lead \(ollama-cloud\/deepseek-v4\.1-flash\); not available: codex \(codex not found\), pi \(pi not found\), droid \(droid not found\)$/m)
+  assert.match(goal.output(), /^agents: claude \(haiku\), lead \(ollama-cloud\/deepseek-v4\.1-flash\); not available: codex \(codex not found\), pi \(pi not found\), droid \(droid not found\)$/m)
 })
 
 test('a graph that can merge also lists the agent that resolves conflicts, so a missing one shows', async () => {
@@ -217,12 +234,12 @@ test('a graph that can merge also lists the agent that resolves conflicts, so a 
   }
   const only = fakeBin(['claude'], ['git', 'sh'])
   // One work node cannot conflict; two can, and the integrator is then the first available worker.
-  assert.match(await start({}, 1, only), /^agents: claude$/m)
-  assert.match(await start({}, 2, only), /^agents: claude$/m)
-  assert.match(await start({}, 2, fakeBin(['claude', 'codex'], ['git', 'sh'])), /^agents: claude, codex$/m)
+  assert.match(await start({}, 1, only), /^agents: claude \(haiku\)$/m)
+  assert.match(await start({}, 2, only), /^agents: claude \(haiku\)$/m)
+  assert.match(await start({}, 2, fakeBin(['claude', 'codex'], ['git', 'sh'])), /^agents: claude \(haiku\), codex \(harness default\)$/m)
   const droid = { agents: { integrator: { runs: 'droid' } } }
-  assert.match(await start(droid, 2, only), /^agents: claude; not available: integrator \(droid not found\)$/m)
-  assert.match(await start(droid, 1, only), /^agents: claude$/m)
+  assert.match(await start(droid, 2, only), /^agents: claude \(haiku\); not available: integrator \(droid not found\)$/m)
+  assert.match(await start(droid, 1, only), /^agents: claude \(haiku\)$/m)
 })
 
 test('--workspace is used exactly as given, even inside a git repository; only the current directory becomes the root', async () => {

@@ -9,7 +9,7 @@ the code does it.
 
 ## The shape
 
-`src/` holds two programs, `self.ts` and twelve module directories. Node runs the `.ts` files directly.
+`src/` holds two programs, `self.ts` and thirteen module directories. Node runs the `.ts` files directly.
 
 ```
 src/
@@ -27,6 +27,7 @@ src/
   lead/           the lead runner on pi-durable, and the lead model providers
   trace/          a run read into per-node views, and exported as ATIF or to Langfuse
   ui/             sous ui: a local page that only reads (server.ts, page.html)
+  status/         a run's status (RunStatus) as sous status --json and sous wait report it; only reads
   cli/            the sous commands, one file each
 ```
 
@@ -57,8 +58,9 @@ of one file. Nothing imports `cli.ts` or `mcp.ts`: they are programs.
 | `adapters` | `contracts`, `self` |
 | `lead` | `contracts` |
 | `ui` | `contracts`, `run`, `trace` |
+| `status` | `contracts`, `run`, `workspace`, `trace` |
 | `supervisor` | `contracts`, `definitions`, `run`, `workspace`, `commands`, `prompts` |
-| `cli` | `contracts`, `self`, `definitions`, `run`, `workspace`, `commands`, `supervisor`, `trace`, `ui` |
+| `cli` | `contracts`, `self`, `definitions`, `run`, `workspace`, `commands`, `supervisor`, `trace`, `ui`, `status` |
 | `cli.ts` (program) | `cli`, `adapters`, `lead` |
 | `mcp.ts` (program) | `contracts`, `run`, `commands`, `self` |
 
@@ -72,7 +74,7 @@ The table forms layers, the programs at the top. Each module imports only from r
 ```
 src/cli.ts (cli, adapters, lead)                    src/mcp.ts (commands, run, contracts, self)
   cli
-  supervisor                     ui
+  supervisor                     ui         status
   prompts       commands         trace
   run
   workspace     definitions      adapters        lead
@@ -96,7 +98,7 @@ src/cli.ts (cli, adapters, lead)                    src/mcp.ts (commands, run, c
 - **Workers and the person reach the supervisor through command files.** `commands/` decides whether a command
   applies. The CLI and `src/mcp.ts` check a command with it before they write the file, and the supervisor checks it
   again when it reads the file. Only the supervisor appends to the log of a running run.
-- **Traces and the UI only read.** `trace/` and `ui/` read the log with `run/`'s reader and fold it with `run/`'s fold,
+- **Traces, status and the UI only read.** `trace/`, `status/` and `ui/` read the log with `run/`'s reader and fold it with `run/`'s fold,
   the same ones the supervisor uses.
 
 ## The modules
@@ -111,13 +113,18 @@ The shared types, and the lists and limits that more than one side needs. It has
 - `nodes.ts`: `NodeKind`, `NodeSpec`, the reserved IDs (`ROOT`, `PERSON`, `INTEGRATOR`), `ROLES`, `SPLITTER`,
   `roleNode`, `DEFAULT_MAX_LEAD_DEPTH`.
 - `agents.ts`: `RUNTIMES`, `AgentSpec`, `BUILTIN_AGENTS`, `WORKER_AGENT_PREFERENCE`, `INTEGRATOR_AGENT_PREFERENCE`,
-  `Definitions`, `GraphFile`, `LEAD_PROVIDERS`, `DEFAULT_LEAD_MODEL`.
-- `workers.ts`: `HARNESSES`, `TurnResult` and `TURN_RESULT_SCHEMA`, `Usage`, `TraceItem`, `ParsedTurn`, `TurnSpec`,
-  `RunningTurn`, `WorkerAdapter`, `withoutIdentity` (the environment without any `SOUS_*` variable).
+  `DEFAULT_WORKER_MODELS`, `HARNESS_DEFAULT_MODEL`, `Definitions`, `GraphFile`, `LEAD_PROVIDERS`, `DEFAULT_LEAD_MODEL`.
+- `workers.ts`: `HARNESSES`, `LEAD_HARNESSES` (the harnesses certified to lead), `TurnResult` and `TURN_RESULT_SCHEMA`,
+  `Usage`, `TraceItem`, `ParsedTurn`, `TurnSpec`, `LeadTurnSpec` (a lead's turn on a harness), `RunningTurn`,
+  `WorkerAdapter`, `withoutIdentity` (the environment without any `SOUS_*` variable).
 - `leads.ts`: `CHILD_KINDS`, `MAX_CHILDREN`, `MAX_ENTRIES`, `MAX_READ`, `ChildSpec`, `NewAgent`, `LeadCall`,
-  `LeadRead`, `LeadHost`, `LeadRunner`, `CreateLeadRunner`.
+  `LeadResult` and `LEAD_RESULT_SCHEMA` (how a lead's turn on a harness ends), `LeadRead`, `LeadHost`, `LeadRunner`,
+  `CreateLeadRunner`, and `LEAD_SPLIT_RULE` and `LEAD_RULES`, the rules of a lead's role that both the lead runner's
+  system prompt (`lead/tools.ts`) and a harness lead's (`prompts/lead.ts`) state.
 - `events.ts`: `EventBody`, one variant per event, and `Event` (with `seq` and `at`); `RunMode`.
 - `commands.ts`: `Command`, the command-file shape, and `PersonCommand`.
+- `status.ts`: `NodeStatus`, `RunLiveness`, `RunStatus` (`sous status --json`) with `StatusNode` and `StatusAsk`,
+  `WAIT_EXIT_CODES`, `WaitReason` and `RunWait` (`sous wait --json`).
 
 ### self
 
@@ -127,24 +134,29 @@ The shared types, and the lists and limits that more than one side needs. It has
 ### definitions
 
 What a run is made of before it starts. `agents.ts` resolves agents and availability (`agentFor`, `checkAgents`,
-`whyUnavailable`, `startAgents`, `childAgents`, `integratorAgent`, `roleChoices`, `defineAgent`); `graph.ts` loads and
+`whyUnavailable`, `startAgents`, `childAgents`, `integratorAgent`, `roleChoices`, `defineAgent`; where leads run and the
+models nodes run on: `leadsOn`, `leadRuntimeError`, `workerModel`, `agentModel`); `graph.ts` loads and
 checks graph files and agents files (`loadGraph`, `loadDefinitions`, `validateGraph`) and lead children (`childError`).
 It reads and checks; it runs nothing.
 
 ### run
 
 A run as data. `log.ts` owns `events.jsonl` and the lock: `openLog` takes the lock and appends (one `fsync` per
-event), `readEvents` reads, `lockHolder` says whether a live supervisor holds the run, `writeCommand` writes a command
+event), `readEvents` reads, `lockHolder` says whether a live supervisor holds the run (`liveStatus`: a run not over without one is `stopped`),
+`writeCommand` writes a command
 file, `listRuns` lists a workspace's runs. `state.ts` is `fold`, a pure function from the events to `RunState`, with
-helpers over it (`isFinal`, `childrenOf`, `ancestors`, `roleAgent`, `childNode`). The CLI opens a new run's log to write
+helpers over it (`isFinal`, `childrenOf`, `ancestors`, `roleAgent`, `childNode`), and the cost budget's rules
+(`turnCost`, the one rule for a turn's cost; `overBudget`, `usd`, `budgetResume`, `budgetRefusal`). The CLI opens a new run's log to write
 its first events (`run.created`, `node.added`) before the supervisor starts; after that only the supervisor appends.
 
 ### workspace
 
 Where work happens and results gather. `git.ts` runs the `git` CLI: the integration worktree (`createIntegration`), node
 worktrees (`createNodeWorktree`), `commitAll`, `merge`, `resetTo`, `changedFiles`, `withConflictMarkers`, `repoRoot`,
-`repoState`. `files.ts` collects a folder-mode node's files (`collect`), makes a node's folder with its links
-(`linkedFolder`), and gives the leads' read-only look (`listFiles`, `readText`). It reads no events and writes none.
+`repoState`, and for `sous diff` and `sous clean` `branchExists`, `commitsNotIn`, `worktreePaths`, `removeWorktree`,
+`pruneWorktrees`, `deleteBranch` and `showDiff`. `files.ts` collects a folder-mode node's files (`collect`), makes a
+node's folder with its links (`linkedFolder`), gives the leads' read-only look (`listFiles`, `readText`), and lists a
+folder's files (`filesIn`). It reads no events and writes none.
 
 ### commands
 
@@ -156,10 +168,10 @@ file), `sendRefusal`, `sendTargets` and the limits `MAX_SENDS` and `MAX_WAIT_SEC
 
 Every text sous writes for a model, by audience: `worker.ts` (`composeBrief`, `inboxPrompt`, `recoveryPrompt`,
 `resultReminder`, `fixPrompt`), `lead.ts` (`leadBrief`, `outcomeText`, `leadMessageText`, `idleReminder`,
-`retryPrompt`, `splitApproval`), `integrator.ts` (`INTEGRATOR_BRIEF`, `integratorPrompt`, `mergeRequest`), `splitter.ts`
+`retryPrompt`, `splitApproval`, and for a lead on a CLI harness its role `HARNESS_LEAD_ROLE` and `leadTurnPrompt`), `integrator.ts` (`INTEGRATOR_BRIEF`, `integratorPrompt`, `mergeRequest`), `splitter.ts`
 (`SPLITTER_BRIEF`, `splitterPrompt`, `splitRequest`), and `shared.ts` for pieces that several audiences use. The texts
 are harness-neutral and are functions of state; how a harness must give its result is the adapter's
-(`RESULT_INSTRUCTION` in `adapters/common.ts`). A lead's system prompt and tool descriptions are in `lead/tools.ts`.
+(`RESULT_INSTRUCTION` in `adapters/common.ts`). The lead runner's system prompt and tool descriptions are in `lead/tools.ts`.
 
 ### supervisor
 
@@ -168,21 +180,21 @@ The only writer of a run's state. `index.ts` exports `runSupervisor`, `Superviso
 
 | File | What it owns |
 |---|---|
-| `supervisor.ts` | `runSupervisor`: opens the log, builds the context, calls `recover` on `sous resume`, then the main loop (read commands, stop what must stop, end the run, route leads and gates, start merges, splits, work and checks, wait). Ctrl-C and its `finally` stop every process group. |
-| `context.ts` | `SupervisorOptions`, `Context` and `createContext`; `SUPERVISOR`, the sender of the integrator's and the splitter's requests. |
+| `supervisor.ts` | `runSupervisor`: opens the log, builds the context, calls `recover` on `sous resume`, then the main loop (read commands, stop at the budget, stop what must stop, end the run, route leads and gates, start the turns of leads on a CLI harness, merges, splits, work and checks, wait). Ctrl-C and its `finally` stop every process group. |
+| `context.ts` | `SupervisorOptions`, `Context` and `createContext`, with `stop` (stop every group, record the running turns as interrupted) and `checkBudget` (record `budget.reached` and stop once the reported cost reaches the run's budget); `SUPERVISOR`, the sender of the integrator's and the splitter's requests. |
 | `processes.ts` | Process groups: `createProcesses` (the live groups, `terminate`, `runCommand` for checks), `stopGroup`, `turnAlive`, `stderrTail`. |
 | `policy.ts` | What a lead may do: `refusal` and `accepted` for each tool call, and the `notesFor` and `depthOf` a brief states. Pure functions of `RunState`. |
 | `commands.ts` | `readCommands`: applies each command file once, checked again against the run as it is. |
-| `turns.ts` | `runTurn` (one worker turn through its adapter: start, session, stall, end), `check` (one command), `ask` (a worker's question to its parent). |
-| `leads.ts` | `createLeads`: the `LeadHost` given to the runner, `routeLead` (brief, messages, outcomes, retries, reminders), deliveries, abandoning a lead, `cancelInRunner`. Owns the runner. |
+| `turns.ts` | `runTurn` (one worker turn through its adapter, or a lead's turn on a CLI harness: start, session, stall, end, then `checkBudget`), `check` (one command), `ask` (a worker's question to its parent), `MAX_RECOVERIES`, `resumable` (the session a node's next turn resumes: its last established one, else none, and the messages the turns after it took) with `established`. |
+| `leads.ts` | `createLeads`: the `LeadHost` given to the runner, `routeLead` (brief, messages, outcomes, retries, reminders; what needs no answer is held and goes out coalesced with the next delivery), deliveries, `driveLead` (the turns of a lead on a CLI harness, with `settleLead` applying each turn's calls and `refusedCall`), abandoning a lead, `cancelInRunner`. Owns the runner. |
 | `work.ts` | `runWork`: a work node's life (turns, messages, result reminders, recoveries, its acceptance check, queueing it to merge); `runCheckNode`. |
 | `merge.ts` | `mergeNext`: the merge queue (git mode) or collecting (folder mode), the check after a clean merge, and the integrator. |
 | `split.ts` | `createSplitter`: `splitNext` runs a splitter's standing node until it writes a valid proposal; `splitFor` maps each splitter turn to its lead. |
-| `recover.ts` | `recover`: on `sous resume`, closes the turns a stopped supervisor left open, undoes merges of nodes cancelled mid-merge, sends unsent questions, resumes the lead runner and delivers again what it did not answer. |
+| `recover.ts` | `recover`: on `sous resume`, closes the turns a stopped supervisor left open (a lead's with its lead result), stops again if they reached the budget, undoes merges of nodes cancelled mid-merge, sends unsent questions, resumes the lead runner and delivers again what it did not answer. |
 
 **The context.** `createContext(opts, log)` builds one `Context` per run: the resolved options (`workspace`, `runDir`,
 `runId`, `getAdapter`, `unavailable`, `graceMs`, `stallMs`), the `log`, `commandsDir`, `folder` (folder mode), the
-`stopping` and `closed` flags, `wakeUp` (wakes the main loop), `processes`, and helpers: `current()` (the fold of the
+`stopping`, `closed` and `budgetStop` flags, `stop` and `checkBudget`, `wakeUp` (wakes the main loop), `processes`, and helpers: `current()` (the fold of the
 log, computed on each call), `nodeNow`, `agentOf`, `complete`, `fail`, `nodeFolder`, `integrationTree` and
 `resultsDir`. A concern is plain functions that take the context (`runWork(ctx, spec)`, `mergeNext(ctx)`). A concern
 that keeps state of its own is a factory: `createLeads(ctx, createLeadRunner)` keeps the runner and the leads it
@@ -199,7 +211,8 @@ the person sees goes through `onEvent`.
 
 One adapter per harness (`claude.ts`, `codex.ts`, `pi.ts`, `droid.ts`), each a `WorkerAdapter`. `common.ts` has what
 they share: `spawnTurn` (a process group of its own, stdout and stderr to the turn's files, the environment without
-`SOUS_*` plus the turn's identity), `sousServer`, the JSON-line readers and `resultFromText`. `index.ts` exports
+`SOUS_*` plus the turn's identity), `sousServer`, the JSON-line readers, `resultFromText`, and for a lead mode
+(`WorkerAdapter.lead`, `TurnSpec.lead`) `toLeadResult`, `leadFromText` and `strictSchema`. `index.ts` exports
 `getAdapter` and `listCodexServers`. Only `src/cli.ts` imports it.
 
 ### lead
@@ -212,7 +225,8 @@ The lead runner. `runner.ts` (`openLeadRunner`) keeps one pi-durable conversatio
 ### trace
 
 A run read into views and exported. `run.ts` has `loadRun` (the log and the turn files, parsed with the harness's
-`parse`), `viewRun` (per-node views) and `usagesOf`. `atif.ts` and `otlp.ts` turn a loaded run into ATIF or OTLP JSON
+`parse`), `viewRun` (per-node views, each turn's cost by `turnCost`), `usagesOf`, and the totals `tokensOf`,
+`runTokens` and `logView` (a run's view from its log alone). `atif.ts` and `otlp.ts` turn a loaded run into ATIF or OTLP JSON
 (`toAtif`, `toOtlp`); `index.ts` exports `exportAtif` (returns the document) and `exportOtlp` (posts it). It takes a
 `ParseTurn` function instead of importing the adapters.
 
@@ -221,16 +235,26 @@ A run read into views and exported. `run.ts` has `loadRun` (the log and the turn
 `server.ts` (`startUi`) serves `page.html` and a JSON API on `127.0.0.1`, built from `fold` and `viewRun` with one
 reading of the log per request. It only reads.
 
+### status
+
+A run's status as `sous status --json` and `sous wait` report it. `status.ts` has `runStatus` (a `RunStatus` from the
+fold, the lock, the running turns' output files and the command files not yet applied), `waitRun` (polls it until the
+run needs the person or is over), and the parts `sous run` prints at its end: `resultOf`, `runUsage`, `budgetOf`,
+`nextSteps`. It only reads; the CLI renders it (`cli/status.ts`, `cli/wait.ts`).
+
 ### cli
 
 The sous commands. `index.ts` exports `main` and `CliDeps`.
 
 | File | What it owns |
 |---|---|
-| `main.ts` | `main(argv, deps)`: parses the options and runs one command; `sous send` and `sous receive` skip the parser, and `sous ui` calls `startUi` here. |
+| `main.ts` | `main(argv, deps)`: parses the options (refusing an option on a command it is not for) and runs one command; `sous send` and `sous receive` skip the parser, and `sous ui` calls `startUi` here. |
 | `usage.ts` | `USAGE`, `usageOf` (one command's lines), `usageError` (exit code 2). |
-| `run.ts` | `run` and `resumeRun`: check the agents, create the run directory and its first events, run the supervisor with the printer, print the result; `repoWorkspace`, `announceRoot`. |
-| `status.ts` | `status`, `runs`, and `printPending` and `resultOf`, which `run.ts` uses too. |
+| `run.ts` | `run` and `resumeRun`: check the agents, create the run directory and its first events, run the supervisor with the printer, print the result, the usage, the budget and the next steps; `--max-cost`; `repoWorkspace`, `announceRoot`. |
+| `status.ts` | `status` (text, or `--json`), `runs`, and the text of a `RunStatus` and its parts (`statusText`, `waitingLines`, `resultText`, `usageText`, `budgetText`), which `run.ts` and `wait.ts` use too. |
+| `wait.ts` | `wait`: `sous wait`, its text and its exit code. |
+| `diff.ts` | `diff`: `sous diff`. |
+| `clean.ts` | `clean`: `sous clean`, removing what a finished run's log records creating. |
 | `lookup.ts` | `findRun`, `runningRun`, `runRef`. |
 | `person.ts` | `sendCommand`: `sous answer`, `approve` and `cancel` as command files. |
 | `worker.ts` | `worker`: `sous send` and `sous receive`. |
@@ -289,8 +313,8 @@ and calls `recover` (`supervisor/recover.ts`) before the main loop.
 
 **A CLI command.** Add `src/cli/<command>.ts` with its header comment. Add a `case` to `main` in `cli/main.ts`, and any
 new option to its `parseArgs` call. Add its line to `USAGE` in `cli/usage.ts` in the form of the others, so that
-`sous <command> --help` finds it (`usageOf` picks the lines that start with the command). Document it in the README's
-command table and in `.agents/skills/sous/REFERENCE.md`. Test it through a real `sous` process
+`sous <command> --help` finds it (`usageOf` picks the lines that start with the command). Document it in the command table
+of [usage.md](usage.md#commands) and in `.agents/skills/sous/REFERENCE.md`. Test it through a real `sous` process
 (`test/helpers/sous-proc.ts`).
 
 **An event.** Add its variant to `EventBody` in `contracts/events.ts`, with a comment. Append it where the supervisor

@@ -1,13 +1,5 @@
-// One-line text helpers for what the CLI prints: a node's latest summary, a duration, and the first or last line of a
-// text, shortened to one line.
-import { completedText } from '../run/index.ts'
-import type { NodeState } from '../run/index.ts'
-
-export function lastSummary(n: NodeState): string {
-  const text = n.reason ?? (n.failedChecks?.length ? completedText(n) : undefined) ?? n.turns.findLast((t) => t.result)?.result?.summary ?? n.summary ??
-    (n.checks.length ? lastLine(n.checks[n.checks.length - 1].output) : undefined)
-  return text ? `: ${oneLine(text)}` : ''
-}
+// One-line text helpers for what the CLI prints: a duration, and the first or last line of a text, shortened to one
+// line.
 
 /** A duration as 45s, 3m 05s or 2h 05m. */
 export function duration(ms: number): string {

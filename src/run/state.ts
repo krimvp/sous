@@ -1,12 +1,7 @@
 // Run state as a pure fold of the event log.
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from '../contracts/index.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, Role, RunMode, TurnResult, Usage } from '../contracts/index.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, LeadResult, NodeSpec, NodeStatus, Role, RunMode, TurnResult, Usage } from '../contracts/index.ts'
 import { defineAgent, registry } from '../definitions/index.ts'
-
-/** `waiting`: a worker that asked its parent and waits for a message, a lead waiting on its escalation or on the
- * person's approval of its split, or a gate waiting for the person's approval. `merging`: a finished work node in the merge queue. `idle`: a standing node
- * between requests. */
-export type NodeStatus = 'pending' | 'ready' | 'running' | 'waiting' | 'merging' | 'idle' | 'completed' | 'failed'
 
 export interface CheckState {
   command: string
@@ -26,11 +21,15 @@ export interface TurnState {
   outFile: string
   errFile: string
   sessionId?: string
+  /** Workers: the messages this turn's prompt carried (the inbox it took when it started). */
+  took?: InboxMessage[]
   interrupted?: { reason: string; signal: NodeJS.Signals }
   ended: boolean
   exitCode?: number | null
   signal?: NodeJS.Signals | null
   result?: TurnResult
+  /** A lead turn's result (a lead on a CLI harness). */
+  lead?: LeadResult
   usage?: Usage
   error?: string
   /** The node's acceptance check run after this turn, if any. */
@@ -80,7 +79,7 @@ export interface NodeState {
   turns: TurnState[]
   /** Runs of a `check` node's command. */
   checks: CheckState[]
-  /** Messages not yet taken: a turn's start takes them all, a lead delivery `evt-<seq>` takes one. */
+  /** Messages not yet taken: a turn's start takes them all, a lead delivery takes those it names (`evt-<seq>`). */
   inbox: InboxMessage[]
   summary?: string
   reason?: string
@@ -98,6 +97,8 @@ export interface NodeState {
   notes: string[]
   /** Leads: request IDs delivered, in order. */
   delivered: string[]
+  /** Leads: request IDs of the items delivered under another's request ID (`lead.delivered.carries`). */
+  carried: string[]
   /** Leads: answered every delivery (a lead may report an earlier delivery after a later one was delivered). */
   idle: boolean
   /** Leads: seq of the last `lead.turn`. */
@@ -105,7 +106,8 @@ export interface NodeState {
   /** Leads: the last `lead.turn` was `unanswered` (the runner could not get the delivery answered: a model error), with
    * its reason and whether the one retry for it has been delivered. */
   unanswered?: { reason: string; retried: boolean }
-  /** Leads: reminders delivered since the last accepted tool call. */
+  /** Leads: reminders delivered since the last delivery of something new or accepted call that is progress (not `note`
+   * or `send`). */
   reminders: number
   /** Leads: escalated, and no message from the parent since. */
   escalated: boolean
@@ -127,6 +129,17 @@ export interface RunState {
   graph?: GraphFile
   /** The model of lead agents that name none, from `run.created`. */
   leadModel?: string
+  /** The lead-certified harness lead agents that name no model run on, from `run.created`. */
+  leadRuns?: HarnessName
+  /** The default model of work nodes by harness, from `run.created` (absent in older logs: none). */
+  workerModels?: Partial<Record<HarnessName, string>>
+  /** The run's cost budget in US dollars: `run.created.maxCost`, replaced by a later `run.resumed.maxCost`. */
+  maxCost?: number
+  /** The cost the run's worker and lead turns reported so far (`turnCost`), and how many turns with usage reported none
+   * (they are not counted against the budget). */
+  spent: { costUsd: number; unpriced: number }
+  /** The last `budget.reached` since the run was last resumed. */
+  budgetReached?: { spentUsd: number; maxCostUsd: number }
   /** The run's agent definitions (its graph's, or its agents file's), with every agent leads defined so far. */
   agents: Definitions
   /** The agent definitions the person wrote (the graph's, or the agents file's), without those leads defined. */
@@ -145,6 +158,31 @@ export interface RunState {
   /** The run's integration branch, once created. */
   integration?: { branch: string; path: string }
 }
+
+/** What one turn cost, from its usage: its `costUsd`, or, for a harness that reports its session's running total instead
+ * (Claude Code), what that total grew by since the session's previous turn. `totals` holds the last total by session
+ * and is updated; a total lower than before means the harness started counting again. Undefined: no cost reported.
+ * The one rule behind both the budget (`fold`) and the totals of status and the traces (`viewRun`). */
+export function turnCost(usage: Usage | undefined, session: string, totals: Map<string, number>): number | undefined {
+  const total = usage?.sessionCostUsd
+  if (total === undefined) return usage?.costUsd
+  const before = totals.get(session) ?? 0
+  totals.set(session, total)
+  return total >= before ? total - before : total
+}
+
+/** Whether the cost reported so far reached the run's budget. */
+export const overBudget = (state: RunState) => state.maxCost !== undefined && state.spent.costUsd >= state.maxCost
+
+/** A cost in US dollars as sous prints it: cents, or four decimals below a cent. */
+export const usd = (x: number) => `$${x.toFixed(x < 0.01 ? 4 : 2)}`
+
+/** How to continue run `id` once its reported cost `spent` reached its budget `limit`. */
+export const budgetResume = (id: string) => `sous resume ${id} --max-cost <usd>`
+
+/** Why run `id` is not resumed without a higher budget, and how it is. */
+export const budgetRefusal = (id: string, spent: number, limit: number) =>
+  `run ${id} stopped at its cost budget: ${usd(spent)} reported of ${usd(limit)}; continue it with a higher budget: ${budgetResume(id)} with more than ${usd(spent)}`
 
 export const isFinal = (n: NodeState | undefined) => n?.status === 'completed' || n?.status === 'failed'
 
@@ -217,10 +255,17 @@ export function completedText(n: NodeState): string {
 export function fold(events: readonly Event[]): RunState {
   const state: RunState = {
     goal: '', maxDepth: DEFAULT_MAX_LEAD_DEPTH, approveSplits: false, workspace: '', mode: 'git', agents: {}, definitions: {}, status: 'running', nodes: new Map(), questions: [], calls: new Map(), sent: new Map(),
+    spent: { costUsd: 0, unpriced: 0 },
+  }
+  // Sessions' last reported running totals, by node and session (`turnCost`).
+  const sessionTotals = new Map<string, number>()
+  const spend = (cost: number | undefined) => {
+    if (cost === undefined) state.spent.unpriced++
+    else state.spent.costUsd += cost
   }
   const turn = (node: string, number: number) => state.nodes.get(node)?.turns.find((t) => t.number === number)
   const add = (spec: NodeSpec) => state.nodes.set(spec.id, {
-    spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], idle: false, reminders: 0, escalated: false,
+    spec, status: 'pending', turns: [], checks: [], inbox: [], notes: [], delivered: [], carried: [], idle: false, reminders: 0, escalated: false,
   })
   const finish = (node: NodeState | undefined, status: 'completed' | 'failed', text: string, seq: number) => {
     if (!node || isFinal(node)) return
@@ -260,7 +305,10 @@ export function fold(events: readonly Event[]): RunState {
     switch (e.type) {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
-        Object.assign(state, { goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true })
+        Object.assign(state, {
+          goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, leadRuns: e.leadRuns, workerModels: e.workerModels, maxCost: e.maxCost,
+          maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true,
+        })
         state.agents = { agent, agents: registry(agents), models }
         state.definitions = { agent, agents: registry(agents), models }
         break
@@ -270,11 +318,13 @@ export function fold(events: readonly Event[]): RunState {
         break
       case 'turn.started': {
         const node = state.nodes.get(e.node)
+        // A worker's turn takes its inbox; a lead's inbox is taken by its deliveries.
+        const took = node && node.spec.kind !== 'lead' && node.inbox.length ? node.inbox : undefined
         node?.turns.push({
           number: e.turn, mode: e.mode, harness: e.harness, agent: e.agent, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
-          outFile: e.outFile, errFile: e.errFile, ended: false,
+          outFile: e.outFile, errFile: e.errFile, ended: false, ...(took ? { took } : {}),
         })
-        if (node) Object.assign(node, { inbox: [], read: undefined })
+        if (node && node.spec.kind !== 'lead') Object.assign(node, { inbox: [], read: undefined })
         break
       }
       case 'turn.session': {
@@ -289,7 +339,8 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'turn.ended': {
         const t = turn(e.node, e.turn)
-        if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, usage: e.usage, error: e.error })
+        if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, lead: e.lead, usage: e.usage, error: e.error })
+        if (e.usage) spend(turnCost(e.usage, `${e.node}\n${t?.sessionId ?? `turn ${e.turn}`}`, sessionTotals))
         const node = state.nodes.get(e.node)
         if (node?.read?.turn === e.turn) {
           if (e.result) node.inbox = node.inbox.filter((m) => m.seq > node.read!.upTo)
@@ -325,19 +376,23 @@ export function fold(events: readonly Event[]): RunState {
       case 'lead.delivered': {
         const node = state.nodes.get(e.node)
         if (!node) break
-        // A delivery named after the last turn is the retry of an unanswered one, else an idle reminder.
+        // A delivery named after the last turn is the retry of an unanswered one, else an idle reminder. Any other brings
+        // the lead something new (a brief, a message, an outcome), and the count of reminders starts again.
         if (node.lastTurn !== undefined && e.requestId === `evt-${node.lastTurn}`) {
           if (node.unanswered) node.unanswered.retried = true
           else node.reminders++
-        }
+        } else node.reminders = 0
         node.delivered.push(e.requestId)
-        node.inbox = node.inbox.filter((m) => `evt-${m.seq}` !== e.requestId)
+        node.carried.push(...(e.carries ?? []))
+        const taken = new Set([e.requestId, ...(e.carries ?? [])])
+        node.inbox = node.inbox.filter((m) => !taken.has(`evt-${m.seq}`))
         node.idle = false
         break
       }
       case 'lead.turn': {
         const node = state.nodes.get(e.node)
         if (!node) break
+        if (e.usage) spend(e.usage.costUsd)
         const done = answered.get(e.node) ?? new Set<string>()
         answered.set(e.node, done.add(e.requestId))
         Object.assign(node, {
@@ -350,8 +405,9 @@ export function fold(events: readonly Event[]): RunState {
         state.calls.set(callKey(e.node, e.callId), e.result)
         const lead = state.nodes.get(e.node)
         if (!e.ok || !lead) break
-        lead.reminders = 0
         const call = e.call
+        // Progress: a note or a send alone does not move the lead on, so it does not stop the reminders.
+        if (call.tool !== 'note' && call.tool !== 'send') lead.reminders = 0
         if (call.tool === 'spawn') {
           for (const c of call.children) {
             if (typeof c.agent === 'object') state.agents.agents![c.agent.name] = defineAgent(state.agents, c.agent)
@@ -409,6 +465,13 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'merge.failed':
         finish(state.nodes.get(e.node), 'failed', `merge failed: ${e.reason}`, e.seq)
+        break
+      case 'run.resumed':
+        if (e.maxCost !== undefined) state.maxCost = e.maxCost
+        state.budgetReached = undefined
+        break
+      case 'budget.reached':
+        state.budgetReached = { spentUsd: e.spentUsd, maxCostUsd: e.maxCostUsd }
         break
       case 'run.completed':
         Object.assign(state, { status: 'completed', summary: e.summary })

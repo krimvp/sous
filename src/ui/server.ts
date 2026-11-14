@@ -6,10 +6,10 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
-import type { Event, TraceItem, Usage } from '../contracts/index.ts'
-import { awaitsSplitApproval, fold, isFinal, listRuns, lockHolder, readEvents } from '../run/index.ts'
+import type { Event, TraceItem } from '../contracts/index.ts'
+import { awaitsSplitApproval, fold, isFinal, listRuns, liveStatus, lockHolder, readEvents } from '../run/index.ts'
 import type { RunState } from '../run/index.ts'
-import { loadRun, usagesOf, viewRun } from '../trace/index.ts'
+import { loadRun, runTokens, tokensOf, usagesOf, viewRun } from '../trace/index.ts'
 import type { NodeView, ParseTurn, RunView } from '../trace/index.ts'
 
 const PAGE = new URL('./page.html', import.meta.url)
@@ -104,26 +104,6 @@ const json = (res: ServerResponse, body: unknown) => send(res, 200, 'application
 
 // ---- Views -------------------------------------------------------------------------------------
 
-type Live = 'running' | 'stopped' | 'completed' | 'failed'
-
-/** A run's status as `sous status` reports it: a running run without a live supervisor is stopped. */
-function liveStatus(runDir: string, state: RunState): Live {
-  return state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
-}
-
-interface Tokens { input: number; output: number; cached: number; costUsd?: number }
-
-function addUsage(total: Tokens, u: Usage | undefined): Tokens {
-  if (!u) return total
-  total.input += u.inputTokens
-  total.output += u.outputTokens
-  total.cached += u.cachedTokens
-  if (u.costUsd !== undefined) total.costUsd = (total.costUsd ?? 0) + u.costUsd
-  return total
-}
-
-const tokensOf = (usages: (Usage | undefined)[]) => usages.reduce(addUsage, { input: 0, output: 0, cached: 0 })
-
 /** Levels of the node tree, top-level nodes being level 1. */
 function depthOf(view: RunView): number {
   const depth = (n: NodeView): number => 1 + Math.max(0, ...n.children.map(depth))
@@ -159,7 +139,7 @@ function summarize(runDir: string, { state, view }: ReturnType<typeof readRun>) 
     endedAt: view.endedAt,
     nodes: view.nodes.length,
     depth: depthOf(view),
-    tokens: tokensOf(view.nodes.flatMap(usagesOf)),
+    tokens: runTokens(view),
     waiting: openQuestions(state).length,
   }
 }

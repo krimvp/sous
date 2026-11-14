@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../contracts/index.ts'
 import { agentSpec } from '../definitions/index.ts'
-import { childNode, fold, readEvents } from '../run/index.ts'
+import { childNode, fold, readEvents, turnCost } from '../run/index.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
 export type EventOf<T extends Event['type']> = Extract<Event, { type: T }>
@@ -119,6 +119,38 @@ export function usagesOf(node: NodeView): (Usage | undefined)[] {
   ]
 }
 
+/** A run's or a node's token totals, and the cost reported. `costUsd` sums the turns that reported a cost; `unpriced`
+ * counts the turns with usage but no cost (Ollama reports no prices), so a partial sum is not taken for the price. */
+export interface Tokens { input: number; output: number; cached: number; costUsd?: number; unpriced: number }
+
+function addUsage(total: Tokens, u: Usage | undefined): Tokens {
+  if (!u) return total
+  total.input += u.inputTokens
+  total.output += u.outputTokens
+  total.cached += u.cachedTokens
+  if (u.costUsd !== undefined) total.costUsd = (total.costUsd ?? 0) + u.costUsd
+  else total.unpriced++
+  return total
+}
+
+export const tokensOf = (usages: (Usage | undefined)[]): Tokens => usages.reduce(addUsage, { input: 0, output: 0, cached: 0, unpriced: 0 })
+
+/** The whole run's totals, as the UI and `sous status` show them. */
+export const runTokens = (view: RunView): Tokens => tokensOf(view.nodes.flatMap(usagesOf))
+
+/** A run's view from its event log alone, without reading turn files: usage is as the log recorded it. */
+export const logView = (runDir: string): RunView => viewRun(loadRun(runDir, () => ({ items: [], ended: false }), () => false))
+
+/** Each turn's cost (`turnCost`): a turn whose harness reports its session's running cost costs what that total grew by
+ * since the session's previous turn. */
+function turnCosts(node: NodeView): void {
+  const totals = new Map<string, number>()
+  for (const t of node.turns.values()) {
+    if (t.usage?.sessionCostUsd === undefined) continue
+    t.usage = { ...t.usage, costUsd: turnCost(t.usage, t.sessionId ?? `turn ${t.turn}`, totals) }
+  }
+}
+
 function nodeOf(e: Event): string | undefined {
   if (e.type === 'message') return e.to
   return 'node' in e && typeof e.node === 'string' ? e.node : undefined
@@ -195,7 +227,7 @@ export function viewRun(run: LoadedRun): RunView {
           turn: e.turn,
           mode: e.mode,
           agent: e.agent ?? node.spec.agent ?? e.harness,
-          model: parsed.model ?? node.spec.model ?? (e.agent ? agentSpec(view.agents, e.agent)?.model : undefined),
+          model: parsed.model ?? e.model ?? node.spec.model ?? (e.agent ? agentSpec(view.agents, e.agent)?.model : undefined),
           prompt: e.prompt ?? (parts.join('\n\n') || `(${e.mode} prompt for turn ${e.turn} not recorded)`),
           sessionId: parsed.sessionId,
           startedAt: e.at,
@@ -240,5 +272,6 @@ export function viewRun(run: LoadedRun): RunView {
       }
     }
   }
+  view.nodes.forEach(turnCosts)
   return view
 }

@@ -9,11 +9,12 @@ import { describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { getAdapter } from '../src/adapters/index.ts'
+import { HARNESS_LEAD_ROLE } from '../src/prompts/index.ts'
 import { fold, openLog, readEvents } from '../src/run/index.ts'
 import { runSupervisor, stopGroup } from '../src/supervisor/index.ts'
-import { HARNESSES } from '../src/contracts/index.ts'
+import { HARNESSES, LEAD_HARNESSES } from '../src/contracts/index.ts'
 import type { HarnessName, ParsedTurn, TurnSpec } from '../src/contracts/index.ts'
-import { CONFORMANCE, NOTE, RECORDINGS, recording, recordingUrl } from './conformance/harnesses.ts'
+import { CONFORMANCE, certifiedUrl, LEAD_TESTS, NOTE, recording, recordingsOf, recordingUrl } from './conformance/harnesses.ts'
 import { gitWorkspace } from './helpers/git-repo.ts'
 
 const tempDir = () => mkdtempSync(join(realpathSync(tmpdir()), 'sous-conformance-'))
@@ -64,7 +65,19 @@ for (const harness of HARNESSES) {
 
   describe(`${harness} conformance`, () => {
     test('has every recording', () => {
-      for (const name of RECORDINGS) assert.ok(existsSync(recordingUrl(harness, name)), `test/fixtures/conformance/${harness}/${name}.jsonl`)
+      for (const name of recordingsOf(harness)) assert.ok(existsSync(recordingUrl(harness, name)), `test/fixtures/conformance/${harness}/${name}.jsonl`)
+    })
+
+    test('lead: its session, its end, a lead result whose calls spawn work and a check, after reading the plan', { skip: !CONFORMANCE[harness].lead }, () => {
+      const turn = adapter.parse(recording(harness, 'lead'))
+      assert.ok(turn.sessionId)
+      assert.equal(turn.ended, true)
+      assert.equal(turn.result, undefined, 'a lead result is no worker result')
+      assertPaired(turn)
+      assert.ok(turn.items.some((i) => i.kind === 'tool_result' && i.content.includes('sub(a, b)') && !i.isError), 'a tool result holds the plan')
+      const children = turn.lead!.calls.flatMap((c) => (c.tool === 'spawn' ? c.children : []))
+      assert.ok(children.some((c) => c.kind === 'work' && c.brief) && children.some((c) => c.kind === 'check' && c.command), JSON.stringify(turn.lead))
+      assert.ok(turn.usage && turn.usage.inputTokens > 0)
     })
 
     test('read-file: its session, its end, a done result, paired tool calls that read the note, usage and times', () => {
@@ -97,7 +110,7 @@ for (const harness of HARNESSES) {
     })
 
     test('any cut of a recording parses: ended only from its end marker, the session never changes, tool calls only accumulate', () => {
-      for (const name of RECORDINGS) {
+      for (const name of recordingsOf(harness)) {
         const raw = recording(harness, name)
         const full = adapter.parse(raw)
         const lines = raw.split('\n')
@@ -124,6 +137,7 @@ for (const harness of HARNESSES) {
               if (markers.length && k > markers.at(-1)!) assert.equal(turn.ended, full.ended, `${where}: ended after its end marker`)
             } else if (!ended) assert.equal(turn.ended, false, `${where}: ended mid-line`)
             if (!turn.ended) assert.equal(turn.result, undefined, `${where}: a result before the end`)
+            if (!turn.ended) assert.equal(turn.lead, undefined, `${where}: a lead result before the end`)
             if (turn.sessionId !== undefined) assert.equal(turn.sessionId, full.sessionId, `${where}: session`)
             const now = new Set(turn.items.flatMap((i) => (i.kind === 'tool_call' ? [i.id] : [])))
             if (c === 0) {
@@ -173,6 +187,20 @@ for (const harness of HARNESSES) {
       assert.equal(mcpServers(standing), 0)
     })
 
+    test('a lead turn gets the role, the prompt and the model, and neither an identity nor an MCP server; resume names the session', { skip: !adapter.lead }, async () => {
+      const lead = { system: HARNESS_LEAD_ROLE }
+      for (const [k, start] of [(s: TurnSpec) => adapter.start(s), (s: TurnSpec) => adapter.resume({ ...s, sessionId: 'session-l3' })].entries()) {
+        const { spec, started } = await standIn(start, { lead, model: 'model-x7' })
+        const all = [...started.argv, ...started.named, started.stdin].join('\n')
+        assert.ok(started.stdin.includes(spec.prompt), 'the whole prompt')
+        if (k === 0) assert.ok(all.includes(HARNESS_LEAD_ROLE), 'the role')
+        else assert.ok(started.argv.includes('session-l3'))
+        assert.ok(started.argv.includes('model-x7'), 'the model')
+        assert.deepEqual(started.env, {})
+        assert.equal(mcpServers(started), 0)
+      }
+    })
+
     test('resume names the session it continues; a turn that exits silently settles its session promise', async () => {
       const { started, running } = await standIn((s) => adapter.resume({ ...s, sessionId: 'session-r9' }), {})
       assert.ok(started.argv.includes('session-r9'))
@@ -218,5 +246,55 @@ for (const harness of HARNESSES) {
       assert.deepEqual(ended?.type === 'turn.ended' && ended.result, adapter.parse(readFileSync(replay, 'utf8')).result)
       assert.ok(events.some((e) => e.type === 'turn.session' && e.node === 'w'))
     })
+
+    test('a turn cut before its harness had a conversation starts again in a new session on resume; one cut after output resumes it', async () => {
+      const raw = recording(harness, 'stopped')
+      const lines = raw.split('\n')
+      // The stopped recording up to the line that names its session: what a turn stopped in its first moments leaves.
+      const named = lines.findIndex((_, i) => adapter.parse(lines.slice(0, i + 1).join('\n')).sessionId)
+      const sessionId = adapter.parse(raw).sessionId!
+      for (const [cut, resumes] of [[`${lines.slice(0, named + 1).join('\n')}\n`, false], [raw, true]] as const) {
+        const workspace = gitWorkspace('sous-conformance-')
+        const runDir = join(workspace, 'run')
+        const dir = join(runDir, 'nodes', 'w')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'turn-1.jsonl'), cut)
+        const log = openLog(runDir)
+        log.append({ type: 'run.created', goal: 'conformance', workspace })
+        log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'Read the note.', agent: harness }, by: 'graph' })
+        // A turn the stopped supervisor left open; no process runs it any more.
+        log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness, pid: 1, outFile: join(dir, 'turn-1.jsonl'), errFile: join(dir, 'turn-1.err') })
+        log.append({ type: 'turn.session', node: 'w', turn: 1, sessionId })
+        log.close()
+        process.env.FAKE_RECORD = join(workspace, 'started.json')
+        process.env.FAKE_REPLAY = fileURLToPath(recordingUrl(harness, 'read-file'))
+        const outcome = await runSupervisor({ workspace, runDir, resume: true, getAdapter: (h: HarnessName) => getAdapter(h), graceMs: 500 })
+        const w = fold(readEvents(runDir)).nodes.get('w')!
+        const where = resumes ? 'cut after output' : 'cut before output'
+        assert.equal(outcome, 'completed', where)
+        assert.deepEqual(w.turns.map((t) => [t.mode, t.recovery ?? false]), [['start', false], [resumes ? 'resume' : 'start', true]], where)
+        const started = JSON.parse(readFileSync(join(workspace, 'started.json'), 'utf8')) as Started
+        assert.equal(started.argv.includes(sessionId), resumes, `${where}: the old session is ${resumes ? '' : 'not '}named`)
+        if (!resumes) assert.notEqual(w.turns[1]!.sessionId, sessionId, 'a new session')
+      }
+    })
   })
 }
+
+describe('leading', () => {
+  test('every harness that may lead has a lead mode, a lead recording and a certification that passed the lead tests', () => {
+    for (const harness of LEAD_HARNESSES) {
+      assert.equal(getAdapter(harness).lead, true, `${harness} has a lead mode`)
+      assert.equal(CONFORMANCE[harness].lead, true, `${harness} has a lead recording`)
+      const certified = JSON.parse(readFileSync(certifiedUrl(harness), 'utf8')) as { passed: string[]; failed: string[] }
+      for (const name of LEAD_TESTS) assert.ok(certified.passed.includes(name), `${harness}'s certified.json lists "${name}" as passed`)
+    }
+  })
+
+  test('a harness without a lead mode refuses a lead turn rather than run one that could change files', () => {
+    for (const harness of HARNESSES.filter((h) => !getAdapter(h).lead)) {
+      const cwd = tempDir()
+      assert.throws(() => getAdapter(harness).start({ nodeId: 'l', turn: 1, cwd, prompt: 'p', outFile: join(cwd, 'o.jsonl'), errFile: join(cwd, 'o.err'), lead: { system: 'role' } }), /cannot run a lead turn/)
+    }
+  })
+})

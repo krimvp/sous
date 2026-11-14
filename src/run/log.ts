@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Command, Event, EventBody } from '../contracts/index.ts'
+import type { Command, Event, EventBody, RunLiveness } from '../contracts/index.ts'
 
 export interface EventLog {
   /** Every event in the log, oldest first, including the ones appended through this handle. */
@@ -75,6 +75,12 @@ export function writeCommand(runDir: string, cmd: Command): void {
 export function lockHolder(runDir: string): number | undefined {
   const lock = parseLock(readRaw(join(runDir, 'lock')))
   return lock && alive(lock) ? lock.pid : undefined
+}
+
+/** A run as `sous status`, `sous runs` and `sous ui` report it, from its folded `status`: a running run without a live
+ * supervisor is stopped. */
+export function liveStatus(runDir: string, state: { status: 'running' | 'completed' | 'failed' }): RunLiveness {
+  return state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
 }
 
 function readLog(path: string): { complete: string } {

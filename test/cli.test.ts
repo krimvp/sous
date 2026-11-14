@@ -41,8 +41,34 @@ test('sous run completes a work then check graph and sous status shows it', asyn
   const status = sous(['status', '--workspace', workspace], tmpdir(), sessions)
   assert.equal(await status.exit, 0)
   const id = runDir.split('/').at(-1)
-  assert.match(run.output(), new RegExp(`^result: branch sous/${id}$`, 'm'))
+  assert.match(run.output(), new RegExp(`^result: branch sous/${id}\nnext: sous diff, then git merge sous/${id}, then sous clean$`, 'm'))
   assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
+  assert.match(status.output(), new RegExp(`\nnext: sous diff, then git merge sous/${id}, then sous clean\n$`))
+})
+
+test("sous run and sous status print the run's tokens and the cost reported, counting a resumed session's cost once", async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const graph = join(workspace, 'graph.json')
+  // `write` fails its acceptance check and is resumed; like Claude Code, its second turn reports the session's running
+  // cost (0.701864 + 0.0266924). `notes` reports no cost, as Ollama does.
+  writeFileSync(graph, JSON.stringify({
+    goal: 'write a greeting', agent: 'claude',
+    nodes: [
+      { id: 'write', kind: 'work', command: 'grep -q hello hello.txt', brief: `Write hello.txt.\n${fakePlan([
+        { write: { 'hello.txt': 'nope\n' }, result: { status: 'done', summary: 'wrote it' }, usage: { inputTokens: 75146, outputTokens: 1946, cachedTokens: 36600, sessionCostUsd: 0.701864 } },
+        { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'fixed it' }, usage: { inputTokens: 39268, outputTokens: 185, cachedTokens: 38542, sessionCostUsd: 0.7285564 } },
+      ])}` },
+      { id: 'notes', kind: 'work', brief: `Write notes.txt.\n${fakePlan([{ write: { 'notes.txt': 'n\n' }, result: { status: 'done', summary: 'wrote notes' }, usage: { inputTokens: 1000, outputTokens: 10, cachedTokens: 0 } }])}` },
+    ],
+  }))
+  const sessions = join(workspace, 'sessions')
+  const run = sous(['run', graph], workspace, sessions)
+  assert.equal(await run.exit, 0, run.output())
+  const line = 'usage: 115,414 tokens in (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)'
+  assert.match(run.output(), new RegExp(`\nresult: branch [^\n]+\n${line.replace(/[$().]/g, '\\$&')}\nnext: sous diff, then git merge \\S+, then sous clean\n$`))
+  const status = sous(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), new RegExp(`^run \\S+ completed: write a greeting\n  result: branch [^\n]+\n  ${line.replace(/[$().]/g, '\\$&')}\n  write completed`))
 })
 
 test('sous run checks the agents on PATH: a node without an agent falls back to the first available worker', async () => {
@@ -57,10 +83,71 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
   // Only codex, pi and git are on PATH: no claude or droid, and no other directory.
   const run = sous(['run', graph], workspace, join(workspace, 'sessions'), fakeBin(['codex', 'pi']))
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), /^agents: codex$/m)
+  assert.match(run.output(), /^agents: codex \(harness default\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
-  assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
+  // The line names the harness when it differs from the agent's name; the fake adapter calls itself claude.
+  assert.match(run.output(), /turn.started +any turn 1 start on codex \(claude\) pid/)
+})
+
+/** The model each turn of node `node` was started with (null: none, the harness's own default), from its session file. */
+const modelsOf = (sessions: string, runDir: string, node: string) => {
+  const session = fold(readEvents(runDir)).nodes.get(node)!.turns[0].sessionId!
+  return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).models as (string | null)[]
+}
+
+test("a work node that names no model runs on its harness's small default; an agent's or node's model wins, and \"default\" keeps the harness's own", async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const sessions = join(workspace, 'sessions')
+  const graph = join(workspace, 'graph.json')
+  const brief = (id: string) => `Do ${id}.\n${fakePlan([{ result: { status: 'done', summary: id } }])}`
+  writeFileSync(graph, JSON.stringify({
+    goal: 'g', agents: { big: { runs: 'claude', model: 'opus' }, own: { runs: 'claude', model: 'default' } },
+    nodes: [
+      { id: 'a', kind: 'work', agent: 'claude', brief: brief('a') },
+      { id: 'b', kind: 'work', agent: 'big', brief: brief('b') },
+      { id: 'c', kind: 'work', agent: 'own', brief: brief('c') },
+      { id: 'd', kind: 'work', agent: 'claude', model: 'sonnet', brief: brief('d') },
+    ],
+  }))
+  const run = sous(['run', graph], workspace, sessions)
+  assert.equal(await run.exit, 0, run.output())
+  assert.match(run.output(), /^agents: claude \(haiku\), codex \(harness default\), big \(opus\), own \(harness default\)$/m)
+  const runDir = runDirOf(workspace)!
+  const events = readEvents(runDir)
+  assert.deepEqual(events[0].type === 'run.created' && events[0].workerModels, { claude: 'haiku' })
+  assert.deepEqual(['a', 'b', 'c', 'd'].map((n) => modelsOf(sessions, runDir, n)), [['haiku'], ['opus'], [null], ['sonnet']])
+  const started = Object.fromEntries(events.flatMap((e) => (e.type === 'turn.started' ? [[e.node, e.model ?? null]] : [])))
+  assert.deepEqual(started, { a: 'haiku', b: 'opus', c: null, d: 'sonnet' })
+})
+
+test('a resumed run keeps the worker models it was created with: the recorded table, or none for a run from before it was recorded', async () => {
+  for (const [recorded, expected] of [[{ claude: 'sonnet' }, 'sonnet'], [undefined, null]] as const) {
+    const workspace = gitWorkspace('sous-cli-')
+    const sessions = join(workspace, 'sessions')
+    const graph = join(workspace, 'graph.json')
+    writeFileSync(graph, JSON.stringify({ goal: 'g', agent: 'claude', nodes: [
+      { id: 'a', kind: 'work', brief: `Ask.\n${fakePlan([{ result: { status: 'needs_input', summary: 'which?', question: 'Which?' } }, { result: { status: 'done', summary: 'a' } }])}` },
+      { id: 'b', kind: 'work', needs: ['a'], brief: `Do b.\n${fakePlan([{ result: { status: 'done', summary: 'b' } }])}` },
+    ] }))
+    const run = sous(['run', graph], workspace, sessions)
+    await waitFor(workspace, (e) => e.type === 'message' && e.from === 'a')
+    run.child.kill('SIGINT')
+    assert.equal(await run.exit, 1, run.output())
+    // Rewrite the table run.created recorded: a later default, or an older log without one.
+    const runDir = runDirOf(workspace)!
+    const lines = readFileSync(join(runDir, 'events.jsonl'), 'utf8').trimEnd().split('\n')
+    const { workerModels, ...created } = JSON.parse(lines[0])
+    assert.deepEqual(workerModels, { claude: 'haiku' })
+    writeFileSync(join(runDir, 'events.jsonl'), [JSON.stringify(recorded ? { ...created, workerModels: recorded } : created), ...lines.slice(1)].join('\n') + '\n')
+
+    const resumed = sous(['resume'], workspace, sessions)
+    await waitFor(workspace, (e) => e.type === 'run.resumed')
+    const answer = sous(['answer', 'a', 'This one.'], workspace, sessions)
+    assert.equal(await answer.exit, 0, answer.output())
+    assert.equal(await resumed.exit, 0, resumed.output())
+    assert.deepEqual([modelsOf(sessions, runDir, 'a'), modelsOf(sessions, runDir, 'b')], [['haiku', expected], [expected]])
+  }
 })
 
 test('sous run refuses a graph whose node names an unavailable agent, or defaults to one, before the run exists', async () => {
@@ -203,7 +290,7 @@ test('a second SIGINT while stopping kills a group that ignores SIGTERM at once'
 
 test('an error inside the supervisor stops its workers and prints the resume hint; sous resume then finishes the run', async () => {
   const { workspace, graph, sessions } = setup([
-    { sleepMs: 60_000, result: { status: 'done', summary: 'late' } },
+    { say: 'working', sleepMs: 60_000, result: { status: 'done', summary: 'late' } },
     { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello after resume' } },
   ])
   const run = sous(['run', graph], workspace, sessions)
@@ -388,13 +475,13 @@ test('sous run --agents gives a goal run its agents and models, recorded in run.
   ])}`
   const run = sous(['run', goal, '--agents', file], workspace, sessions)
   assert.equal(await run.exit, 0, run.output())
-  assert.match(run.output(), new RegExp(`^agents: ${HARNESSES.join(', ')}, lead \\(ollama-cloud/deepseek-v4.1-flash\\), hr$`, 'm'))
+  assert.match(run.output(), /^agents: claude \(haiku\), codex \(harness default\), pi \(harness default\), droid \(harness default\), lead \(ollama-cloud\/deepseek-v4.1-flash\), hr \(haiku\)$/m)
   const runDir = runDirOf(workspace)!
   const events = readEvents(runDir)
   const created = events[0]
   assert.deepEqual(created.type === 'run.created' && [created.definitions, created.graph], [definitions, undefined])
   const brief0 = events.find((e) => e.type === 'lead.delivered')!
-  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', new RegExp(`for work children ${HARNESSES.join(', ')}, hr \\(runs claude\\)[\\s\\S]*on these runtimes: claude \\(models haiku\\)`))
+  assert.match(brief0.type === 'lead.delivered' ? brief0.text : '', new RegExp(`for work children ${HARNESSES.map((h) => `${h} \\([^)]+\\)`).join(', ')}, hr \\(runs claude, model haiku\\)[\\s\\S]*on these runtimes: claude \\(models haiku\\)`))
   const hire = fold(events).nodes.get('hire')!
   assert.equal(hire.turns[0].agent, 'hr')
   const prompt = JSON.parse(readFileSync(join(sessions, `${hire.turns[0].sessionId}.json`), 'utf8')).prompts[0]
@@ -497,7 +584,7 @@ test('a run from before the lead model was recorded resumes on the fixed default
   assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.reason, 'agent lead is not available (no credential for ollama-cloud)')
 })
 
-test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
+test('sous run refuses a graph lead node or a goal when the lead has no credential and no lead-certified harness, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   const brief = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
@@ -505,12 +592,16 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   const refused = async (arg: string) => {
     const error = mock.method(console, 'error', () => {})
     const log = mock.method(console, 'log', () => {})
+    // No lead-certified harness on PATH either, or the lead would run there.
+    const path = process.env.PATH
+    process.env.PATH = fakeBin(['codex', 'pi', 'droid'])
     try {
       const code = await main(['run', arg, '--workspace', workspace], {
         getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, leadCredential: async () => undefined,
       })
       return { code, error: error.mock.calls.map((c) => c.arguments.join(' ')).join('\n') }
     } finally {
+      process.env.PATH = path
       error.mock.restore()
       log.mock.restore()
     }
@@ -518,7 +609,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or name a lead model \(--agents, or the node's model\)$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or install claude and log in, or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

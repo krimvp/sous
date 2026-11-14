@@ -1,10 +1,12 @@
 // A scripted stand-in for a harness CLI. Reads the prompt on stdin and plays one step of the plan
 // found on a `FAKE_PLAN: {...}` line of the first prompt; the session file remembers the plan and
-// every prompt received, so a resumed session continues where it left off.
+// every prompt received (and the model of each turn, null for none), so a resumed session continues where it left off.
+// Like Claude, resuming a session that was never saved fails: "No conversation found", exit 1, no output.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import type { LeadResult, Usage } from '../../src/contracts/index.ts'
 
 export interface FakeStep {
   /** A shell command polled in the working directory before the step does anything; the step goes on once it exits 0. */
@@ -18,10 +20,18 @@ export interface FakeStep {
   /** Sleep before printing the result. */
   sleepMs?: number
   result?: { status: 'done' | 'blocked' | 'needs_input'; summary: string; question?: string }
+  /** A lead turn's result, printed instead of (or with) `result`. */
+  lead?: LeadResult
+  /** Usage reported with the result, as the adapter would parse it. */
+  usage?: Usage
   /** Keep running after printing the result. */
   lingerMs?: number
   /** An assistant message to print before anything else is done. */
   say?: string
+  /** A marker file: the first turn to play this step creates it, names its session and then hangs before it saves the
+   * session or prints anything (a harness stopped in its first moments, with no conversation to resume). A turn that finds
+   * the marker plays the step as usual. */
+  stopEarly?: string
   /** Text to write to stderr, and the code to exit with, after everything else. */
   stderr?: string
   exit?: number
@@ -29,14 +39,25 @@ export interface FakeStep {
 
 const sessionFile = process.argv[2]
 const prompt = readFileSync(0, 'utf8')
-const session: { plan: FakeStep[]; prompts: string[] } = existsSync(sessionFile)
+if (process.argv[4] === 'resume' && !existsSync(sessionFile)) {
+  console.error(`No conversation found with session ID: ${basename(sessionFile, '.json')}`)
+  process.exit(1)
+}
+const session: { plan: FakeStep[]; prompts: string[]; models: (string | null)[] } = existsSync(sessionFile)
   ? JSON.parse(readFileSync(sessionFile, 'utf8'))
-  : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [] }
+  : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [], models: [] }
 const step = session.plan[session.prompts.length] ?? {}
+const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
+if (step.stopEarly && !existsSync(step.stopEarly)) {
+  emit({ type: 'session', id: basename(sessionFile, '.json') })
+  writeFileSync(step.stopEarly, '')
+  await sleep(60_000)
+  process.exit(1)
+}
 session.prompts.push(prompt)
+session.models.push(process.argv[3] || null)
 writeFileSync(sessionFile, JSON.stringify(session))
 
-const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
 if (step.say) emit({ type: 'message', text: step.say })
 const waitUntil = Date.now() + 30_000
@@ -57,7 +78,7 @@ if (step.spawnSleeper) {
   while (!existsSync(pidFile)) await sleep(10)
 }
 if (step.sleepMs) await sleep(step.sleepMs)
-if (step.result) emit({ type: 'result', result: step.result })
+if (step.result || step.lead) emit({ type: 'result', result: step.result, lead: step.lead, usage: step.usage })
 if (step.lingerMs) await sleep(step.lingerMs)
 if (step.stderr) process.stderr.write(step.stderr)
 process.exit(step.exit ?? 0)

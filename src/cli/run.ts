@@ -1,21 +1,22 @@
 // `sous run` and `sous resume`: start a run from a graph file or a goal, or continue a stopped one, after checking
-// which agents can run; print its events while the supervisor runs it, and where its results are after. Also which
-// folder is the workspace: in a git repository, its top level.
+// which agents can run; print its events while the supervisor runs it, and where its results are after, with its usage,
+// its budget and what to do next. Also which folder is the workspace: in a git repository, its top level.
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { DEFAULT_LEAD_MODEL, SPLITTER } from '../contracts/index.ts'
+import { DEFAULT_LEAD_MODEL, INTEGRATOR, SPLITTER } from '../contracts/index.ts'
 import type { Definitions, GraphFile, NodeSpec } from '../contracts/index.ts'
-import { agentSpec, checkAgents, defaultLeadModel, defines, loadDefinitions, loadGraph, startAgents, unusableNodeAgents, whyUnavailable } from '../definitions/index.ts'
+import { agentModel, agentSpec, checkAgents, defines, loadDefinitions, loadGraph, startAgents, unusableNodeAgents, whyUnavailable } from '../definitions/index.ts'
 import type { Unavailable } from '../definitions/index.ts'
-import { fold, lockHolder, openLog, readEvents } from '../run/index.ts'
+import { budgetRefusal, budgetResume, fold, lockHolder, openLog, readEvents, usd } from '../run/index.ts'
+import { budgetOf, nextSteps, resultOf, runStatus, runUsage } from '../status/index.ts'
 import { runSupervisor } from '../supervisor/index.ts'
 import type { SupervisorOutcome } from '../supervisor/index.ts'
 import { dirtyChanges, inWorkTree, repoRoot } from '../workspace/index.ts'
 import type { CliDeps } from './deps.ts'
 import { printer } from './events.ts'
 import { findRun, runRef } from './lookup.ts'
-import { printPending, resultOf } from './status.ts'
+import { budgetText, resultText, usageText, waitingLines } from './status.ts'
 
 /** In a git repository the workspace is its top level, wherever sous was started: worktrees cover the whole repository,
  * so workers and checks work from the root, and `.sous/` must be there too, or `sous status` from another folder would
@@ -33,8 +34,8 @@ export function announceRoot(workspace: string, from?: string): void {
 /** An argument naming an existing file is a graph file; anything else is a goal for one lead named `lead`, with the
  * agent definitions of `agentsFile`, if given. An argument that looks like a file name (one word, not a URL, that ends in
  * `.json` or has a path separator) but names no file is refused, not taken for a goal. */
-export async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
-  const { maxDepth, agentsFile, approveSplits } = opts
+export async function run(arg: string, workspace: string, deps: CliDeps, opts: { maxDepth?: number; maxCost?: number; agentsFile?: string; approveSplits?: boolean }): Promise<number> {
+  const { maxDepth, maxCost, agentsFile, approveSplits } = opts
   const isGraph = existsSync(arg) && statSync(arg).isFile()
   if (!isGraph && !arg.trim()) throw new Error('the goal is empty')
   if (!isGraph && !/\s/.test(arg) && !arg.includes('://') && (arg.endsWith('.json') || /[\\/]/.test(arg))) {
@@ -65,9 +66,15 @@ export async function run(arg: string, workspace: string, deps: CliDeps, opts: {
     const changes = dirtyChanges(workspace)
     if (changes) console.log(`workspace has ${changes} uncommitted change${changes === 1 ? '' : 's'}; workers see HEAD only`)
   }
+  if (maxCost !== undefined) console.log(budgetLine(maxCost))
   const printEvent = printer([], () => runRef(workspace, id))
   const log = openLog(runDir, printEvent)
-  log.append({ type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}), ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}) })
+  log.append({
+    type: 'run.created', goal: graph.goal, workspace, ...(isGraph ? { graph } : definitions ? { definitions } : {}), ...(maxDepth ? { maxDepth } : {}),
+    ...(approveSplits ? { approveSplits } : {}), mode, ...(unavailable.leadModel ? { leadModel: unavailable.leadModel } : {}),
+    ...(unavailable.leadRuns ? { leadRuns: unavailable.leadRuns } : {}),
+    workerModels: unavailable.workerModels ?? {}, ...(maxCost !== undefined ? { maxCost } : {}),
+  })
   for (const node of graph.nodes) log.append({ type: 'node.added', node, by: isGraph ? 'graph' : 'goal' })
   log.close()
 
@@ -77,30 +84,42 @@ export async function run(arg: string, workspace: string, deps: CliDeps, opts: {
       workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent, unavailable,
     })
   } finally {
-    printEnd(id, runDir)
+    printEnd(workspace, id, runDir)
   }
   return outcome === 'completed' ? 0 : 1
 }
 
-/** Continue a run whose supervisor stopped or crashed. */
-export async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Promise<number> {
+/** What a budget bounds, said once when a run starts or resumes with one. */
+const budgetLine = (maxCost: number) =>
+  `budget: ${usd(maxCost)} of reported cost; a cost is known when a turn ends, so running turns can overshoot it, and turns ` +
+  'that report no cost (Codex and Droid workers, leads and Pi workers on Ollama) are not counted'
+
+/** Continue a run whose supervisor stopped or crashed; `maxCost` replaces its budget from here on. A run stopped at its
+ * budget continues only with a higher one. */
+export async function resumeRun(workspace: string, deps: CliDeps, runId?: string, maxCost?: number): Promise<number> {
   const { id, runDir } = findRun(workspace, runId)
   const events = readEvents(runDir)
   const state = fold(events)
   if (state.status !== 'running') throw new Error(`run ${id} already ${state.status}; a finished run is not resumed`)
+  const limit = maxCost ?? state.maxCost
+  if (limit !== undefined && state.spent.costUsd >= limit) throw new Error(budgetRefusal(id, state.spent.costUsd, limit))
   console.log(`resuming run ${id} (${runDir})`)
-  // A run from before the choice was recorded started on the fixed default.
-  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel ?? DEFAULT_LEAD_MODEL)
-  printPending(state, runRef(workspace, id))
+  if (maxCost !== undefined) console.log(budgetLine(maxCost))
+  // A run from before the choices were recorded started on the fixed lead default, and its workers on their harnesses'.
+  // One whose leads run on a harness keeps it, and its model, or none.
+  const leads = state.leadRuns ? { leadRuns: state.leadRuns, leadModel: state.leadModel } : { leadModel: state.leadModel ?? DEFAULT_LEAD_MODEL }
+  const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, { ...leads, workerModels: state.workerModels ?? {} })
+  const r = runRef(workspace, id)
+  for (const line of waitingLines(runStatus(id, runDir, r).waiting, r)) console.log(line)
   const printEvent = printer(events, () => runRef(workspace, id))
   let outcome: SupervisorOutcome | undefined
   try {
     outcome = await runSupervisor({
       workspace: state.workspace, runDir, getAdapter: deps.getAdapter, createLeadRunner: deps.createLeadRunner, onEvent: printEvent,
-      resume: true, unavailable,
+      resume: true, unavailable, maxCost,
     })
   } finally {
-    printEnd(id, runDir)
+    printEnd(workspace, id, runDir)
   }
   return outcome === 'completed' ? 0 : 1
 }
@@ -108,25 +127,32 @@ export async function resumeRun(workspace: string, deps: CliDeps, runId?: string
 /** After the supervisor: where the run's results are (the branch that holds its merged work, once it has one, or its
  * output folder), and how to continue a run that is not over, whether stopped or left by a supervisor error. Nothing
  * when another supervisor holds the run (this one never ran it), and never an error over the supervisor's own. */
-function printEnd(id: string, runDir: string): void {
+function printEnd(workspace: string, id: string, runDir: string): void {
   try {
     if (lockHolder(runDir) !== undefined) return
     const state = fold(readEvents(runDir))
     const result = resultOf(state, runDir)
-    if (result) console.log(`result: ${result}`)
-    if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+    if (result) console.log(`result: ${resultText(result)}`)
+    const budget = budgetOf(state)
+    const usage = state.status === 'running' && !budget ? undefined : runUsage(runDir, state.maxCost)
+    if (usage) console.log(usageText(usage))
+    if (budget) console.log(`${budgetText(budget)}; continue with a higher budget: ${budgetResume(id)}`)
+    else if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
+    const next = nextSteps(state, runDir, runRef(workspace, id))
+    if (next) console.log(next)
   } catch {}
 }
 
-/** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
- * the one recorded for a resumed run). */
-async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, leadModel?: string): Promise<Unavailable> {
-  const unavailable = await checkAgents(graph, deps.leadCredential, leadModel)
+/** Check which agents can run, once per run start, and print it, with the model each agent runs its nodes on (a work
+ * node's, for a worker agent; `recorded`: the defaults recorded for a resumed run). */
+async function agents(graph: Definitions & { nodes?: NodeSpec[] }, deps: CliDeps, recorded?: Pick<Unavailable, 'leadModel' | 'leadRuns' | 'workerModels'>): Promise<Unavailable> {
+  const unavailable = await checkAgents(graph, deps.leadCredential, recorded)
   const why = (name: string) => whyUnavailable(agentSpec(graph, name)!.runs, agentSpec(graph, name)!.model, unavailable)
-  const label = (name: string) => {
-    const spec = agentSpec(graph, name)!
-    return spec.runs === 'lead' ? `${name} (${spec.model ?? defaultLeadModel(unavailable)})` : name
-  }
+  // The agents named after the integrator and the splitter serve only standing nodes, which get no default model.
+  const standing = (name: string) => name === INTEGRATOR || name === SPLITTER
+  // A lead agent that names no model on a harness says why it is there: no lead provider had a credential.
+  const onHarness = (name: string) => agentSpec(graph, name)!.runs === 'lead' && agentSpec(graph, name)!.model === undefined && unavailable.leadRuns
+  const label = (name: string) => `${name} (${agentModel(agentSpec(graph, name)!, unavailable, standing(name)) ?? 'harness default'}${onHarness(name) ? ': no lead provider had a credential' : ''})`
   const names = startAgents(graph, unavailable)
   const missing = names.filter(why).map((n) => `${n} (${why(n)})`)
   console.log(`agents: ${names.filter((n) => !why(n)).map(label).join(', ') || 'none'}${missing.length ? `; not available: ${missing.join(', ')}` : ''}`)

@@ -188,6 +188,7 @@ export function toOtlp(run: LoadedRun): object {
           'langfuse.observation.input': e.text,
           'sous.lead.request_id': e.requestId,
           'sous.lead.mode': e.mode,
+          'sous.lead.carries': e.carries,
         })
         const chain = { requestId: e.requestId, span: spans.at(-1)!, lastAt: e.at }
         if (!running.length) running = [chain]

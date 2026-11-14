@@ -98,7 +98,7 @@ points of "What you control" and "Built for a real service" above.*
 
 *A heading and the same fact grid; each name links to the file on GitHub (`https://github.com/krimvp/sous/blob/main/…`).*
 
-- **README**: Commands and quick start. *(links to the repository's README)*
+- **README**: Quick start and how a run works. *(links to the repository's README)*
 - **Design**: How it works: leads, merging, recovery. *(docs/design.md)*
 - **Harnesses**: The worker CLIs and what sous keeps out of them. *(docs/harnesses.md)*
 - **Architecture**: The code map, for contributors. *(docs/architecture.md)*
@@ -119,17 +119,17 @@ sous · runs on your machine · docs · harnesses · changelog · npm · github.
 - Leads, sub-leads, depth 3 by default and 1–8 with `--max-depth`: docs/design.md §Leads; `DEFAULT_MAX_LEAD_DEPTH`
   in src/contracts/nodes.ts; the `--max-depth` check in src/cli/main.ts.
 - Worktree per worker; merges one at a time; conflicts to the integrator: docs/design.md §Merging 2–4. A folder per
-  worker, the output folder as the result, git optional: README "Requirements", "Where the result goes";
-  docs/design.md §Folder mode.
+  worker, the output folder as the result, git optional: README "Quickstart", "How it works"; docs/usage.md
+  "Git mode", "Folder mode"; docs/design.md §Folder mode.
 - Checks: a shell command, exit 0 passes, check nodes run in the integration worktree (in folder mode, on the
   results): docs/design.md §Node kinds, §Merging 5, §Folder mode 1.
 - Bell: a work part completes on `merge.done`; every work part in #0143 has a check (scene note): docs/design.md §Merging 5.
 - `--agents`, `models` binds what leads choose: REFERENCE.md §Definitions; docs/design.md §Agents.
-- `approve`/`answer`/`cancel`: README; REFERENCE.md §Commands.
-- Resume without repeating finished turns: README; SKILL.md step 5; docs/design.md §Recovery.
+- `approve`/`answer`/`cancel`: README "Watching and steering"; docs/usage.md "Commands"; REFERENCE.md §Commands.
+- Resume without repeating finished turns: README; docs/usage.md "Watching and steering"; SKILL.md step 5; docs/design.md §Recovery.
 - ATIF and Langfuse (OTLP) export: docs/design.md §Traces. No sandbox, full permissions: §Out of scope, §Harness facts.
-- Requirements (Node 22.19+, git optional) and the Pi login for leads: README "Requirements", "Lead models";
-  package.json `engines`.
+- Requirements (Node 22.19+, git optional) and the Pi login for leads: README "Quickstart"; docs/usage.md "Install",
+  "Where leads run"; package.json `engines`.
 - The four harnesses (Claude Code, Codex, Pi, Droid), each certified: `HARNESSES` in src/contracts/workers.ts; docs/harnesses.md;
   docs/design.md §Harness conformance.
 - Order #0142: site/index.html §A real service.

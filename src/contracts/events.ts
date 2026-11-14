@@ -1,6 +1,6 @@
 // The event log: every event of a run, one line each of runs/<id>/events.jsonl.
 import type { Definitions, GraphFile } from './agents.ts'
-import type { ChildSpec, LeadCall, LeadRead } from './leads.ts'
+import type { ChildSpec, LeadCall, LeadRead, LeadResult } from './leads.ts'
 import type { NodeSpec } from './nodes.ts'
 import type { HarnessName, TurnResult, Usage } from './workers.ts'
 
@@ -15,20 +15,27 @@ export type EventBody =
    * `approveSplits`: the person approves each split the splitter proposes before its lead receives it.
    * `mode`: decided when the run is created, so a resumed run keeps it; absent (older logs) means `git`.
    * `leadModel`: the model of lead agents that name none, chosen from the credentials present when the run was created
-   * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs. */
-  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string }
+   * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs.
+   * `workerModels`: DEFAULT_WORKER_MODELS when the run was created, so a resumed run keeps running each node on what it
+   * started with; absent (older logs) means none: every harness on its own default.
+   * `maxCost`: the run's cost budget in US dollars (`sous run --max-cost`), see `budget.reached`.
+   * `leadRuns`: lead agents that name no model run on this lead-certified CLI harness (LEAD_HARNESSES), chosen when no
+   * lead provider had a credential; `leadModel` is then the harness's model (absent: the harness's own default). */
+  | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string; leadRuns?: HarnessName; workerModels?: Partial<Record<HarnessName, string>>; maxCost?: number }
   | { type: 'node.added'; node: NodeSpec; by: string }
   /** `startTime`: the leader's start time (procStartTime in run/log.ts), so a reused pid is not mistaken for it.
-   * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
-  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
+   * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. `model`: the model sous passed to
+   * the harness; absent, the harness ran on its own default. */
+  | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; model?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }
   | { type: 'turn.interrupted'; node: string; turn: number; reason: string; signal: NodeJS.Signals }
   /** A warning, recorded once per turn: the turn's output file has not grown since `since` (its start, or its last
    * output) for the supervisor's stall time. The turn keeps running; nothing in the run's state changes. */
   | { type: 'turn.stalled'; node: string; turn: number; since: string }
   /** `error`: why the turn has no result. Without an end-of-turn marker after a non-zero exit, it ends with the last
-   * lines of the turn's stderr and the path of its `.err` file. */
-  | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; usage?: Usage; error?: string }
+   * lines of the turn's stderr and the path of its `.err` file. `lead`: a lead turn's result (a lead on a CLI harness);
+   * its calls are applied after this event, each as a `lead.call` with call ID `t<turn>.<index>`. */
+  | { type: 'turn.ended'; node: string; turn: number; exitCode: number | null; signal: NodeJS.Signals | null; result?: TurnResult; lead?: LeadResult; usage?: Usage; error?: string }
   | { type: 'check.ended'; node: string; command: string; exitCode: number | null; output: string }
   /** `command`: on events a person command produced, the name of its command file (see `sous answer`). */
   | { type: 'node.completed'; node: string; summary: string; command?: string }
@@ -39,15 +46,20 @@ export type EventBody =
   /** Worker `node` read its messages up to seq `upTo` during its turn `turn` (`receive`). They count as read once that
    * turn ends with a result; a turn cut short gets them again when it resumes. Ignored once a later turn started. */
   | { type: 'inbox.read'; node: string; turn: number; upTo: number; command?: string }
-  /** Text delivered to a lead (its brief, a child's outcome, a message). */
-  | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt' }
+  /** Text delivered to a lead (its brief, a child's outcome, a message). One delivery may carry several items at once
+   * (what a child told the lead while it worked, held for the next item that needs the lead, and whatever else waited
+   * while the lead was busy): `requestId` is the last item's, `carries` the request IDs (`evt-<seq>`) of the others, in
+   * order, each delivered by this event. */
+  | { type: 'lead.delivered'; node: string; requestId: string; text: string; mode: 'queue' | 'interrupt'; carries?: string[] }
   /** One lead tool call. Its effects (children, message, note, cancel, completion, escalation) follow from this
    * one event in the fold, so a call applies atomically. `ok: false` means policy refused it and nothing changed. */
   | { type: 'lead.call'; node: string; callId: string; call: LeadCall; ok: boolean; result: string }
-  /** A lead listed or read files: what it looked at (`path`, as the lead gave it; absent for the top level) and how many
+  /** A lead runner's lead listed or read files (a lead on a CLI harness reads with its harness's tools, which its turn
+   * file records): what it looked at (`path`, as the lead gave it; absent for the top level) and how many
    * bytes of text it got back, or why the read was refused. The text itself is not recorded. */
   | { type: 'lead.read'; node: string; callId: string; tool: LeadRead['tool']; path?: string; offset?: number; bytes: number; refused?: string }
-  /** A lead answered a delivery and is idle again. */
+  /** A lead answered a delivery and is idle again. A lead on a CLI harness answers every delivery its turn's prompt
+   * carried, after its calls were applied; its usage is on that turn's `turn.ended`, so `usage` is absent here. */
   | { type: 'lead.turn'; node: string; requestId: string; status: 'done' | 'unanswered'; text: string; model: string; usage?: Usage }
   /** A node and its whole subtree are cancelled (by a lead or by the person). */
   | { type: 'node.cancelled'; node: string; by: string; command?: string }
@@ -55,8 +67,14 @@ export type EventBody =
    * named no node of the run, or no longer applied when read (the node finished, a gate was not waiting), or never does
    * (an answer to a check or a gate, a cancel of a standing node). `reason` names the command and why. */
   | { type: 'command.refused'; command: string; reason: string }
-  /** `sous resume` took over a run whose supervisor had stopped. */
-  | { type: 'run.resumed' }
+  /** `sous resume` took over a run whose supervisor had stopped. `maxCost`: the budget `sous resume --max-cost` set for
+   * the run from here on, replacing the earlier one. */
+  | { type: 'run.resumed'; maxCost?: number }
+  /** The cost the run's turns reported (`spentUsd`, see `turnCost`) reached its budget (`maxCostUsd`): the supervisor
+   * starts no new turn, stops the running ones as a supervisor stop does (their sessions stay resumable) and exits, the
+   * run not over. A cost is known only when a turn ends, so turns in flight can spend past the budget, and turns that
+   * report no cost (Codex and Droid workers, leads and Pi workers on Ollama) are not counted. `sous resume --max-cost <more>` continues it. */
+  | { type: 'budget.reached'; spentUsd: number; maxCostUsd: number }
   /** The run's integration branch and worktree, created before the first work or check node starts. */
   | { type: 'integration.created'; branch: string; path: string; base: string }
   /** A node's own worktree and branch, created from the integration branch at `base` (a commit). */

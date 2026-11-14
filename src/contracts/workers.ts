@@ -1,8 +1,15 @@
 // The worker adapters' contract: one turn of a CLI harness, how it starts, and what is parsed from its output.
+import type { LeadResult } from './leads.ts'
 
 /** Every CLI harness sous has an adapter for. Each must pass the conformance suite (test/conformance*.test.ts). */
 export const HARNESSES = ['claude', 'codex', 'pi', 'droid'] as const
 export type HarnessName = (typeof HARNESSES)[number]
+
+/** The harnesses certified to run leads, in the order a lead that names no model falls back to them when no lead
+ * provider has a credential (see Lead runner in the design). A harness joins this list in the change that commits its
+ * passing lead certification (`SOUS_HARNESS=<name> npm run certify`, whose certified.json lists the lead tests as
+ * passed); the free conformance suite checks that every harness here has that evidence. */
+export const LEAD_HARNESSES: readonly HarnessName[] = ['claude']
 
 /** The structured result every worker turn must end with. */
 export interface TurnResult {
@@ -31,7 +38,12 @@ export interface Usage {
   cachedTokens: number
   /** Tokens written to the provider's prompt cache, when reported. */
   cacheWriteTokens?: number
+  /** The turn's cost in US dollars, when the harness reports one. */
   costUsd?: number
+  /** The cost of the whole session so far, for a harness that reports a running total instead of the turn's cost
+   * (Claude Code's `total_cost_usd` includes the session's earlier turns). An adapter sets this or `costUsd`, not both;
+   * `viewRun` gives such a turn the `costUsd` the session total grew by since the session's previous turn. */
+  sessionCostUsd?: number
 }
 
 /** Harness-neutral items parsed from one turn's raw output; the exporters' only view of a worker. */
@@ -46,6 +58,8 @@ export interface ParsedTurn {
   items: TraceItem[]
   /** Present when the harness reached its end-of-turn marker with a parsable result. */
   result?: TurnResult
+  /** A lead turn's result (`TurnSpec.lead`), present like `result`: at the end marker, when it parses. */
+  lead?: LeadResult
   /** True when the end-of-turn marker was seen (Claude `result`, Codex `turn.completed`, Pi `agent_end`, Droid `completion`). */
   ended: boolean
   usage?: Usage
@@ -69,6 +83,17 @@ export interface TurnSpec {
    * the agent's environment and, where the harness takes MCP servers, give it sous's server (src/mcp.ts) with it.
    * Every adapter loads no other MCP server, so what a worker says to others goes through sous. */
   env?: Record<string, string>
+  /** Set for a lead turn on a CLI harness (an adapter with `lead`): the turn is read only (the harness offers only its
+   * read tools, or runs in a read-only sandbox, as far as it allows: see the design's isolation table), loads no MCP
+   * server, and ends with a LeadResult instead of a TurnResult (`ParsedTurn.lead`). Lead turns get no `env`. */
+  lead?: LeadTurnSpec
+}
+
+export interface LeadTurnSpec {
+  /** The lead's role: the harness's system prompt where the harness can replace it, else put before the first prompt. */
+  system: string
+  /** Directories the lead may read besides `cwd` (folder mode: what its `workspace` and `results` links point to). */
+  readable?: string[]
 }
 
 /** The supervisor's environment without any SOUS_* variable, for what it starts (turns, checks): an identity comes from
@@ -88,6 +113,8 @@ export interface RunningTurn {
 
 export interface WorkerAdapter {
   name: HarnessName
+  /** The adapter can run lead turns (`TurnSpec.lead`). A harness leads in a run only once it is in LEAD_HARNESSES. */
+  lead?: true
   start(spec: TurnSpec): RunningTurn
   resume(spec: TurnSpec & { sessionId: string }): RunningTurn
   /** Parse the raw contents of a turn's outFile. Must tolerate a truncated final line. */

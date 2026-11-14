@@ -55,6 +55,80 @@ export type LeadCall =
   | { tool: 'fail'; reason: string }
   | { tool: 'escalate'; question: string }
 
+// The rules every lead gets in its role, on either runtime: the lead runner's system prompt (src/lead/tools.ts) and the
+// role of a lead on a CLI harness (HARNESS_LEAD_ROLE, src/prompts/lead.ts). Here because neither module may import the
+// other, and both must say the limits the policy enforces.
+export const LEAD_SPLIT_RULE = '- Split your goal into children with spawn. Give each a self-contained brief and acceptance criteria; use a check child for anything a command can verify.'
+export const LEAD_RULES: readonly string[] = [
+  '- Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.',
+  '- Answer your children\'s questions; escalate the ones you cannot answer.',
+  `- Limits: at most ${MAX_CHILDREN} children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`,
+]
+
+/** How a lead turn on a CLI harness ends: its short answer and the calls it makes, which the supervisor applies in order
+ * after the turn, through the same policy as a lead runner's tool calls (`lead.call`, call IDs `t<turn>.<index>`). */
+export interface LeadResult {
+  answer: string
+  calls: LeadCall[]
+}
+
+const str = (description?: string) => ({ type: 'string', ...(description ? { description } : {}) }) as const
+const strings = (description: string) => ({ type: 'array', items: { type: 'string' }, description }) as const
+const call = <T extends LeadCall['tool']>(tool: T, properties: Record<string, object>, required: string[]) =>
+  ({ type: 'object', additionalProperties: false, required: ['tool', ...required], properties: { tool: { type: 'string', enum: [tool] }, ...properties } }) as const
+
+/** JSON Schema of LeadResult: one object per LeadCall variant, the fields of the lead tools (src/lead/tools.ts).
+ * Harnesses with a structured-output flag get it as is (Codex: in its strict form, see the adapter); the others are told
+ * the shape. The supervisor checks every call again (`lead.call`). */
+export const LEAD_RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['answer', 'calls'],
+  properties: {
+    answer: str('A short answer that ends your turn: what you did and what you wait for'),
+    calls: {
+      type: 'array',
+      description: 'Your calls, applied in order after your turn; empty when nothing is to be done now',
+      items: {
+        anyOf: [
+          call('spawn', {
+            children: {
+              type: 'array', minItems: 1, items: {
+                type: 'object', additionalProperties: false, required: ['id', 'kind'],
+                properties: {
+                  id: str('Unique id for the child in the whole run, e.g. "api-tests"'),
+                  kind: { type: 'string', enum: CHILD_KINDS },
+                  brief: str('What to do, self-contained (work, lead), or what the person approves (gate)'),
+                  command: str('Shell command; exit code 0 passes (check)'),
+                  acceptance: strings('Criteria the result must meet'),
+                  needs: strings('Ids of earlier siblings that must complete first'),
+                  agent: {
+                    anyOf: [
+                      str('An agent your brief lists'),
+                      {
+                        type: 'object', additionalProperties: false, required: ['name', 'runs'],
+                        properties: { name: str(), runs: str('A runtime your brief lets you define agents on'), model: str(), instructions: str() },
+                      },
+                    ],
+                  },
+                  model: str("Overrides the model of the agent the child names; only a model your brief lists for that agent's runtime"),
+                  roles: { type: 'object', additionalProperties: false, properties: { splitter: str('An agent your brief lists for roles') } },
+                },
+              },
+            },
+          }, ['children']),
+          call('send', { to: str('A child id, your parent, or "person" if you are a top-level lead'), body: str(), mode: { type: 'string', enum: ['queue', 'interrupt'] } }, ['to', 'body', 'mode']),
+          call('note', { text: str() }, ['text']),
+          call('cancel', { node: str('A child id') }, ['node']),
+          call('complete', { summary: str() }, ['summary']),
+          call('fail', { reason: str() }, ['reason']),
+          call('escalate', { question: str() }, ['question']),
+        ],
+      },
+    },
+  },
+} as const
+
 /** A lead's read-only look at the run's files: the workspace and the results so far. Paths are relative; in folder mode
  * they start with `workspace/` or `results/`. Reads change nothing and are recorded as `lead.read`. */
 export type LeadRead =

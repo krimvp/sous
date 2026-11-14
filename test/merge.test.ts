@@ -19,7 +19,7 @@ import { fakeLeadPlan, fakeLeadRunner } from './helpers/fake-lead.ts'
 import type { FakeLeadStep } from './helpers/fake-lead.ts'
 import { git, gitWorkspace } from './helpers/git-repo.ts'
 import type { FakeStep } from './helpers/fake-worker.ts'
-import { sous } from './helpers/sous-proc.ts'
+import { runDirOf, sous } from './helpers/sous-proc.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[], extra: Partial<NodeSpec> = {}): NodeSpec =>
@@ -41,14 +41,18 @@ async function runGraph(nodes: NodeSpec[], opts: { files?: Record<string, string
   log.close()
   const sessions = join(workspace, 'sessions')
   const adapter = fakeAdapter(sessions)
-  const outcome = await runSupervisor({ workspace, runDir, getAdapter: opts.getAdapter ?? (() => adapter), createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent })
+  const outcome = await runSupervisor({ workspace, runDir, getAdapter: opts.getAdapter ?? (() => adapter), createLeadRunner: opts.createLeadRunner ?? fakeLeadRunner, onEvent: opts.onEvent, unavailable: opts.unavailable })
   const events = readEvents(runDir)
   const integration = join(runDir, 'integration')
   const prompts = (node: string) => {
     const session = fold(events).nodes.get(node)!.turns[0].sessionId
     return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).prompts as string[]
   }
-  return { workspace, runDir, integration, outcome, events, state: fold(events), prompts }
+  const models = (node: string) => {
+    const session = fold(events).nodes.get(node)!.turns[0].sessionId
+    return JSON.parse(readFileSync(join(sessions, `${session}.json`), 'utf8')).models as (string | null)[]
+  }
+  return { workspace, runDir, integration, outcome, events, state: fold(events), prompts, models }
 }
 
 const mergeDone = (events: Event[], node: string) => events.flatMap((e) => (e.type === 'merge.done' && e.node === node ? [e] : []))[0]
@@ -185,6 +189,47 @@ test('two nodes editing the same line conflict; the integrator resolves the merg
     'Merge conflict, sent to the integrator: conflict in f.txt',
     `Merged by integrator at ${mergeDone(events, 'b')?.commit}`,
   ])
+})
+
+test('an integrator killed before its harness saved its session starts again from its role and the request, and merges', async () => {
+  const marker = join(mkdtempSync(join(tmpdir(), 'sous-early-')), 'stopped')
+  const workspace = gitWorkspace('sous-merge-', { 'f.txt': 'base\n' })
+  const sessions = join(workspace, 'sessions')
+  const afterA = "git log --all --format=%s | grep -qx 'sous: merge a'"
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({
+    goal: 'test goal',
+    agents: integrator([{ stopEarly: marker, sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`, result: done('kept both lines') }]),
+    nodes: [work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]), work('b', [{ waitFor: afterA, write: { 'f.txt': 'b\n' }, result: done('b') }])],
+  }))
+  const run = sous(['run', graph], workspace, sessions)
+  for (let i = 0; i < 400 && !existsSync(marker); i++) await new Promise((r) => setTimeout(r, 25))
+  assert.ok(existsSync(marker), `the integrator never started:\n${run.output()}`)
+  run.child.kill('SIGKILL')
+  await run.exit
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const events = readEvents(runDirOf(workspace)!)
+  const ig = fold(events).nodes.get(INTEGRATOR)!
+  assert.deepEqual(ig.turns.map((t) => [t.mode, t.recovery ?? false, t.result?.summary]), [['start', false, undefined], ['start', true, 'kept both lines']])
+  assert.notEqual(ig.turns[1]!.sessionId, ig.turns[0]!.sessionId)
+  const prompts = JSON.parse(readFileSync(join(sessions, `${ig.turns[1]!.sessionId}.json`), 'utf8')).prompts as string[]
+  assert.match(prompts[0]!, /^You are the integrator of a larger goal\.[\s\S]*Merge node b \(branch /)
+  assert.equal(mergeDone(events, 'b')?.by, 'integrator')
+  assert.equal(fold(events).status, 'completed')
+})
+
+test("the integrator, a standing node, keeps its harness's default model while the run's work nodes get the small default", async () => {
+  const { outcome, models } = await runGraph([
+    work('a', [{ write: { 'f.txt': 'a\n' }, result: done('a') }]),
+    work('b', [{ waitFor: AFTER_A, write: { 'f.txt': 'b\n' }, result: done('b') }]),
+  ], {
+    files: { 'f.txt': 'base\n' },
+    agents: { integrator: { runs: 'claude', instructions: fakePlan([{ sh: `printf 'a\\nb\\n' > f.txt && git add f.txt && ${COMMIT}`, result: done('kept both') }]) } },
+    unavailable: { commands: [], leadProviders: [], workerModels: { claude: 'haiku' } },
+  })
+  assert.equal(outcome, 'completed')
+  assert.deepEqual([models('a'), models('b'), models(INTEGRATOR)], [['haiku'], ['haiku'], [null]])
 })
 
 test('conflict markers committed by the integrator fail verification, at any marker size; one retry, then the merge is done', async () => {

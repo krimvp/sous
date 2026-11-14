@@ -13,7 +13,7 @@ import { createNodeWorktree, head, linkedFolder, resetTo } from '../workspace/in
 import { SUPERVISOR } from './context.ts'
 import type { Context } from './context.ts'
 import { depthOf, notesFor, refusal } from './policy.ts'
-import { exitedText, runTurn } from './turns.ts'
+import { exitedText, resumable, runTurn } from './turns.ts'
 
 /** The parts in a proposal file, or why there are none. */
 function readProposal(file: string): ChildSpec[] | string {
@@ -106,10 +106,11 @@ export function createSplitter(ctx: Context) {
       if (!result) {
         const runs = agentOf(state, sp)
         if (typeof runs === 'string') return failed(runs)
-        const sessionId = sp.turns.findLast((t) => t.sessionId)?.sessionId
+        // Without an established session the splitter starts again from its role, with every message of this split.
+        const { sessionId } = resumable(ctx, sp.turns)
         // A turn cut short may have stopped before the splitter read its prompt: a recovery turn repeats this split's
         // messages, and so does a first prompt whose request a cut-short turn already took from the inbox.
-        const inbox = recorded || !sp.inbox.length ? ours() : sp.inbox
+        const inbox = !sessionId || recorded || !sp.inbox.length ? ours() : sp.inbox
         const prompt = !sessionId ? splitterPrompt(state.goal, sp.spec, inbox, runs.instructions, state.mode)
           : recorded ? recoveryPrompt(inbox) : inboxPrompt(inbox)
         splitFor.set(node, id)

@@ -73,6 +73,8 @@ function settings(spec: TurnSpec) {
 }
 
 function run(spec: TurnSpec, session: string[]) {
+  // No lead mode: no Droid option known to sous makes `droid exec` read only, so a lead's turn could change files.
+  if (spec.lead) throw new Error('droid cannot run a lead turn: no Droid option known to sous makes `droid exec` read only')
   // Absolute, because Droid runs in spec.cwd.
   const settingsFile = resolve(`${spec.outFile.replace(/\.jsonl$/, '')}.settings.json`)
   mkdirSync(dirname(settingsFile), { recursive: true })

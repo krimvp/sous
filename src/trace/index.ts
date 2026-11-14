@@ -2,5 +2,5 @@
 // Langfuse over OTLP.
 export { exportAtif } from './atif.ts'
 export { exportOtlp } from './otlp.ts'
-export { loadRun, usagesOf, viewRun } from './run.ts'
-export type { NodeView, ParseTurn, RunView } from './run.ts'
+export { loadRun, logView, runTokens, tokensOf, usagesOf, viewRun } from './run.ts'
+export type { NodeView, ParseTurn, RunView, Tokens } from './run.ts'

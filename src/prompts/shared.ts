@@ -43,5 +43,10 @@ export const folderPaths = (whose: string) => [
   'names to write; they write them at the top of their folder, and those files appear at the top of results/.',
 ].join('\n')
 
+/** Agents with their runtime, when it differs from their name, and the model a child of theirs runs on (else the
+ * harness's own default), so the cost of a choice shows. */
 export const agentNames = (agents: ReturnType<typeof childAgents>, list: string[]) =>
-  list.map((n) => (agents.runs[n] === n ? n : `${n} (runs ${agents.runs[n]})`)).join(', ')
+  list.map((n) => {
+    const model = agents.modelOf[n] === undefined ? 'harness default model' : `model ${agents.modelOf[n]}`
+    return `${n} (${agents.runs[n] === n ? '' : `runs ${agents.runs[n]}, `}${model})`
+  }).join(', ')

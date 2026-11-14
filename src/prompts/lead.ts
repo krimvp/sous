@@ -1,7 +1,7 @@
 // The texts delivered to leads: the brief, children's outcomes and messages, retries and reminders, and the person's
-// approval request for a proposed split.
-import { RUNTIMES } from '../contracts/index.ts'
-import type { ChildSpec, ModelLimits, NodeSpec, RunMode } from '../contracts/index.ts'
+// approval request for a proposed split; for a lead on a CLI harness also its role and the prompt of each of its turns.
+import { LEAD_RULES, LEAD_SPLIT_RULE, RUNTIMES } from '../contracts/index.ts'
+import type { ChildSpec, LeadCall, ModelLimits, NodeSpec, RunMode } from '../contracts/index.ts'
 import type { childAgents } from '../definitions/index.ts'
 import { completedText } from '../run/index.ts'
 import type { InboxMessage, NodeState, SplitState } from '../run/index.ts'
@@ -38,16 +38,30 @@ function rolesSection(roles: { splitter?: string; choices: string[] }): string[]
   ].join(' ')]
 }
 
+/** The role of a lead on a CLI harness (`TurnSpec.lead.system`), which acts through the calls of its turn's result. A
+ * lead runner's lead gets the role in src/lead/tools.ts; both share LEAD_SPLIT_RULE and LEAD_RULES. */
+export const HARNESS_LEAD_ROLE = [
+  'You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, and you change no file.',
+  '- You may look at files with your read tools before you decide how to split; keep it brief, your children do the work.',
+  '- You act only through the calls in the result that ends each turn: {"answer": a short answer, "calls": [...]}. A call is',
+  '  one of spawn {children}, send {to, body, mode}, note {text}, cancel {node}, complete {summary}, fail {reason} and',
+  '  escalate {question}. They are applied in order once your turn ends; when one is refused, the calls after it are not',
+  '  applied. Your next turn starts with the result of each call. Return no calls when nothing is to be done now.',
+  LEAD_SPLIT_RULE,
+  '- Never spawn and complete in one turn: complete waits until your children have finished. Each child\'s outcome, question or message starts your next turn.',
+  ...LEAD_RULES,
+].join('\n')
+
 /** A lead's first delivery, with its agent's standing instructions, the agents its children may name (with their
  * runtime when it differs from their name), the runtimes and models it may define agents on, the roles it may give
- * a lead child, and its proposed split. */
-export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }, mode: RunMode = 'git'): string {
+ * a lead child, and its proposed split. `harness`: the lead runs on a CLI harness and reads with its own tools. */
+export function leadBrief(goal: string, node: NodeSpec, notes: string[], agents: ReturnType<typeof childAgents>, depth: { at: number; max: number }, instructions?: string, split?: SplitState, roles: { splitter?: string; choices: string[] } = { choices: [] }, mode: RunMode = 'git', harness = false): string {
   const names = (list: string[]) => agentNames(agents, list)
   const parts = [`You are lead ${node.id}, one part of a larger goal.`]
   if (goal.trim() !== node.brief?.trim()) parts.push(`Goal: ${goal}`)
   parts.push(...standing(instructions), `Your task:\n${node.brief ?? ''}`)
   if (node.acceptance?.length) parts.push(`Acceptance criteria:\n${list(node.acceptance)}`)
-  const look = `Before you split, you may look at the files with list_files and read_file: ${mode === 'git' ? 'paths are relative to the workspace, which includes the work merged so far.' : folderPaths('your')}`
+  const look = `Before you split, you may look at the files with ${harness ? 'your read tools' : 'list_files and read_file'}: ${mode === 'git' ? 'paths are relative to the workspace, which includes the work merged so far.' : folderPaths('your')}`
   parts.push(...fromLeads(notes), [
     `Split the task with spawn: ${kinds(mode)}`,
     'Their outcomes and questions arrive as messages. Answer a child with send; record',
@@ -93,16 +107,37 @@ export function leadMessageText(m: InboxMessage, fromChild: boolean): string {
     : `Message from ${m.from}:\n${m.body}`
 }
 
+/** The first turn of a lead on a CLI harness after its turn `cut` was cut short or ended without a result. */
+const CUT = (turn: number) => `Your turn ${turn} ended before its result: none of its calls were applied. Continue from here.`
+
+/** The prompt of a lead turn on a CLI harness: the results of the calls of its last applied turn, in order (`results`,
+ * with `skipped` calls after a refusal), and the deliveries it answers. When its last turn (`cut`) ended without a result,
+ * it says so first, and the results are labelled with the turn that applied them (`applied`). */
+export function leadTurnPrompt(deliveries: string[], results: { call: LeadCall; result: string }[], skipped: LeadCall[], cut?: number, applied?: number): string {
+  const lines = [...results.map((r) => `${r.call.tool}: ${r.result}`), ...skipped.map((c) => `${c.tool}: not applied, since an earlier call was refused`)]
+  const which = cut === undefined ? 'your last turn' : `your turn ${applied}, the last one applied`
+  return [
+    ...(cut !== undefined ? [CUT(cut)] : []),
+    ...(lines.length ? [`Results of the calls of ${which}, in order:\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`] : []),
+    ...deliveries,
+  ].join('\n\n') + '\n'
+}
+
 /** The one retry a lead gets when the runner could not get its last delivery answered. */
 export function retryPrompt(reason: string): string {
   return `Your last turn was not answered (${reason}). Continue where you left off; a second failure ends your work with that reason.\n`
 }
 
-/** Sent to a lead that settled with nothing left to wait for. */
-export function idleReminder(node: string, k: number, max: number, waiting: string[]): string {
+/** Sent to a lead that settled with nothing left to wait for; `refused` when a call of its last turn was refused (a lead
+ * on a CLI harness, whose prompt starts with the results). */
+export function idleReminder(node: string, k: number, max: number, waiting: string[], refused = false): string {
   const ask = waiting.length ? ` Children waiting for your answer: ${waiting.join(', ')}; answer them with send.` : ''
-  return `Reminder ${k} of ${max}: no child of ${node} is working and no message is waiting, but ${node} is not finished.${ask} ` +
-    `Spawn children, complete, fail or escalate. After ${max} reminders without a tool call, ${node} fails.\n`
+  const why = refused
+    ? 'a call of your last turn was refused (see its result above) and the calls after it were not applied; no child'
+    : 'no child'
+  return `Reminder ${k} of ${max}: ${why} of ${node} is working and no message is waiting, but ${node} is not finished.${ask} ` +
+    `Spawn children, cancel, complete, fail or escalate: a note or a send alone does not count. After ${max} reminders ` +
+    `without one, ${node} fails.\n`
 }
 
 /** The person's approval request for a proposed split. */

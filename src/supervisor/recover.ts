@@ -1,8 +1,8 @@
-// `sous resume`: close the turns a stopped supervisor left open (closeTurn), drop the merges of nodes cancelled while
-// they merged, send the workers' questions not yet sent, resume the lead runner and hand it again every delivery it did
-// not answer (recover).
+// `sous resume`: close the turns a stopped supervisor left open (closeTurn), stop again at the budget, drop the merges
+// of nodes cancelled while they merged, send the workers' questions not yet sent, resume the lead runner and hand it
+// again every delivery it did not answer (recover).
 import { readFileSync } from 'node:fs'
-import type { NodeSpec } from '../contracts/index.ts'
+import type { NodeSpec, ParsedTurn } from '../contracts/index.ts'
 import { callKey, isFinal } from '../run/index.ts'
 import type { TurnState } from '../run/index.ts'
 import { hasChanges, mergedOnto, resetTo } from '../workspace/index.ts'
@@ -11,8 +11,9 @@ import type { Leads } from './leads.ts'
 import { turnAlive } from './processes.ts'
 import { ask } from './turns.ts'
 
-/** Close a turn the last supervisor left without `turn.ended`: record its result if its output has one; stop its
- * group if it still runs. A node left without a result is then resumed by `runWork`. */
+/** Close a turn the last supervisor left without `turn.ended`: record its result (a lead's turn: its lead result) if its
+ * output has one; stop its group if it still runs. A node left without a result is then resumed by `runWork`, a lead on
+ * a CLI harness by `driveLead`. */
 const closeTurn = async (ctx: Context, spec: NodeSpec, t: TurnState) => {
   const { getAdapter, log } = ctx
   const adapter = getAdapter(t.harness!) // every turn records the harness it ran on
@@ -23,15 +24,19 @@ const closeTurn = async (ctx: Context, spec: NodeSpec, t: TurnState) => {
       return undefined
     }
   }
+  // A lead's turn (a lead on a CLI harness) ends with a lead result, any other turn with a worker's.
+  const leadTurn = spec.kind === 'lead'
+  const outcome = (p: ParsedTurn | undefined) => (leadTurn ? { lead: p?.lead } : { result: p?.result })
   let parsed = read()
   if (turnAlive(t)) {
-    if (!parsed?.result) log.append({ type: 'turn.interrupted', node: spec.id, turn: t.number, reason: 'still running when the run was resumed', signal: 'SIGTERM' })
+    if (!outcome(parsed).result && !outcome(parsed).lead) log.append({ type: 'turn.interrupted', node: spec.id, turn: t.number, reason: 'still running when the run was resumed', signal: 'SIGTERM' })
     await ctx.processes.terminate(t.pid)
     parsed = read()
   }
   if (parsed?.sessionId && !t.sessionId) log.append({ type: 'turn.session', node: spec.id, turn: t.number, sessionId: parsed.sessionId })
-  const error = !parsed?.ended ? 'the supervisor stopped during this turn' : parsed.result ? undefined : 'no parsable structured result'
-  log.append({ type: 'turn.ended', node: spec.id, turn: t.number, exitCode: null, signal: null, result: parsed?.result, usage: parsed?.usage, error })
+  const { result, lead } = outcome(parsed)
+  const error = !parsed?.ended ? 'the supervisor stopped during this turn' : result || lead ? undefined : 'no parsable structured result'
+  log.append({ type: 'turn.ended', node: spec.id, turn: t.number, exitCode: null, signal: null, result, ...(lead ? { lead } : {}), usage: parsed?.usage, error })
 }
 
 export const recover = async (ctx: Context, leads: Leads) => {
@@ -40,6 +45,10 @@ export const recover = async (ctx: Context, leads: Leads) => {
   for (const n of current().nodes.values()) {
     for (const t of n.turns) if (!t.ended) await closeTurn(ctx, n.spec, t)
   }
+  // A turn that ended while the supervisor was down may have reached the budget: then nothing runs, the lead runner's
+  // unfinished work included, and the run stops again.
+  ctx.checkBudget()
+  if (ctx.stopping) return
   const state = current()
   // A node cancelled while its merge ran, when the supervisor stopped before it reset the integration branch: its merge
   // (clean, or committed by the integrator) is still on the branch, and nothing merged after it. Reset it now, once:

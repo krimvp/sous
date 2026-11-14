@@ -4,29 +4,27 @@ import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets } from '../commands/index.ts'
 import type { NodeSpec, TurnResult } from '../contracts/index.ts'
 import { composeBrief, fixPrompt, inboxPrompt, recoveryPrompt, resultReminder } from '../prompts/index.ts'
 import { isFinal } from '../run/index.ts'
-import type { CheckState } from '../run/index.ts'
+import type { CheckState, InboxMessage } from '../run/index.ts'
 import { commitAll, createNodeWorktree, currentBranch, head, linkedFolder } from '../workspace/index.ts'
 import { readCommands } from './commands.ts'
 import type { Context } from './context.ts'
 import { notesFor } from './policy.ts'
-import { ask, check, exitedText, runTurn } from './turns.ts'
+import { ask, check, exitedText, MAX_RECOVERIES, resumable, runTurn } from './turns.ts'
 import type { Exited } from './turns.ts'
 
 const MAX_FIX_ROUNDS = 2
-/** Times a supervisor stop may cut a node's turn short before the node fails. */
-const MAX_RECOVERIES = 3
 
 /** Turns of a work node, in its own worktree or folder, until it is queued for merging, fails, or waits for a message.
  * Messages that arrive meanwhile are delivered by resuming the session; a `done` counts only with an empty inbox.
  * A node still `running` after a restart continues from its last turn: a `done` is checked, and a turn
- * without a result is resumed with a recovery note (or started again from the brief without a session). */
+ * without a result is resumed with a recovery note. Every turn resumes the node's established session (`resumable`);
+ * without one the node starts again from its brief, with every message it was given. */
 export const runWork = async (ctx: Context, spec: NodeSpec) => {
   const { workspace, runDir, runId, folder, log, current, nodeNow, agentOf, fail, nodeFolder, integrationTree, resultsDir } = ctx
   const state = current()
   const node = state.nodes.get(spec.id)!
   // A recorded result settles without the agent; only a new turn needs it to be available.
   const agent = agentOf(state, node)
-  let sessionId = node.turns.findLast((t) => t.sessionId)?.sessionId
   const instructions = typeof agent === 'string' ? undefined : agent.instructions
   let cwd = nodeFolder(spec.id)
   let branch: string | undefined
@@ -38,48 +36,54 @@ export const runWork = async (ctx: Context, spec: NodeSpec) => {
   }
   const folders = folder ? { workspace, output: resultsDir() } : undefined
   const contacts = spec.standing ? undefined : { ...sendTargets(state, spec.id), max: MAX_SENDS, maxWait: MAX_WAIT_SECONDS }
-  const brief = () => composeBrief(state.goal, spec, cwd, notesFor(state, spec.id), node.inbox, instructions, contacts, folders, branch)
-  let prompt = node.turns.length ? inboxPrompt(node.inbox) : brief()
+  const brief = (messages: InboxMessage[]) => composeBrief(state.goal, spec, cwd, notesFor(state, spec.id), messages, instructions, contacts, folders, branch)
+  // The next turn's prompt in the session it resumes, given the messages that session has not seen.
+  let prompt: (messages: InboxMessage[]) => string = node.turns.length ? inboxPrompt : brief
   let recovery = false
-  let recorded: { result?: TurnResult; sessionId?: string; check?: CheckState } | undefined
+  let recorded: { result?: TurnResult; check?: CheckState } | undefined
   const last = node.turns.at(-1)
   if (node.status === 'running' && last) {
-    if (last.result) recorded = { result: last.result, sessionId, check: last.check }
+    if (last.result) recorded = { result: last.result, check: last.check }
     else {
       const recoveries = node.turns.filter((t) => t.recovery).length
       if (recoveries >= MAX_RECOVERIES) return fail(spec.id, `a supervisor stop cut its turn short after ${MAX_RECOVERIES} recoveries`)
       recovery = true
-      prompt = sessionId ? recoveryPrompt(node.inbox) : brief()
+      prompt = recoveryPrompt
     }
   }
   let fixRounds = 0
   let reminded = false
   for (;;) {
     const turn = nodeNow(spec.id).turns.length + (recorded ? 0 : 1)
-    let t: { result?: TurnResult; sessionId?: string; check?: CheckState; exited?: Exited }
+    let t: { result?: TurnResult; check?: CheckState; exited?: Exited }
     if (recorded) t = recorded
     else if (typeof agent === 'string') return fail(spec.id, agent)
-    else t = await runTurn(ctx, spec, agent, turn, prompt, cwd, sessionId, recovery)
+    else {
+      const now = nodeNow(spec.id)
+      const { sessionId, unseen } = resumable(ctx, now.turns)
+      const messages = [...unseen, ...now.inbox]
+      t = await runTurn(ctx, spec, agent, turn, sessionId ? prompt(messages) : brief(messages), cwd, sessionId, recovery)
+    }
     // Messages the worker read during the turn must not resume it: take its last commands before looking at its inbox.
     if (!ctx.stopping) readCommands(ctx)
     recorded = undefined
     recovery = false
     if (ctx.stopping || isFinal(nodeNow(spec.id))) return
-    sessionId = t.sessionId ?? sessionId
     if (t.exited?.quiet) return fail(spec.id, exitedText(turn, t.exited))
     if (t.result && t.result.status !== 'done') ask(ctx, spec, t.result)
     let inbox = nodeNow(spec.id).inbox
     if (inbox.length || t.result?.status !== 'done') {
-      if (!sessionId) return fail(spec.id, `turn ${turn} cannot be resumed: the session is unknown`)
+      if (resumable(ctx, nodeNow(spec.id).turns).unknown) return fail(spec.id, `turn ${turn} cannot be resumed: the session is unknown`)
       if (inbox.length) {
-        prompt = inboxPrompt(inbox)
+        prompt = inboxPrompt
         continue
       }
     }
     if (!t.result) {
       if (reminded) return fail(spec.id, `turn ${turn} ended without a structured result${t.exited ? `; ${t.exited.stderr}` : ''}`)
       reminded = true
-      prompt = resultReminder()
+      // Messages a turn without output took come again instead, with the result asked for.
+      prompt = (messages) => (messages.length ? inboxPrompt(messages) : resultReminder())
       continue
     }
     if (t.result.status !== 'done') return // waits for a message to resume it
@@ -89,7 +93,7 @@ export const runWork = async (ctx: Context, spec: NodeSpec) => {
       // Messages that arrived during the check come first (an urgent one stopped the check); no fix round is spent.
       inbox = nodeNow(spec.id).inbox
       if (inbox.length) {
-        prompt = inboxPrompt(inbox)
+        prompt = inboxPrompt
         continue
       }
       if (c.exitCode !== 0) {
@@ -97,7 +101,7 @@ export const runWork = async (ctx: Context, spec: NodeSpec) => {
           return fail(spec.id, `acceptance check still fails after ${MAX_FIX_ROUNDS} fix rounds (exit ${c.exitCode})`)
         }
         fixRounds++
-        prompt = fixPrompt(spec.command, c.exitCode, c.output)
+        prompt = () => fixPrompt(spec.command!, c.exitCode, c.output)
         continue
       }
     }

@@ -15,10 +15,12 @@ export function fakePlan(steps: FakeStep[]): string {
 
 export function fakeAdapter(sessionDir: string): WorkerAdapter {
   mkdirSync(sessionDir, { recursive: true })
-  const launch = (spec: TurnSpec, sessionId: string): RunningTurn => {
+  const launch = (spec: TurnSpec, sessionId: string, mode: 'start' | 'resume'): RunningTurn => {
     const out = openSync(spec.outFile, 'w')
     const err = openSync(spec.errFile, 'w')
-    const child = spawn(process.execPath, [WORKER, join(sessionDir, `${sessionId}.json`)], {
+    // The worker records the model of each turn (`--model` of a real harness) in its session file; '' for none. Like
+    // Claude, it refuses to resume a session it never saved.
+    const child = spawn(process.execPath, [WORKER, join(sessionDir, `${sessionId}.json`), spec.model ?? '', mode], {
       cwd: spec.cwd, detached: true, stdio: ['pipe', out, err], env: { ...process.env, ...spec.env },
     })
     closeSync(out)
@@ -32,8 +34,9 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
   }
   return {
     name: 'claude',
-    start: (spec) => launch(spec, spec.sessionId ?? randomUUID()),
-    resume: (spec) => launch(spec, spec.sessionId),
+    lead: true,
+    start: (spec) => launch(spec, spec.sessionId ?? randomUUID(), 'start'),
+    resume: (spec) => launch(spec, spec.sessionId, 'resume'),
     parse(raw) {
       const turn: ParsedTurn = { items: [], ended: false }
       for (const line of raw.split('\n')) {
@@ -45,7 +48,7 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
         }
         if (event.type === 'session') turn.sessionId = event.id
         if (event.type === 'message') turn.items.push({ kind: 'message', role: 'assistant', text: event.text })
-        if (event.type === 'result') Object.assign(turn, { ended: true, result: event.result })
+        if (event.type === 'result') Object.assign(turn, { ended: true, result: event.result }, event.lead ? { lead: event.lead } : {}, event.usage ? { usage: event.usage } : {})
       }
       return turn
     },
