@@ -46,6 +46,21 @@ test('refuses a lock held by a live supervisor; only a takeover (sous resume) re
   assert.equal(existsSync(lockPath), false)
 })
 
+test('a live process keeps its start time when the time zone changes, so its lock still holds', (t) => {
+  const live = spawn('sleep', ['30'])
+  const tz = process.env.TZ
+  t.after(() => {
+    live.kill()
+    if (tz === undefined) delete process.env.TZ
+    else process.env.TZ = tz
+  })
+  process.env.TZ = 'America/New_York'
+  const runDir = tempRun()
+  writeFileSync(join(runDir, 'lock'), JSON.stringify({ pid: live.pid, startTime: procStartTime(live.pid!) }))
+  process.env.TZ = 'Europe/Madrid'
+  assert.throws(() => openLog(runDir, undefined, { takeOver: true }), /locked by a live supervisor/)
+})
+
 test('only one of many concurrent supervisors gets the lock', async () => {
   const taker = new URL('./helpers/lock-taker.ts', import.meta.url).pathname
   for (let round = 0; round < 5; round++) {

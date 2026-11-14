@@ -105,7 +105,7 @@ interface Lock {
 }
 
 /** A process's start time, so a reused pid is not mistaken for it; undefined when it is gone. On Linux it is clock ticks
- * since boot (field 22 of /proc/<pid>/stat); without /proc (macOS) it is `ps -o lstart`, which counts in seconds. */
+ * since boot (field 22 of /proc/<pid>/stat); without /proc (macOS) it is `ps -o lstart` in UTC, which counts in seconds. */
 export function procStartTime(pid: number): string | undefined {
   if (existsSync('/proc/self/stat')) {
     try {
@@ -116,7 +116,7 @@ export function procStartTime(pid: number): string | undefined {
       return undefined
     }
   }
-  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } })
   const start = ps.status === 0 ? ps.stdout.trim() : ''
   return start === '' ? undefined : start
 }
