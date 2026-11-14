@@ -429,8 +429,10 @@ one was delivered, and the runner may report one twice after a crash; the second
 messages, and without completing, it receives a reminder to spawn, cancel, complete, fail or escalate. After two
 reminders without progress the lead fails. Progress is an accepted call other than `note` and `send`, or a delivery of
 something new (a message, an outcome): a note or a send alone does not move the lead on, so answering every reminder
-with one, or alternating one with refused calls, still ends after two. This bounds a lead's turns without a budget:
-each comes from a delivery, and deliveries other than the two reminders (and the one retry below) come from someone
+with one, or alternating one with refused calls, still ends after two. This bounds the turns a lead can cause by
+itself, without a budget; it does not bound two agents that keep messaging each other (a lead and its sub-lead that
+answer every message with a `send` keep each other going, and only a budget or the person stops them). Each turn
+comes from a delivery, and deliveries other than the two reminders (and the one retry below) come from someone
 else (an outcome, at most one per child; a message, which takes another agent's or the person's turn) or follow a
 progress call (spawn and cancel are bounded by the children a lead may have, complete and fail end it, escalate waits
 for the parent). A delivery the runner could not get answered (a model error, an
