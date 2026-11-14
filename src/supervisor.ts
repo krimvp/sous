@@ -404,8 +404,8 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
     }
   }
 
-  const deliver = (lead: NodeState, agent: Agent, requestId: string, text: string, mode: 'queue' | 'interrupt') => {
-    log.append({ type: 'lead.delivered', node: lead.spec.id, requestId, text, mode })
+  const deliver = (lead: NodeState, agent: Agent, requestId: string, text: string, mode: 'queue' | 'interrupt', carries: string[] = []) => {
+    log.append({ type: 'lead.delivered', node: lead.spec.id, requestId, text, mode, ...(carries.length ? { carries } : {}) })
     send(lead, agent, requestId, text, mode)
   }
   /** Hand a recorded delivery to the runner; a repeated requestId is ignored there. */
@@ -443,20 +443,30 @@ export async function runSupervisor(opts: SupervisorOptions): Promise<Supervisor
       return deliver(lead, agent, `${id}:brief`, brief, 'queue')
     }
     const children = childrenOf(state, id)
+    // `info`: a worker's `send` (to this lead, or a copy of one to a sibling), which needs no answer.
     const items = lead.inbox.map((m) => ({
-      seq: m.seq, mode: m.mode, text: leadMessageText(m, state.nodes.get(m.from)?.spec.parent === id),
+      seq: m.seq, mode: m.mode, info: m.sent === true, text: leadMessageText(m, state.nodes.get(m.from)?.spec.parent === id),
     }))
     for (const c of children) {
-      if (isFinal(c) && c.cancelledBy !== id) items.push({ seq: c.endSeq!, mode: 'queue', text: outcomeText(c) })
+      if (isFinal(c) && c.cancelledBy !== id) items.push({ seq: c.endSeq!, mode: 'queue', info: false, text: outcomeText(c) })
     }
-    const fresh = items.filter((i) => !lead.delivered.includes(`evt-${i.seq}`)).sort((a, b) => a.seq - b.seq)
-    for (const i of fresh) deliver(lead, agent, `evt-${i.seq}`, i.text, i.mode)
-    if (fresh.length || !lead.idle || lead.escalated) return
+    const taken = (seq: number) => lead.delivered.includes(`evt-${seq}`) || lead.carried.includes(`evt-${seq}`)
+    const fresh = items.filter((i) => !taken(i.seq)).sort((a, b) => a.seq - b.seq)
     // A waiting child with messages is about to resume, and one whose open question is to the person (a gate, a lead
     // whose split awaits approval) waits for them, not for this lead, so both still count as working.
     const asksPerson = (c: NodeState) => state.questions.some((q) => q.from === c.spec.id)
     const waiting = children.filter((c) => c.status === 'waiting' && !c.inbox.length && !asksPerson(c)).map((c) => c.spec.id)
-    if (children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))) return
+    const working = children.some((c) => !isFinal(c) && !waiting.includes(c.spec.id))
+    // Everything waiting goes in one delivery, in order: at once when urgent; else once the lead has answered what it
+    // has, and only for an item that needs it or when no child is working (nothing else would come), so a message
+    // that needs no answer rides along with the next one that does instead of being a lead turn of its own.
+    if (fresh.length) {
+      const urgent = fresh.some((i) => i.mode === 'interrupt')
+      if (!urgent && !(lead.idle && (!working || fresh.some((i) => !i.info)))) return
+      const ids = fresh.map((i) => `evt-${i.seq}`)
+      return deliver(lead, agent, ids.at(-1)!, fresh.map((i) => i.text).join('\n\n'), urgent ? 'interrupt' : 'queue', ids.slice(0, -1))
+    }
+    if (!lead.idle || lead.escalated || working) return
     // Where an idle lead would be reminded, one whose last delivery the runner could not get answered (a model error,
     // an expired login) gets one retry instead; then it fails with the reason. A working child's outcome gives it a
     // fresh delivery first.

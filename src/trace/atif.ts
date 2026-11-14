@@ -189,7 +189,7 @@ function nodeTrajectory(runId: string, node: NodeView): object {
       const child = node.children.find((c) => c.spec.id === e.node.id)
       if (child) addDispatch(add, runId, child)
     } else if (e.type === 'lead.delivered') {
-      add({ source: 'user', timestamp: e.at, message: e.text, extra: { request_id: e.requestId, mode: e.mode } })
+      add({ source: 'user', timestamp: e.at, message: e.text, extra: { request_id: e.requestId, mode: e.mode, ...(e.carries ? { carries: e.carries } : {}) } })
     } else if (e.type === 'lead.call') {
       // A lead's tool call is model output; the model's usage sits on the lead.turn step that ends the answer.
       const { tool, ...args } = e.call

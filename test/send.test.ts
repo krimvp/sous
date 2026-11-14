@@ -51,6 +51,8 @@ async function runLead(steps: FakeLeadStep[], onEvent?: (e: Event, runDir: strin
 }
 
 const delivered = (events: Event[]) => events.flatMap((e) => (e.type === 'lead.delivered' && e.node === 'lead' ? [e.text] : []))
+/** Whether some delivery to the lead holds `text`: one delivery may carry several items. */
+const got = (events: Event[], text: string) => delivered(events).some((t) => t.split('\n\n').includes(text))
 
 test('a worker tells a sibling and its lead while it works: the sibling resumes with it, the lead gets it and a copy', async () => {
   const { outcome, events, state, prompts } = await runLead([
@@ -58,7 +60,7 @@ test('a worker tells a sibling and its lead while it works: the sibling resumes 
       task('a', [{ sh: `${send('b', 'The API is greet(name).')} && ${send('lead', 'I renamed util.js to text.js.')}`, result: done('a done') }]),
       task('b', [{ sleepMs: 2500, result: done('b first') }, { result: done('b used greet') }]),
     ] }] },
-    {}, {}, {}, {},
+    {},
     { calls: [{ tool: 'complete', summary: 'all done' }] },
   ])
   assert.equal(outcome, 'completed')
@@ -68,12 +70,63 @@ test('a worker tells a sibling and its lead while it works: the sibling resumes 
   // b's done waited for the message: it resumed with it.
   assert.deepEqual(state.nodes.get('b')!.turns.map((t) => t.result?.summary), ['b first', 'b used greet'])
   assert.match(prompts('b')[1], /^Message from a:\nThe API is greet\(name\)\./)
-  assert.ok(delivered(events).includes('Child a told its sibling b (a copy for you; no answer needed):\nThe API is greet(name).'))
-  assert.ok(delivered(events).includes('Child a tells you while it works (no answer needed):\nI renamed util.js to text.js.'))
+  assert.ok(got(events, 'Child a told its sibling b (a copy for you; no answer needed):\nThe API is greet(name).'))
+  assert.ok(got(events, 'Child a tells you while it works (no answer needed):\nI renamed util.js to text.js.'))
   // The brief says whom a worker may tell, and how.
   const brief = prompts('a')[0]
   assert.match(brief, /You may send to your lead lead and your siblings b; your lead sees every message\. At most 5/)
   assert.ok(brief.includes(`else run '${process.execPath}' '${CLI}' send <to> '<text>' (single quotes, so the shell leaves the text alone).`))
+})
+
+test('what children tell the lead while they work waits for the next outcome: one lead turn per outcome, nothing lost', async () => {
+  // The shape of a real run: two parallel workers that tell each other and the lead, then a check on both.
+  const { outcome, events } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      task('a', [{ sh: `${send('lead', 'sub is exported.')} && ${send('b', 'Import { sub }.')}`, result: done('a done') }]),
+      task('b', [{ sh: `sleep 2 && ${send('lead', 'tests written.')}`, result: done('b first') }, { result: done('b done') }]),
+      { id: 'k', kind: 'check', command: 'true', needs: ['a', 'b'] },
+    ] }] },
+    {}, {},
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ])
+  assert.equal(outcome, 'completed')
+  const deliveries = events.flatMap((e) => (e.type === 'lead.delivered' && e.node === 'lead' ? [e] : []))
+  // The brief, a's outcome, b's outcome and k's: four lead turns, where each message used to be one more.
+  assert.equal(deliveries.length, 4, deliveries.map((d) => d.text).join('\n---\n'))
+  assert.equal(events.filter((e) => e.type === 'lead.turn' && e.node === 'lead').length, 4)
+  const [, first, second, third] = deliveries.map((d) => d.text)
+  // Each held message arrives, once and in order, ahead of the outcome it waited for.
+  assert.equal(first, [
+    'Child a tells you while it works (no answer needed):\nsub is exported.',
+    'Child a told its sibling b (a copy for you; no answer needed):\nImport { sub }.',
+    `Child a completed: a done`,
+  ].join('\n\n'))
+  assert.match(second, /^Child b tells you while it works \(no answer needed\):\ntests written\.\n\nChild b completed: b done/)
+  assert.equal(third, 'Child k completed: check passed')
+  // The delivery carries the held messages: each counts as delivered, under the request ID of the outcome.
+  const sent = events.flatMap((e) => (e.type === 'message' && e.sent ? [e.seq] : []))
+  assert.deepEqual(deliveries.flatMap((d) => d.carries ?? []), sent.map((s) => `evt-${s}`))
+})
+
+test('a held message the lead would otherwise never get is delivered once no child works, and it holds back complete', async () => {
+  const { outcome, events } = await runLead([
+    { calls: [{ tool: 'spawn', children: [
+      task('a', [{ sh: `sleep 1 && ${send('lead', 'I moved util.js.')}`, sleepMs: 60_000, result: done('too late') }]),
+      task('b', [{ result: done('b done') }]),
+    ] }] },
+    // a tells the lead while it answers b's outcome; it cancels a, which leaves no outcome to carry the message.
+    { sleepMs: 2500, calls: [{ tool: 'cancel', node: 'a' }, { tool: 'complete', summary: 'unseen' }] },
+    { calls: [{ tool: 'complete', summary: 'all done' }] },
+  ])
+  assert.equal(outcome, 'completed')
+  const calls = events.flatMap((e) => (e.type === 'lead.call' ? [[e.call.tool, e.ok, e.result]] : []))
+  assert.deepEqual(calls.slice(1), [
+    ['cancel', true, 'cancelled a and its subtree'],
+    ['complete', false, 'refused: messages for lead are waiting and will be delivered next'],
+    ['complete', true, 'completed'],
+  ])
+  // The message is the lead's next delivery, not a reminder, and it arrives once.
+  assert.deepEqual(delivered(events).slice(1), ['Child b completed: b done', 'Child a tells you while it works (no answer needed):\nI moved util.js.'])
 })
 
 test('a message the run moved past is refused when the supervisor applies it, and its sender is told', async () => {
@@ -122,7 +175,7 @@ test('a worker waits within its turn for what its sibling tells it, and is not r
   const read = events.find((e) => e.type === 'inbox.read')
   const sent = events.find((e) => e.type === 'message' && e.sent)
   assert.deepEqual(read?.type === 'inbox.read' && [read.node, read.upTo], ['b', sent!.seq])
-  assert.ok(delivered(events).includes('Child a told its sibling b (a copy for you; no answer needed):\nUse greet(name).'))
+  assert.ok(got(events, 'Child a told its sibling b (a copy for you; no answer needed):\nUse greet(name).'))
 })
 
 // ---- `sous send` and the MCP server against a run's log ------------------------------------------

@@ -24,6 +24,12 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   the result branch, the log and any unmerged work, which it lists. It refuses a running or stopped run, deletes only
   what the run's log records creating, and with `--branches` deletes the result branch only once `HEAD` contains it.
   `sous run` and `sous status` end a finished git-mode run with a one-line `next:` hint.
+- Fewer lead turns that need no decision: what a worker tells its lead while it works, and the copy of what it tells a
+  sibling, no longer wake the lead on their own; they wait for the lead's next delivery that needs it (a child's
+  outcome, a question, a message), or go out once no child is working, and the lead still cannot complete before it has
+  them. What waits while the lead is answering goes out as one delivery when it is done (an interrupt still steers it at
+  once). The run that motivated it, two workers that send and a check, takes four lead turns instead of seven.
+  `lead.delivered.carries` names the further items a delivery carries.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked

@@ -354,7 +354,7 @@ function printEvent(e: Event): void {
     case 'node.completed': text = `${e.node}: ${e.summary}`; break
     case 'node.failed': text = `${e.node}: ${e.reason}`; break
     case 'message': text = `${e.from} -> ${e.to} (${e.mode})`; break
-    case 'lead.delivered': text = `${e.node} <- ${e.requestId} (${e.mode})`; break
+    case 'lead.delivered': text = `${e.node} <- ${[...(e.carries ?? []), e.requestId].join(', ')} (${e.mode})`; break
     case 'inbox.read': text = `${e.node} read its messages up to evt-${e.upTo}`; break
     case 'lead.call': text = `${e.node} ${e.call.tool}${e.ok ? '' : ' refused'}: ${e.result}`; break
     case 'lead.read': text = `${e.node} ${e.tool} ${e.path ?? '.'}${e.offset ? ` from ${e.offset}` : ''}: ${e.refused ? `refused: ${e.refused}` : `${e.bytes} bytes`}`; break

@@ -195,7 +195,8 @@ Agents address nodes, not processes, and the supervisor is the only router.
 - **Leads may message their children and their parent.** Anything crossing branches goes up to the nearest
   shared ancestor and back down.
 - **Delivery:** append a `message` event, add it to the recipient's inbox, then wake the recipient: start a
-  lead turn, resume an idle worker, queue for a running worker, or interrupt it.
+  lead turn (with what else waits for it, see Leads, Deliveries), resume an idle worker, queue for a running worker,
+  or interrupt it.
 - **Escalation goes up a level.** The person is the root's parent: `sous answer <node> "…"`.
 
 Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
@@ -235,7 +236,8 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   turn ends, and a worker's `done`
   counts only with an empty inbox, so a sibling cannot finish without having read it; a waiting worker resumes with
   it; a pending one gets it in its brief. The sender's lead gets every message: what it is told ("Child a tells you
-  while it works (no answer needed)") and a copy of what its children tell each other. A message refused when the
+  while it works (no answer needed)") and a copy of what its children tell each other, both with its next delivery that
+  needs it (see Leads, Deliveries). A message refused when the
   supervisor applies it (the run moved on) comes back to its sender from `supervisor`, unless the sender is already
   waiting to merge (telling it would take it out of the merge queue). A sibling lead gets a worker's message too, as
   something it cannot answer (its `send` reaches only its own children and parent).
@@ -279,9 +281,28 @@ before calling `LeadRunner.deliver`, with request ID `evt-<seq>` of the event th
 - a child's outcome: completed with its summary and the files it added to the results (at most 20 named, and any
   renamed in folder mode), failed with its reason;
 - a question from a child (a worker's `needs_input` or `blocked` result, or a child lead's `escalate`);
-- a message sent to it by its parent or by the person (`sous answer`).
+- a message sent to it by its parent or by the person (`sous answer`);
+- what a child tells it while it works, a copy of what a child tells a sibling, and what a sibling worker tells it
+  (worker `send`s, which need no answer).
 
-`interrupt` deliveries steer a running lead; everything else is queued.
+Everything waiting goes out together, in log order, as one delivery (one lead turn): its request ID is the last item's
+and `carries` names the others, each delivered by it. When it goes out:
+
+- **An `interrupt`** steers the running lead at once, with whatever else waits.
+- **Anything else waits until the lead has answered every delivery**, so what arrives while it works is one turn, not
+  one turn each; a queued delivery would only have been answered after the current run anyway. Outcomes are never held
+  back for their siblings: once the lead is idle, a single outcome goes out alone.
+- **A worker's `send` waits for the next item that needs the lead**, and goes out on its own only when no child is
+  working (the condition under which an idle lead would be reminded), since then nothing else would come. So it is held
+  at most until the sending child's own outcome (the sender is a live child: a finished node takes no messages), or
+  until the lead cancels it, which leaves no child working or another outcome to come. It stays in the lead's inbox
+  until delivered, so `complete` and `fail` are refused meanwhile, as for any message, and the lead reads it before it
+  finishes. A `send` is by its contract something the lead may use but need not answer; a worker that needs its lead
+  asks with `needs_input` or `blocked`, which is a question, delivered at once. A lead that wants to react to one (steer
+  a sibling after "I moved util.js") does so at the next outcome; the sibling it concerns got the message itself.
+
+Holding is not recorded: what waits is derived from the log (inbox and outcomes not yet named by a `lead.delivered`), so
+a crash while something is held loses nothing, and the next supervisor delivers it when the rule says, once.
 
 **Tool calls.** `LeadHost.act` validates a call, appends one `lead.call` event and returns its result. The
 fold applies the effects. A repeated `callId` returns the recorded result. Limits are constants, not
@@ -617,8 +638,10 @@ error does the same before the supervisor exits with it. Either way `sous run` a
    killed supervisor finishes on its own.
 6. **Leads recover through pi-durable.** The supervisor calls `LeadRunner.resume()`, which reopens every
    lead's storage and resumes its unfinished run, replaying interrupted tool calls (they find their effects in
-   the event log by tool call ID). Then it delivers again every `lead.delivered` without a `lead.turn`; the
-   runner ignores a request ID it already has, so this is safe.
+   the event log by tool call ID). Then it delivers again every `lead.delivered` without a `lead.turn`, with its
+   recorded text and request ID (a combined delivery is redelivered whole, and the items it `carries` are not composed
+   again); the runner ignores a request ID it already has, so this is safe. Items held for a lead's next delivery are
+   not recorded as held, so they are simply delivered by the resumed supervisor.
 7. **Person commands** waiting in `<runDir>/commands/` are processed as usual. The event a command produces
    carries its file name (`command`) and is appended before the file is removed, so a crash in between neither
    loses it nor applies it twice.

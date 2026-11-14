@@ -208,6 +208,40 @@ test("a lead's delivery left unanswered by a SIGKILL is delivered again on resum
   assert.equal(events.filter((e) => e.type === 'lead.turn' && e.requestId === requestId).length, 1)
 })
 
+test("a message held for a lead's next delivery when the supervisor is SIGKILLed is delivered once on resume, with that delivery", async () => {
+  const { workspace, sessions } = workspaceWith([])
+  const send = `'${process.execPath}' '${new URL('../src/cli.ts', import.meta.url).pathname}' send lead 'I moved util.js.'`
+  const goal = `Ship it.\n${fakeLeadPlan([
+    { calls: [{ tool: 'spawn', children: [
+      work('a', [{ sh: send, ...LONG }, { result: { status: 'done', summary: 'a done' } }]),
+      work('b', [LONG, { result: { status: 'done', summary: 'b done' } }]),
+    ] }] },
+    {},
+    { calls: [{ tool: 'complete', summary: 'shipped' }] },
+  ])}`
+  const run = sous(['run', goal], workspace, sessions)
+  const message = await waitFor(workspace, (e) => e.type === 'message' && e.sent === true)
+  await sleep(300) // the supervisor had its chance to deliver it, and held it: both children still work
+  run.child.kill('SIGKILL')
+  await run.exit
+  const runDir = runDirOf(workspace)!
+  const held = `evt-${message.seq}`
+  const carrying = (e: Event) => e.type === 'lead.delivered' && (e.requestId === held || e.carries?.includes(held))
+  assert.ok(!readEvents(runDir).some(carrying), 'the message was delivered before the stop')
+
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const events = readEvents(runDir)
+  assert.equal(fold(events).summary, 'shipped')
+  const deliveries = events.flatMap((e) => (e.type === 'lead.delivered' ? [e] : []))
+  assert.equal(deliveries.filter(carrying).length, 1)
+  assert.match(deliveries.find(carrying)!.text, /^Child a tells you while it works \(no answer needed\):\nI moved util\.js\.\n\nChild [ab] completed: [ab] done$/)
+  // Brief and two outcomes: the runner got each request once.
+  const requests = fakeLeadRecords(runDir).flatMap((r) => (r.op === 'deliver' ? [r.requestId] : []))
+  assert.deepEqual(requests, deliveries.map((d) => d.requestId))
+  assert.equal(deliveries.length, 3)
+})
+
 test('a gate waits for sous approve from another process, then its dependants run', async () => {
   const { workspace, graph, sessions } = workspaceWith([
     { id: 'ship', kind: 'gate', brief: 'Publish the greeting?' },
