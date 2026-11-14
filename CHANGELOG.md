@@ -29,6 +29,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   line, `sous doctor` (`worker models:`) and a lead's brief show the model each agent's work runs on. A run keeps the
   models it was created with when resumed (`run.created.workerModels`); runs created before this resume on the
   harness's default as before. `turn.started.model` records the model passed.
+- The README is a quickstart: install, `sous doctor`, one `sous run --max-cost`, then `sous diff`, `git merge` and
+  `sous clean`, what a run does, the steering commands, and what to know before trusting it. The reference it held
+  (every command, git and folder mode, budgets, agents and models, where leads run, graph files, the splitter) moved
+  to `docs/usage.md`.
 - `sous run --max-cost <usd>` sets a cost budget: once the cost the run's turns reported reaches it, no new turn
   starts, the running turns are stopped as Ctrl-C stops them (they resume), `budget.reached` is recorded and `sous run`
   ends with the run stopped, the spend and `sous resume <id> --max-cost <usd>`. `sous resume` refuses such a run without
