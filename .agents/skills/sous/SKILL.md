@@ -17,21 +17,24 @@ M="node <sous checkout>/src/cli.ts"      # otherwise: the repository this skill 
 ## Before the first run
 
 - Run `$M doctor` where the agents will work: each harness CLI on PATH with its version (not whether it is logged
-  in), the lead's credentials and model, the git state; it exits 0 when a run could start, else says what is missing.
-- The lead needs a model credential of its own (a worker CLI's login does not count). Prefer `OLLAMA_API_KEY` or a Pi
-  login (install Pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, then run `pi`, then
-  `/login`; it covers Anthropic and ChatGPT, not Ollama Cloud). `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` also work (not
-  yet run live), but workers inherit the environment, so such a key moves Claude Code, and may move Codex, from the
-  user's subscription to API billing: ask the user first. A lead that names no model takes the first provider with a
-  credential, in a fixed order (Ollama Cloud, Anthropic, OpenAI, ChatGPT; `$M doctor` prints the choice), and keeps it
-  when resumed. With none, the run is refused with what to do.
+  in), the lead's credentials and where leads would run, the git state; it exits 0 when a run could start, else says
+  what is missing.
+- A logged-in Claude Code is enough: with no lead credential, the lead runs on Claude Code (on `haiku`, read only, on
+  the user's Claude login), and `$M doctor` says `lead: on claude (haiku), …`. With a lead credential, the lead runs in
+  process on the first provider that has one, in a fixed order (`OLLAMA_API_KEY`; Anthropic, OpenAI or ChatGPT by key or
+  Pi login), as before. Do not add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` for a lead without asking: workers inherit
+  the environment, so such a key moves Claude Code, and may move Codex, from the user's subscription to API billing. A
+  run keeps its lead's runtime and model when resumed. Only harnesses certified to lead (now Claude Code) can lead; a
+  lead named on another is refused before the run starts. With neither a credential nor `claude`, the run is refused
+  with what to do.
 - In a git repository (it needs a commit) workers see the last commit (`HEAD`) only: commit what they need first (the
   run prints `workspace has N uncommitted changes; workers see HEAD only`). From a subdirectory the workspace is the
   repository root, which the run prints.
 - A run starts by printing `agents: claude (haiku), lead (ollama-cloud/deepseek-v4.1-flash); not available: codex
   (codex not found), …`: the agents it can use, each with the model its work runs on (`harness default`: the harness's
   own), then those it cannot, with why (`<cli> not found` means
-  not on PATH; `no lead provider has a credential`, `no credential for <provider>`). Leads are offered only the
+  not on PATH; `no lead provider has a credential`, `no credential for <provider>`). A lead on Claude Code shows as
+  `lead (haiku on claude: no lead provider had a credential)`. Leads are offered only the
   available ones; one whose CLI is not logged in still fails its turns.
 
 ## Quick start
