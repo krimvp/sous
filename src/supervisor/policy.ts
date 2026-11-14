@@ -1,13 +1,11 @@
 // What a lead may do, enforced in code when it calls a tool: refusal() says why a call is refused, accepted() what an
 // accepted one returns, with the limits they enforce. Also the notes and depth a node's brief states. Pure functions of
 // RunState.
-import { PERSON } from '../contracts/index.ts'
+import { MAX_CHILDREN, PERSON } from '../contracts/index.ts'
 import type { LeadCall } from '../contracts/index.ts'
 import { childError, defineAgent, registry } from '../definitions/index.ts'
 import { ancestors, childrenOf, failedChecks, isFinal } from '../run/index.ts'
 import type { RunState } from '../run/index.ts'
-
-export const MAX_CHILDREN = 12
 
 export const notesFor = (state: RunState, id: string) => ancestors(state, id).flatMap((a) => a.notes)
 

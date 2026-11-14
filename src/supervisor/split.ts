@@ -3,7 +3,7 @@
 // splitFor, the lead each splitter's running turn works for, so the main loop can stop it when that lead finishes.
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { roleNode, SPLITTER } from '../contracts/index.ts'
+import { MAX_CHILDREN, roleNode, SPLITTER } from '../contracts/index.ts'
 import type { ChildSpec } from '../contracts/index.ts'
 import { childAgents, roleChoices } from '../definitions/index.ts'
 import { inboxPrompt, recoveryPrompt, splitRequest, SPLITTER_BRIEF, splitterPrompt } from '../prompts/index.ts'
@@ -12,7 +12,7 @@ import type { InboxMessage } from '../run/index.ts'
 import { createNodeWorktree, head, linkedFolder, resetTo } from '../workspace/index.ts'
 import { SUPERVISOR } from './context.ts'
 import type { Context } from './context.ts'
-import { depthOf, MAX_CHILDREN, notesFor, refusal } from './policy.ts'
+import { depthOf, notesFor, refusal } from './policy.ts'
 import { exitedText, runTurn } from './turns.ts'
 
 /** The parts in a proposal file, or why there are none. */

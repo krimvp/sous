@@ -3,7 +3,7 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
-import { ROLES } from '../contracts/index.ts'
+import { MAX_CHILDREN, MAX_ENTRIES, MAX_READ, ROLES } from '../contracts/index.ts'
 import type { LeadCall, LeadHost, LeadRead } from '../contracts/index.ts'
 import { RUNTIMES } from '../definitions/index.ts'
 
@@ -56,8 +56,8 @@ const readSchemas = {
   }, strict),
 } satisfies Record<LeadRead['tool'], TSchema>
 const readDescriptions: Record<LeadRead['tool'], string> = {
-  list_files: `List the files of the workspace and of the results so far, recursively, at most 200 entries (.git, .sous and node_modules are left out). ${PATH}`,
-  read_file: `Read up to 32 KB of a text file of the workspace or of the results so far; the answer says which offset reads on. ${PATH}`,
+  list_files: `List the files of the workspace and of the results so far, recursively, at most ${MAX_ENTRIES} entries (.git, .sous and node_modules are left out). ${PATH}`,
+  read_file: `Read up to ${MAX_READ / 1024} KB of a text file of the workspace or of the results so far; the answer says which offset reads on. ${PATH}`,
 }
 
 const descriptions: Record<LeadCall['tool'], string> = {
@@ -76,7 +76,7 @@ const role = `You are a lead in sous. You cannot do work yourself: you have no s
 - After acting, end your turn by answering briefly. Each child's outcome, question or message wakes you as a new message.
 - Complete only when your own goal is met, not merely because every child finished. Fail when it cannot be met.
 - Answer your children's questions; escalate the ones you cannot answer.
-- Limits: at most 12 children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
+- Limits: at most ${MAX_CHILDREN} children over your lifetime; leads nest no deeper than your brief says; needs name earlier siblings only; send only to your children, your parent, or "person" if you are top-level; cancel only your children; complete and fail are refused while a child is pending or running.`
 
 /** The orchestration extension of lead `node`. Every call goes to the host, which is idempotent per call ID, so a call
  * replayed after a crash returns exactly the original result: a different replay text made a model stop early. Reads

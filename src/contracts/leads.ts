@@ -3,6 +3,15 @@ import type { AgentRuntime } from './agents.ts'
 import type { Roles } from './nodes.ts'
 import type { Usage } from './workers.ts'
 
+/** How many children a lead may spawn over its lifetime. */
+export const MAX_CHILDREN = 12
+
+/** The most entries one `list_files` answer lists. */
+export const MAX_ENTRIES = 200
+
+/** The most bytes of a file one `read_file` answer holds; an offset reads on. */
+export const MAX_READ = 32 * 1024
+
 /** A child a lead asks for. Its id is unique in the run; its parent is the calling lead. */
 export interface ChildSpec {
   id: string

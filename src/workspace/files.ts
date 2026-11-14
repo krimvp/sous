@@ -3,11 +3,10 @@
 import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { extname, join, resolve, sep } from 'node:path'
+import { MAX_ENTRIES, MAX_READ } from '../contracts/index.ts'
 
 /** Names that are never collected or listed (in a git worktree `.git` is a file). */
 const SKIP = new Set(['.git', '.sous', 'node_modules'])
-const MAX_ENTRIES = 200
-const MAX_READ = 32 * 1024
 
 /** Regular files under `dir`, as sorted relative paths with `/`; skipped names and symbolic links are left out. */
 function filesUnder(dir: string, prefix = ''): string[] {

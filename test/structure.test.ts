@@ -13,7 +13,7 @@ const SRC = fileURLToPath(new URL('../src', import.meta.url))
 const ALLOWED: Record<string, string[]> = {
   contracts: [],
   self: [],
-  workspace: [],
+  workspace: ['contracts'],
   definitions: ['contracts'],
   run: ['contracts', 'definitions'],
   commands: ['contracts', 'run'],
