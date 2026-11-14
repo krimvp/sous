@@ -1,12 +1,14 @@
 // Codex: `codex exec --json`. The structured result is the last `agent_message`, constrained by
-// `--output-schema`. The session (thread) ID appears in the first `thread.started` event.
+// `--output-schema`. The session (thread) ID appears in the first `thread.started` event. A lead turn (`TurnSpec.lead`)
+// runs in Codex's read-only sandbox with the lead's role before its first prompt (no flag known to sous replaces
+// Codex's system prompt) and the lead result's schema; not yet certified to lead (LEAD_HARNESSES).
 
 import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { TURN_RESULT_SCHEMA } from '../types.ts'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, num, resultFromText, sessionFromOutput, sousServer, spawnTurn, str } from './common.ts'
+import { jsonLines, leadFromText, num, resultFromText, sessionFromOutput, sousServer, spawnTurn, str, strictSchema } from './common.ts'
 import type { Json } from './common.ts'
 
 // OpenAI's strict structured output requires every property to be listed in `required`;
@@ -129,11 +131,17 @@ function mcpConfig(spec: TurnSpec): string[] {
   ]
 }
 
+const STRICT_LEAD_SCHEMA = strictSchema(LEAD_RESULT_SCHEMA)
+
+/** Workers run with full permissions in their working directory (workspace-write cannot write .git and has no
+ * network); a lead turn in the read-only sandbox. `exec resume` has no -s flag; the config key sets the same mode. */
+const sandbox = (spec: TurnSpec) => (spec.lead ? 'read-only' : 'danger-full-access')
+
 function run(spec: TurnSpec, args: string[]) {
   // Absolute, because Codex runs in spec.cwd.
   const schemaFile = resolve(`${spec.outFile.replace(/\.jsonl$/, '')}.schema.json`)
   mkdirSync(dirname(schemaFile), { recursive: true })
-  writeFileSync(schemaFile, JSON.stringify(STRICT_SCHEMA))
+  writeFileSync(schemaFile, JSON.stringify(spec.lead ? STRICT_LEAD_SCHEMA : STRICT_SCHEMA))
   return spawnTurn('codex', [
     ...args, ...mcpConfig(spec), '--json', '--skip-git-repo-check', '--output-schema', schemaFile,
     ...(spec.model ? ['-m', spec.model] : []),
@@ -143,16 +151,17 @@ function run(spec: TurnSpec, args: string[]) {
 
 export const codex: WorkerAdapter = {
   name: 'codex',
+  lead: true,
 
   start(spec) {
-    // Full permissions in the working directory: workspace-write cannot write .git and has no network.
-    const turn = run(spec, ['exec', '-s', 'danger-full-access'])
+    // A lead's role goes before its first prompt; a resumed session has it already.
+    const prompt = spec.lead ? `${spec.lead.system}\n\n${spec.prompt}` : spec.prompt
+    const turn = run({ ...spec, prompt }, ['exec', '-s', sandbox(spec)])
     return { ...turn, sessionId: sessionFromOutput('codex', spec.outFile, turn.exit, (raw) => codex.parse(raw)) }
   },
 
   resume(spec) {
-    // `exec resume` has no -s flag; the config key sets the same sandbox mode.
-    const turn = run(spec, ['exec', 'resume', spec.sessionId, '-c', 'sandbox_mode="danger-full-access"'])
+    const turn = run(spec, ['exec', 'resume', spec.sessionId, '-c', `sandbox_mode="${sandbox(spec)}"`])
     return { ...turn, sessionId: Promise.resolve(spec.sessionId) }
   },
 
@@ -193,7 +202,11 @@ export const codex: WorkerAdapter = {
       }
     }
     if (reasoning) turn.items.push({ kind: 'message', role: 'assistant', text: '', reasoning })
-    if (succeeded && last !== undefined) turn.result = resultFromText(last)
+    if (succeeded && last !== undefined) {
+      turn.result = resultFromText(last)
+      const lead = leadFromText(last)
+      if (lead) turn.lead = lead
+    }
     return turn
   },
 }

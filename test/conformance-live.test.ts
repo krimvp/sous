@@ -6,19 +6,21 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { getAdapter } from '../src/adapters/index.ts'
+import { HARNESS_LEAD_ROLE } from '../src/brief.ts'
+import { childError } from '../src/graph.ts'
 import { readEvents } from '../src/log.ts'
 import { fold } from '../src/state.ts'
 import { stopGroup } from '../src/supervisor.ts'
 import { HARNESSES } from '../src/types.ts'
-import type { HarnessName, ParsedTurn, RunningTurn, TurnSpec } from '../src/types.ts'
-import { CONFORMANCE, NEEDS_INPUT_PROMPT, NOTE, READ_FILE_PROMPT, certifiedUrl, recordingUrl } from './conformance/harnesses.ts'
+import type { ChildSpec, Event, HarnessName, ParsedTurn, RunningTurn, TurnSpec } from '../src/types.ts'
+import { CONFORMANCE, LEAD_PROMPT, LEAD_TESTS, NEEDS_INPUT_PROMPT, NOTE, PLAN, READ_FILE_PROMPT, certifiedUrl, recordingUrl } from './conformance/harnesses.ts'
 import type { Recording } from './conformance/harnesses.ts'
 import { git, gitWorkspace } from './fixtures/git-repo.ts'
 
@@ -78,8 +80,9 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
     return turn
   }
   const keep = (s: TurnSpec, name: Recording) => {
-    if (!record) return
     const to = fileURLToPath(recordingUrl(harness, name))
+    // The lead recording is written when it is missing too: a harness's first lead certification makes it.
+    if (!record && !(name === 'lead' && !existsSync(to))) return
     mkdirSync(dirname(to), { recursive: true })
     writeFileSync(to, scrubHome(readFileSync(s.outFile, 'utf8')))
   }
@@ -236,6 +239,112 @@ for (const harness of HARNESSES.filter((h) => !only?.length || only.includes(h))
       assert.ok(interrupted?.sessionId, 'the interrupted turn named its session')
       assert.equal(continued?.mode, 'resume')
       assert.ok(await until(() => !sleeping(n), 5000), 'the interrupted command outlived the resume')
+    })
+
+    // ---- Leading: a lead turn is read only and ends with valid calls; a real run's lead runs on the harness. ----
+    const leadSpec = (cwd: string, turn: number, prompt: string): TurnSpec => ({ ...spec(cwd, turn, prompt), lead: { system: HARNESS_LEAD_ROLE } })
+    const leadFinished = async (running: RunningTurn, s: TurnSpec) => {
+      const exit = await running.exit
+      const turn = parsed(s)
+      assert.equal(exit.code, 0, `exit ${JSON.stringify(exit)}; see ${s.outFile} and ${s.errFile}`)
+      assert.equal(turn.ended, true, `no end marker; see ${s.outFile}`)
+      assert.ok(turn.lead, `no lead result; see ${s.outFile}`)
+      assert.ok(turn.usage && turn.usage.inputTokens > 0, 'usage is reported')
+      return turn
+    }
+    const lead = { skip: !adapter.lead || !live, timeout: 10 * MINUTES }
+    /** Every file under `dir` but the turn files, with its content. */
+    const snapshot = (dir: string): string[] => readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((e) => e.isFile() && !join(e.parentPath, e.name).includes('/.turns/'))
+      .map((e) => `${join(e.parentPath, e.name)}: ${readFileSync(join(e.parentPath, e.name), 'utf8')}`).sort()
+
+    test(LEAD_TESTS[0], lead, async () => {
+      const cwd = tempDir(harness)
+      writeFileSync(join(cwd, 'plan.md'), PLAN)
+      writeFileSync(join(cwd, 'math.js'), 'export const add = (a, b) => a + b\n')
+      const s = leadSpec(cwd, 1, LEAD_PROMPT)
+      const turn = await leadFinished(adapter.start(s), s)
+      assert.ok(turn.items.some((i) => i.kind === 'tool_result' && i.content.includes('sub(a, b)')), 'it read plan.md')
+      const children = turn.lead!.calls.flatMap((c) => (c.tool === 'spawn' ? c.children : []))
+      const siblings: string[] = []
+      for (const c of children) {
+        assert.equal(childError(c, () => false, siblings, { agents: { worker: { runs: harness } } }), undefined, JSON.stringify(c))
+        siblings.push(c.id)
+      }
+      assert.ok(children.some((c) => c.kind === 'work') && children.some((c: ChildSpec) => c.kind === 'check'), JSON.stringify(turn.lead))
+      assert.ok(!turn.lead!.calls.some((c) => c.tool === 'complete'), 'it does not complete while its children are to run')
+      keep(s, 'lead')
+    })
+
+    test(LEAD_TESTS[1], lead, async () => {
+      const cwd = tempDir(harness)
+      writeFileSync(join(cwd, 'a.txt'), 'alpha\n')
+      const before = snapshot(cwd)
+      const s = leadSpec(cwd, 1, 'You are lead lead, the top-level lead (depth 1 of 3). Before anything else, create the file ' +
+        'made-by-lead.txt containing the word hello yourself, now, with any tool you have, and change a.txt to say beta. Try it. ' +
+        'Then end your turn with your result, with no calls.')
+      await leadFinished(adapter.start(s), s)
+      assert.deepEqual(snapshot(cwd), before, 'the lead changed no file')
+    })
+
+    test(LEAD_TESTS[2], { ...lead, timeout: 15 * MINUTES }, async () => {
+      const cwd = tempDir(harness)
+      const word = codeword()
+      const first = leadSpec(cwd, 1, `You are lead lead. Remember this codeword for later: ${word}. Do not use any tools. ` +
+        'End your turn with no calls and the answer "noted".')
+      const started = adapter.start(first)
+      const one = await leadFinished(started, first)
+      const s = leadSpec(cwd, 2, 'What is the codeword I gave you? Do not use any tools. End your turn with no calls and the codeword alone as the answer.')
+      const resumed = adapter.resume({ ...s, sessionId: one.sessionId ?? await started.sessionId })
+      assert.match((await leadFinished(resumed, s)).lead!.answer, new RegExp(word))
+    })
+
+    /** A workspace and an agents file whose lead and workers run on this harness, on the certification model. */
+    const leadRun = () => {
+      const workspace = gitWorkspace(`sous-certify-${harness}-`)
+      const agents = join(tempDir(harness), 'agents.json')
+      const on = { runs: harness, ...(liveModel ? { model: liveModel } : {}) }
+      writeFileSync(agents, JSON.stringify({ agent: 'worker', agents: { worker: on, lead: on } }))
+      return { workspace, agents }
+    }
+    const GOAL = 'Create the file hello.txt containing the word hello. Split it into one work child that writes and commits ' +
+      'the file and one check child, needing it, whose command verifies it; complete once both are done.'
+    /** Each child of a lead's accepted spawns, by id: a child spawned twice would show twice. */
+    const spawned = (events: Event[]) => events.flatMap((e) => (e.type === 'lead.call' && e.ok && e.call.tool === 'spawn' ? e.call.children : []))
+
+    test(LEAD_TESTS[3], { ...lead, timeout: 20 * MINUTES }, async () => {
+      const { workspace, agents } = leadRun()
+      const run = await sous(['run', GOAL, '--agents', agents, '--max-cost', '1'], workspace, 18 * MINUTES)
+      assert.equal(run.code, 0, run.output)
+      const events = readEvents(runDirOf(run.output))
+      assert.equal(fold(events).status, 'completed')
+      const children = spawned(events)
+      assert.ok(children.some((c) => c.kind === 'work') && children.some((c) => c.kind === 'check'), JSON.stringify(children))
+      assert.ok(events.some((e) => e.type === 'turn.started' && e.node === 'lead' && e.harness === harness), 'the lead ran on the harness')
+    })
+
+    test(LEAD_TESTS[4], { ...lead, timeout: 20 * MINUTES }, async () => {
+      const { workspace, agents } = leadRun()
+      const first = spawn(process.execPath, [CLI, 'run', GOAL, '--agents', agents, '--max-cost', '1'], { cwd: workspace, stdio: 'ignore' })
+      const exited = new Promise((resolve) => first.on('exit', resolve))
+      const runs = join(workspace, '.sous', 'runs')
+      const leadTurn = () => existsSync(runs) && readdirSync(runs).some((id) => {
+        try {
+          return readEvents(join(runs, id)).some((e) => e.type === 'turn.started' && e.node === 'lead')
+        } catch {
+          return false
+        }
+      })
+      assert.ok(await until(leadTurn, 5 * MINUTES), 'the lead never started a turn')
+      process.kill(first.pid!, 'SIGKILL')
+      await exited
+      const resumed = await sous(['resume'], workspace, 18 * MINUTES)
+      assert.equal(resumed.code, 0, resumed.output)
+      const events = readEvents(runDirOf(resumed.output))
+      assert.equal(fold(events).status, 'completed')
+      const ids = spawned(events).map((c) => c.id)
+      assert.ok(ids.length >= 2, JSON.stringify(ids))
+      assert.equal(new Set(ids).size, ids.length, `each spawn is recorded once: ${ids.join(', ')}`)
     })
   })
 }

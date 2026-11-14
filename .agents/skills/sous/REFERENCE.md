@@ -16,7 +16,7 @@ sous diff [run-id] [--stat] [--workspace <dir>]   (git diff from where sous/<run
 sous clean [run-id] [--all] [--branches] [--unmerged] [--dry-run] [--workspace <dir>]   (remove a finished run's worktrees and merged node branches)
 sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
-sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
+sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and where leads run; git state; exit 0 when a run could start)
 sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
@@ -100,7 +100,10 @@ Agents the person defines are not limited by `models`. A work node whose agent a
 small model where sous knows one (Claude Code: `haiku`), else on its harness's default (Codex's, Pi's or Droid's own
 settings); `"model": "default"` keeps the harness's own default for Claude too. The integrator and splitters get no
 small default (their agent's model, else the harness's). For `lead`, the first lead provider with a credential, in the order
-`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`, `openai-codex/gpt-5.5`).
+`ollama-cloud/deepseek-v4.1-flash`, `anthropic/claude-haiku-5-5`, `openai/gpt-6-luna`, `openai-codex/gpt-5.5`; with none,
+the first harness certified to lead on PATH (Claude Code, on `haiku`, through its own login). A lead node or lead child may
+also name an agent on a harness certified to lead, `{ "runs": "claude", "model": "sonnet" }`; it runs read only and acts
+through the calls of each turn's result.
 
 Model names are per runtime: Claude aliases or IDs (`sonnet`, `haiku`), Codex/ChatGPT models (`gpt-5.5`),
 Droid model IDs (`claude-sonnet-5`, or a custom model `custom:…`),

@@ -33,6 +33,7 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
   }
   return {
     name: 'claude',
+    lead: true,
     start: (spec) => launch(spec, spec.sessionId ?? randomUUID()),
     resume: (spec) => launch(spec, spec.sessionId),
     parse(raw) {
@@ -46,7 +47,7 @@ export function fakeAdapter(sessionDir: string): WorkerAdapter {
         }
         if (event.type === 'session') turn.sessionId = event.id
         if (event.type === 'message') turn.items.push({ kind: 'message', role: 'assistant', text: event.text })
-        if (event.type === 'result') Object.assign(turn, { ended: true, result: event.result }, event.usage ? { usage: event.usage } : {})
+        if (event.type === 'result') Object.assign(turn, { ended: true, result: event.result }, event.lead ? { lead: event.lead } : {}, event.usage ? { usage: event.usage } : {})
       }
       return turn
     },

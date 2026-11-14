@@ -1,7 +1,7 @@
 // Run state as a pure fold of the event log.
 import { defineAgent, registry } from './agents.ts'
 import { DEFAULT_MAX_LEAD_DEPTH, PERSON } from './types.ts'
-import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, NodeSpec, NodeStatus, Role, RunMode, TurnResult, Usage } from './types.ts'
+import type { ChildSpec, Definitions, Event, GraphFile, HarnessName, LeadResult, NodeSpec, NodeStatus, Role, RunMode, TurnResult, Usage } from './types.ts'
 
 export interface CheckState {
   command: string
@@ -26,6 +26,8 @@ export interface TurnState {
   exitCode?: number | null
   signal?: NodeJS.Signals | null
   result?: TurnResult
+  /** A lead turn's result (a lead on a CLI harness). */
+  lead?: LeadResult
   usage?: Usage
   error?: string
   /** The node's acceptance check run after this turn, if any. */
@@ -124,6 +126,8 @@ export interface RunState {
   graph?: GraphFile
   /** The model of lead agents that name none, from `run.created`. */
   leadModel?: string
+  /** The lead-certified harness lead agents that name no model run on, from `run.created`. */
+  leadRuns?: HarnessName
   /** The default model of work nodes by harness, from `run.created` (absent in older logs: none). */
   workerModels?: Partial<Record<HarnessName, string>>
   /** The run's cost budget in US dollars: `run.created.maxCost`, replaced by a later `run.resumed.maxCost`. */
@@ -299,7 +303,7 @@ export function fold(events: readonly Event[]): RunState {
       case 'run.created': {
         const { agent, agents, models } = e.graph ?? e.definitions ?? {}
         Object.assign(state, {
-          goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, workerModels: e.workerModels, maxCost: e.maxCost,
+          goal: e.goal, workspace: e.workspace, mode: e.mode ?? 'git', graph: e.graph, leadModel: e.leadModel, leadRuns: e.leadRuns, workerModels: e.workerModels, maxCost: e.maxCost,
           maxDepth: e.maxDepth ?? DEFAULT_MAX_LEAD_DEPTH, approveSplits: e.approveSplits === true,
         })
         state.agents = { agent, agents: registry(agents), models }
@@ -315,7 +319,8 @@ export function fold(events: readonly Event[]): RunState {
           number: e.turn, mode: e.mode, harness: e.harness, agent: e.agent, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
           outFile: e.outFile, errFile: e.errFile, ended: false,
         })
-        if (node) Object.assign(node, { inbox: [], read: undefined })
+        // A worker's turn takes its inbox; a lead's inbox is taken by its deliveries.
+        if (node && node.spec.kind !== 'lead') Object.assign(node, { inbox: [], read: undefined })
         break
       }
       case 'turn.session': {
@@ -330,7 +335,7 @@ export function fold(events: readonly Event[]): RunState {
       }
       case 'turn.ended': {
         const t = turn(e.node, e.turn)
-        if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, usage: e.usage, error: e.error })
+        if (t) Object.assign(t, { ended: true, exitCode: e.exitCode, signal: e.signal, result: e.result, lead: e.lead, usage: e.usage, error: e.error })
         if (e.usage) spend(turnCost(e.usage, `${e.node}\n${t?.sessionId ?? `turn ${e.turn}`}`, sessionTotals))
         const node = state.nodes.get(e.node)
         if (node?.read?.turn === e.turn) {

@@ -10,7 +10,12 @@
     "stopped mid-command by the supervisor: no result, nothing left running, and the session resumes",
     "killed mid-command: the session resumes",
     "two siblings settle a name through sous; no project MCP server starts",
-    "a supervisor killed mid-turn: sous resume completes the run"
+    "a supervisor killed mid-turn: sous resume completes the run",
+    "a lead turn reads the files and returns valid calls",
+    "a lead asked to create a file creates none",
+    "a resumed lead remembers its earlier turn",
+    "a sous run whose lead runs on the harness splits into work and a check and completes",
+    "a supervisor killed during a lead turn: sous resume completes the run, each spawn recorded once"
   ],
   "failed": []
 }

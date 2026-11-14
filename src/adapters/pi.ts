@@ -8,6 +8,8 @@ import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
 import { jsonLines, num, RESULT_INSTRUCTION, resultFromText, spawnTurn, str, textOf } from './common.ts'
 
 function run(spec: TurnSpec, sessionId: string) {
+  // No lead mode: no Pi option known to sous limits a session to read-only tools, so a lead's turn could change files.
+  if (spec.lead) throw new Error('pi cannot run a lead turn: no Pi option known to sous limits a session to read-only tools')
   // Pi creates the session when the ID is new and continues it otherwise. Default tools, no MCP: a worker tells others
   // through `sous send`. None of the person's skills, prompt templates or context files: only the project's own
   // AGENTS.md and CLAUDE.md, at the top of the worktree.

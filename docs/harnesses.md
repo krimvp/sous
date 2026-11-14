@@ -5,12 +5,12 @@ reads its output, and resumes its session when messages arrive. Four harnesses a
 same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
 also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
 
-| Harness | CLI | Login | Messages between workers | Certified |
-|---|---|---|---|---|
-| [Claude Code](https://claude.com/claude-code) | `claude` | your Claude login | sous's MCP tools `send` and `receive` | 2.1.296, 2026-10-14 |
-| [Codex](https://github.com/openai/codex) | `codex` | your ChatGPT or API login | sous's MCP tools `send` and `receive` | 0.160.0, 2026-10-12 |
-| [Pi](https://github.com/earendil-works/pi) | `pi` | your Pi login (leads may use it too) | the commands `sous send` and `sous receive` | 1.1.0, 2026-10-12 |
-| [Factory Droid](https://docs.factory.ai/cli/getting-started/overview) | `droid` | your Factory login, or a custom model in your Droid settings | sous's MCP tools `send` and `receive` | 0.210.0, 2026-10-12 |
+| Harness | CLI | Login | Messages between workers | Certified | Leads |
+|---|---|---|---|---|---|
+| [Claude Code](https://claude.com/claude-code) | `claude` | your Claude login | sous's MCP tools `send` and `receive` | 2.1.325, 2026-11-14 | certified (2.1.325 on `haiku`, 2026-11-14) |
+| [Codex](https://github.com/openai/codex) | `codex` | your ChatGPT or API login | sous's MCP tools `send` and `receive` | 0.160.0, 2026-10-12 | lead mode, not yet certified |
+| [Pi](https://github.com/earendil-works/pi) | `pi` | your Pi login (in-process leads may use it too) | the commands `sous send` and `sous receive` | 1.1.0, 2026-10-12 | no lead mode |
+| [Factory Droid](https://docs.factory.ai/cli/getting-started/overview) | `droid` | your Factory login, or a custom model in your Droid settings | sous's MCP tools `send` and `receive` | 0.210.0, 2026-10-12 | no lead mode |
 
 A work node that names no agent runs on the first available of Claude Code, Codex, Pi, Droid. The integrator, which
 resolves merge conflicts, prefers Codex, then Claude Code, Pi, Droid. Name a harness, or a model on it, in an agents
@@ -26,6 +26,21 @@ workers leave out your user settings). Codex, Pi and Droid use your own settings
 login and providers, so sous has no small model it knows to be valid for them. The integrator and splitters keep the
 harness's default unless their agent names a model.
 
+## Leads on a harness
+
+A lead can run on a harness too, on its login, so a logged-in Claude Code is all a run needs. With no lead credential
+(`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or a Pi login), the built-in lead runs on the first harness
+certified to lead that is on your `PATH`, on its small model (Claude Code: `haiku`); an agents file can also put a lead
+there, `{ "agents": { "lead": { "runs": "claude" } } }`. Each lead turn is a turn of the harness that only reads
+(Claude Code: its Read, Glob and Grep tools, confined to the run's results, with no project hooks, no MCP server and none
+of your settings) and ends with the calls it makes, which sous checks and applies after the turn, as it does for any
+lead. A harness leads only once its adapter has a lead mode and its certification passed the lead tests. Codex has a
+lead mode (Codex's read-only sandbox, `--output-schema`) that has not been certified yet: `SOUS_HARNESS=codex npm run
+certify` runs its lead tests, and on success Codex can join `LEAD_HARNESSES` in `src/types.ts` with its `certified.json`.
+Pi and Droid have no lead mode, as sous knows no option that keeps them from writing (for Pi, offering only read tools;
+for Droid, that `droid exec` at its default autonomy changes nothing). A lead named on a harness that cannot lead is
+refused before the run starts.
+
 ## What every harness guarantees
 
 Every harness passes the same conformance suite, and a new one must pass it before it is merged
@@ -38,6 +53,11 @@ Every harness passes the same conformance suite, and a new one must pass it befo
 - let two workers tell each other a file name through sous while they work;
 - start no MCP server that the project configures;
 - finish a run that `sous resume` takes over after the supervisor was killed.
+
+A harness with a lead mode must also, to lead: read files and end a lead turn with valid calls; create and change no
+file when asked to; resume a lead's session and remember its earlier turn; run a real `sous run` whose lead splits into
+work and a check and completes; and finish one that `sous resume` takes over after the supervisor was killed during a
+lead turn, with each spawn recorded once.
 
 Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Certifying Codex adds an entry for each
 temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
@@ -93,7 +113,10 @@ running turn has run and when its output last grew, and a turn without output fo
 
 1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
    to the worker and integrator preference lists, in `src/types.ts`.
-2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one.
+2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one. To let it lead, give its adapter a
+   lead mode (`lead: true`, honouring `TurnSpec.lead`: read only, the role, the lead result), set `lead: true` in its
+   entry once its lead recording exists, and add it to `LEAD_HARNESSES` with the `certified.json` that lists the lead
+   tests as passed.
 3. Record its conformance fixtures and pass certification: `SOUS_HARNESS=<name> SOUS_RECORD=1 npm run certify`, then
    `npm run check`.
 4. Add its row to the isolation table and its facts to [the design](design.md), and the certification output to its PR.

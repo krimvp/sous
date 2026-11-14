@@ -82,7 +82,7 @@ parent completes only through its own acceptance check, never just because every
 sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | droid | custom) ──▶ worker processes
                │   ▲                                                        │
                │   └──────────── turn output files (.sous/runs/<id>/nodes/) ◀┘
-               ├──▶ lead runner (LLM + orchestration tools; tool calls become events)
+               ├──▶ lead runner (LLM + orchestration tools; tool calls become events), or a lead's turns on a harness
                ├──▶ .sous/runs/<id>/events.jsonl  (the only state)
                └──▶ trace exporters (ATIF file, OTLP/HTTP to Langfuse)
 ```
@@ -104,9 +104,10 @@ The run ends when the root node completes, fails, or is cancelled.
 ```ts
 interface WorkerAdapter {
   name: HarnessName
+  lead?: true                               // can run a lead turn (TurnSpec.lead), see Leads on a CLI harness
   start(turn: TurnSpec): RunningTurn        // new session with a brief
   resume(turn: TurnSpec): RunningTurn       // existing session with a message
-  parse(raw: string): ParsedTurn            // a turn output file: trace items, usage, end marker, result
+  parse(raw: string): ParsedTurn            // a turn output file: trace items, usage, end marker, result (or lead result)
 }
 interface RunningTurn {
   pid: number                                // process-group leader
@@ -151,7 +152,12 @@ starts with a budget, and once more on the first turn that reports no cost.
 
 ### Lead runner
 
-Leads run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
+A lead runs in one of two runtimes, chosen per agent (see Agents): in process on the lead runner below, with a model
+credential of its own, or as turns of a lead-certified CLI harness, on that harness's login (Leads on a CLI harness).
+Both take the same deliveries and make the same calls through the same policy; `lead.delivered`, `lead.call` and
+`lead.turn` mean the same for both.
+
+Leads in process run on **pi-durable** (`@earendil-works/pi-durable`, decided 2026-10-11 after
 a spike that killed a lead in the middle of a spawn and reopened it without spawning anything twice). Each lead node is one durable conversation, stored with the
 JSONL backend in `.sous/runs/<id>/leads/<node>/`. The conversation and its tool calls survive a crash: a
 reopened lead continues where it stopped.
@@ -165,7 +171,8 @@ reopened lead continues where it stopped.
   changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, else the default: the first provider in
   `LEAD_PROVIDERS` (`src/types.ts`) with a credential, on that provider's default model, decided with availability
-  when the run starts and printed on the `agents:` line. The providers, in that order, are Ollama Cloud
+  when the run starts and printed on the `agents:` line; with no provider credential, leads that name no model run on
+  a harness instead (Leads on a CLI harness). The providers, in that order, are Ollama Cloud
   (`ollama-cloud/deepseek-v4.1-flash`: cheap; passed the spike, as did `ollama-cloud/glm-5.3`), Anthropic
   (`anthropic/claude-haiku-5-5`), OpenAI (`openai/gpt-6-luna`) and the ChatGPT login (`openai-codex/gpt-5.5`, which
   passed the spike); the first keeps its place so that nothing changes for a person who has it. The Anthropic and
@@ -178,7 +185,68 @@ reopened lead continues where it stopped.
   Anthropic or OpenAI key in the environment also reaches Claude Code and Codex workers, which inherit it (the README
   says so). Ollama Cloud needs a small provider definition, because pi-ai has none built in; the others are pi-ai's.
 
-Its tools:
+### Leads on a CLI harness
+
+A person with only a logged-in Claude Code (a subscription, no API key) can run sous: the lead runs as turns of the
+harness, on its login. Nothing here is specific to one harness: the adapter contract says what a lead turn is, and a
+harness leads once it is certified for it.
+
+- **Which leads.** An agent `{"runs": "<harness>"}` used by a lead node or a lead child, when the harness is in
+  `LEAD_HARNESSES` (`src/types.ts`); and the built-in `lead` agent (or any agent on `lead` that names no model) when no
+  lead provider has a credential: it falls back to the first of `LEAD_HARNESSES` on `PATH`, on that harness's
+  `DEFAULT_WORKER_MODELS` entry (Claude Code: `haiku`), else on the harness's default, said so. The choice is
+  `run.created.leadRuns` (with `leadModel` the harness's model) and is kept on resume, as `leadModel` is. A lead naming
+  a harness not in `LEAD_HARNESSES` is refused before the run starts, with how to certify it
+  (`SOUS_HARNESS=<name> npm run certify`); a lead child naming one is refused like any invalid spawn. A lead's brief
+  offers lead-certified harness agents for lead children only when the run defines them, so a run's choices stay the
+  person's.
+- **A turn** is an ordinary harness turn (`runTurn`: its process group, output file, session, stall watch and recovery)
+  with `TurnSpec.lead {system, readable?}`: the lead's role (`HARNESS_LEAD_ROLE` in `src/brief.ts`, sharing its rules with
+  the in-process role) as the system prompt where the harness can replace it, else before the first prompt; read only,
+  no MCP server, no `SOUS_*` identity; and a structured `LeadResult {answer, calls}` at the end
+  (`LEAD_RESULT_SCHEMA`; `ParsedTurn.lead`, recorded in `turn.ended.lead`). Harnesses with a structured-output flag use
+  it (Codex in OpenAI's strict form, `strictSchema` in `src/adapters/common.ts`); one without would give it as a JSON
+  fence, which the shared `leadFromText` reads. Its working directory is the results worktree (git mode) or the lead's
+  own folder `work/<lead>/` with its `workspace` and `results` links (folder mode), which `readable` names to the
+  harness. There is no MCP round trip for the calls: a tool call has no stable ID there, and a turn killed mid-call would
+  leave effects the resumed model never saw.
+- **Applying.** After `turn.ended`, the supervisor applies the calls in order through `LeadHost.act`, the policy every
+  lead tool call goes through, with call IDs `t<turn>.<index>`, so a recorded call returns its recorded result and is
+  never applied twice. The first refused call stops the turn: the calls after it are not applied (they often depend on
+  it: a `complete` after a `spawn`, a second spawn whose `needs` names the first), and the lead decides again with the
+  results. Then each delivery the turn's prompt carried (every `lead.delivered` recorded before its `turn.started`
+  without a `lead.turn`) gets its `lead.turn`, with the answer; the turn's usage is on its `turn.ended`, counted by the
+  shared `turnCost`, so `lead.turn` carries none and a budget counts the turn once.
+- **What it learns.** A turn's prompt starts with the results of the last applied turn's calls, in order (those not
+  applied say so), then the deliveries it answers (`leadTurnPrompt`). A refused call is an item of its own, delivered
+  like an outcome (`evt-<seq>` of the refused `lead.call`), so the lead gets a turn with the results; successful results
+  ride along with the next delivery. Two turns in a row whose first call was refused fail the lead; so does the idle
+  rule (two reminders without an accepted call), as for any lead.
+- **Interrupts and cuts.** An urgent message stops the running turn's group (`turn.interrupted`, as for a worker) and the
+  next turn carries it. Only an uninterrupted turn's recorded result has effects: an interrupted turn, one a stop cut
+  short, or one that ended without a result applied nothing, and the next turn starts with "Your turn N ended before its
+  result: none of its calls were applied". A second turn in a row without a result, or one that exits with no output,
+  fails the lead.
+- **Reads.** The harness's own read tools, confined as far as it allows (see the isolation table). They are not recorded
+  as `lead.read` (that event is the lead runner's `list_files`/`read_file`); they are the turn's tool calls in its output
+  file, and so in the traces.
+- Splitting, `--approve-splits`, notes, cancel (stops the turn's group), coalesced deliveries and reminders work as for
+  a lead in process: they are about deliveries and calls, not the runtime.
+
+Per harness (flags only from this document's facts, the adapters or the installed CLI's `--help`):
+
+| Harness | Lead mode | Read only | Role | Result | Certified to lead |
+|---|---|---|---|---|---|
+| Claude | yes | `--tools "Read,Glob,Grep"`, `--restricted` (confines the file tools to the working directories and `--add-dir`, ignores the project's settings files, so no project hook runs), `--permission-mode dontAsk` (a tool not offered is refused, never asked), `--strict-mcp-config`, `--setting-sources project` | `--system-prompt` | `--json-schema` | yes (2.1.325 on `haiku`, 2026-11-14) |
+| Codex | yes, not certified | `-s read-only` (`-c sandbox_mode="read-only"` on resume); its shell still runs, in Codex's read-only sandbox | before the first prompt (no flag known to replace Codex's) | `--output-schema`, strict | no: never run; `SOUS_HARNESS=codex npm run certify` |
+| Pi | no | no Pi flag known to sous limits a session's tools to reading (`--no-mcp`, `--no-skills` leave its write and shell tools) | | | no |
+| Droid | no | not known whether `droid exec` without `--auto` or `--skip-permissions-unsafe` refuses every write and command with effects | | | no |
+
+What is missing for Pi is an option that offers only read tools (and holds on resume); for Droid, the fact that
+`exec`'s default autonomy changes nothing, checked with the real CLI. Either one, with a certification that passes the
+lead tests, adds that harness's lead mode.
+
+In-process leads' tools:
 
 | Tool | Effect |
 |---|---|
@@ -281,8 +349,8 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
 
 ## Leads
 
-The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner` and the `lead.*` and `node.cancelled`
-events in `src/types.ts`.
+The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner`, for leads on a harness `LeadResult`,
+`LeadTurnSpec` and `LEAD_HARNESSES`, and the `lead.*` and `node.cancelled` events in `src/types.ts`.
 
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
@@ -454,19 +522,24 @@ An **agent** is what does work; a harness is only how an agent runs. An agent ha
 `codex`, `pi`, `droid` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
 every brief it receives (`AgentSpec` in `src/types.ts`).
 
-- **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined. A graph file may define
+- **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined (`lead` runs in process,
+  or on a lead-certified harness when no lead provider has a credential). A graph file may define
   more under `agents`, by name, and a name may shadow a built-in. Nodes and lead children name an `agent`.
 - **Availability decides defaults.** An agent is available when its CLI is on `PATH` (for `lead`: when its model's
-  provider has a credential, or, for a lead agent with no model, when any lead provider has one; such an agent runs
-  on the first with a credential, see Lead runner). A work node that names no agent gets the graph's `agent`, else the
+  provider has a credential, or, for a lead agent with no model, when any lead provider has one or else a
+  lead-certified harness is on `PATH`; such an agent runs on the first provider with a credential, else on that
+  harness, see Lead runner). A lead node or lead child may also name an agent on a lead-certified harness. A work node that names no agent gets the graph's `agent`, else the
   first available of `claude`, `codex`, `pi`, `droid`. Availability is checked once when a run starts or resumes,
-  and printed (`agents: …; not available: …`, each lead agent with the model it runs on; for a graph without lead nodes only the agents its work nodes use, as no lead can pick another). The model chosen for lead
+  and printed (`agents: …; not available: …`, each lead agent with the model it runs on, `lead (haiku on claude: no lead
+  provider had a credential)` for one on a harness; for a graph without lead nodes only the agents its work nodes use, as no lead can pick another). The model chosen for lead
   agents that name none is recorded in `run.created.leadModel`; a resumed run resolves such leads to it, whatever
   credentials are present then (a lead whose recorded provider lost its credential is unavailable, with the fix,
   rather than moved to another provider). Each agent on the `agents:` line shows the model its work nodes run on
   (`claude (haiku)`, `codex (harness default)`). `sous doctor` runs the same
   check without a run and prints it (each harness on `PATH` with its `--version`, not whether it is logged in; the
-  lead credentials present, never their values, and the lead model a run would use), with the workspace's git state (repository or folder mode, a
+  lead credentials present, never their values, and where a run's leads would run and why: `lead: in process on
+  <provider/model>`, or `lead: on claude (haiku), the first lead-certified harness on PATH, as no lead provider has a
+  credential`), with the workspace's git state (repository or folder mode, a
   commit, uncommitted changes, which workers do not see, and whether an explicit `--workspace` is below the top level, which `sous run` would take as given), and exits 0
   when a run could start: a lead, a worker, and a commit when in git. A run is refused before it exists, naming the node and the agent and
   what to do, when the agent any of its work or lead nodes resolves to (the one it names, else the default: the
@@ -667,20 +740,27 @@ error does the same before the supervisor exits with it. Either way `sous run` a
 5. **Checks** (`check` nodes and acceptance checks) that were running are simply run again; one whose
    `check.ended` was recorded settles from it. Their processes are not recorded, so one left running by a
    killed supervisor finishes on its own.
-6. **Leads recover through pi-durable.** The supervisor calls `LeadRunner.resume()`, which reopens every
+6. **Leads on a harness recover as worker turns do**, and their effects only ever come from a recorded turn result:
+   a lead turn still running is stopped and recorded without a result, so it applied nothing, and the lead's next turn
+   resumes its session with "Your turn N ended before its result: none of its calls were applied" and every delivery
+   not yet answered; a turn that finished while the supervisor was down is settled from its file (`turn.ended.lead`) and
+   its calls applied once; a stop between two calls of one turn applies the rest on resume, the recorded ones returning
+   their recorded result (call IDs `t<turn>.<index>`), then answers the turn's deliveries. A recovery turn counts toward
+   the 3 recoveries, as for a worker.
+7. **Leads in process recover through pi-durable.** The supervisor calls `LeadRunner.resume()`, which reopens every
    lead's storage and resumes its unfinished run, replaying interrupted tool calls (they find their effects in
    the event log by tool call ID). Then it delivers again every `lead.delivered` without a `lead.turn`, with its
    recorded text and request ID (a combined delivery is redelivered whole, and the items it `carries` are not composed
    again); the runner ignores a request ID it already has, so this is safe. Items held for a lead's next delivery are
    not recorded as held, so they are simply delivered by the resumed supervisor.
-7. **Person commands** waiting in `<runDir>/commands/` are processed as usual. The event a command produces
+8. **Person commands** waiting in `<runDir>/commands/` are processed as usual. The event a command produces
    carries its file name (`command`) and is appended before the file is removed, so a crash in between neither
    loses it nor applies it twice.
-8. **A run at its cost budget stays stopped.** `sous resume` refuses a run whose reported cost is at its budget, with or
+9. **A run at its cost budget stays stopped.** `sous resume` refuses a run whose reported cost is at its budget, with or
    without a `budget.reached` (a supervisor killed between the turn that reached it and the event, or after it); a turn
    that ended while the supervisor was down is recorded first, and if its cost reaches the budget the supervisor
    records `budget.reached` and stops before it starts a turn or resumes the lead runner. Nothing is run twice.
-9. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
+10. **Recovery spends budget.** Each recovery turn counts as an attempt: a node that would need a fourth
    fails with "a supervisor stop cut its turn short after 3 recoveries" (a constant, not a setting).
 
 Pi runs its tool commands in their own session, outside the turn's process group. In the v2 real run (Roadmap),
@@ -692,7 +772,7 @@ command could have outlived it.
 
 Every harness in `HARNESSES` (`src/types.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
 entry in `test/conformance/harnesses.ts` (`Record<HarnessName, …>`: end marker, whether workers get sous's MCP server,
-the certification model) is required by the type checker.
+the certification model, whether it has a lead recording) is required by the type checker.
 
 - **Free, in `npm run check`** (`test/conformance.test.ts`). Its recordings in `test/fixtures/conformance/<harness>/`
   (`read-file`, `needs-input`, `stopped`) parse to a session, an end only at the end marker, a `done` result with paired
@@ -701,20 +781,34 @@ the certification model) is required by the type checker.
   result before the end, with the same session and growing tool calls. A stand-in CLI checks that a turn runs in its
   directory with the whole prompt and the model, writes its output, settles its session, gets `SOUS_*` and sous's MCP
   server exactly once as a worker and neither as a standing node, names the session it resumes, and stops with its
-  process group; and that the supervisor completes a work node with the adapter.
+  process group; and that the supervisor completes a work node with the adapter. A harness with a lead recording
+  (`lead`: a lead turn that reads `plan.md` and spawns work and a check) parses it to a lead result, and no cut of it
+  has one before the end; an adapter with a lead mode gives a lead turn the role, the prompt and the model and neither an
+  identity nor an MCP server; an adapter without one refuses a lead turn; and every harness in `LEAD_HARNESSES` has a
+  lead mode, a lead recording and a `certified.json` that lists the lead tests as passed, so a harness cannot lead
+  without committed evidence.
 - **Live certification** (`npm run certify`, `SOUS_HARNESS=<names>`, costs money; `test/conformance-live.test.ts`).
   With the real CLI: a file read; a `needs_input` turn; a session resumed twice; a turn stopped mid-command by the
   supervisor's stop (no result, nothing left running, resumes); a turn killed with SIGKILL (resumes); two siblings that
   settle a name with `send` and `receive` in a real `sous run` while an MCP canary configured in every project location
   a harness reads (`.mcp.json`, `.factory/mcp.json`, `.pi/mcp.json`, `.codex/config.toml`) must not start; and a
-  supervisor killed mid-turn whose run `sous resume` completes. `SOUS_RECORD=1` rewrites the recordings (with the
+  supervisor killed mid-turn whose run `sous resume` completes. For an adapter with a lead mode, also: a lead turn reads
+  the files and returns valid calls (each spawned child passes the spawn checks); a lead asked to create a file creates
+  none and changes none; a resumed lead remembers its earlier turn; a real `sous run` whose lead runs on the harness
+  splits into work and a check and completes; and a supervisor killed during a lead turn whose run `sous resume`
+  completes with each spawn recorded once. The lead recording is written when it is missing. `SOUS_RECORD=1` rewrites the recordings (with the
   home directory scrubbed from them). Every run writes `certified.json` beside them: CLI version, model, date, tests
   passed and failed. Pi reads a
   project's MCP servers only in projects the person trusted; Codex records trust itself (see the isolation table), and
   so each certification adds entries for its temporary workspaces to `~/.codex/config.toml`.
-- **Merging a harness requires a passing certification**, its output in the PR. Isolation from the person's own setup
+- **Merging a harness requires a passing certification**, its output in the PR. **A harness leads only once certified
+  for it:** it joins `LEAD_HARNESSES` in the change that commits a `certified.json` whose passed tests include the lead
+  tests. Isolation from the person's own setup
   (user-level servers, skills, hooks) is not certified, since it would need another home directory and so another login;
   each harness's isolation is a written fact in the isolation table.
+
+The first lead certification, on 2026-11-14 (Claude Code 2.1.325 on `haiku`), passed all twelve tests, the five lead
+tests included, on its first run.
 
 Certification on 2026-10-12 (Claude Code 2.1.296 on `haiku`, Codex 0.160.0, Pi 1.1.0, Droid 0.210.0; Pi and Droid on
 Ollama Cloud models) found two faults, both fixed: a Codex worker's first run in a workspace started the project's own
@@ -923,6 +1017,7 @@ strip types from files under `node_modules`, so `npm pack`/`npm publish` first c
 | **v7** (in progress) | `sous ui`: a local viewer for live and finished runs (#59); then steering (#60), replay and comparison (#61) | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
 | **v8** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
 | **v9** (done, not yet run live) | Cost budgets (`--max-cost`) on the reported cost; a small default model for workers (`DEFAULT_WORKER_MODELS`) | a run at its budget stops resumable, refuses `resume` without a higher budget, and continues with one without repeating a turn (fake-harness tests) |
+| **v10** (done) | Leads on a CLI harness, on its login: `TurnSpec.lead`, `LeadResult` applied after the turn; `LEAD_HARNESSES` from certification; the built-in lead falls back to a lead-certified harness without a lead credential (Claude Code certified; Codex implemented, not certified; Pi and Droid have no lead mode) | a real `sous run "goal"` with no lead credential in the environment completes with its lead on Claude Code, and the Claude certification passes the lead tests |
 | **Later** | Separate `review` nodes (meanwhile a lead can spawn a work node on another harness to review); a turn timeout (a budget acts only once a turn has ended and reported its cost, and counts only reported cost) | |
 
 v1 was verified on 2026-10-11 with real runs: leads on `ollama-cloud/deepseek-v4.1-flash`, workers on Pi
@@ -1004,7 +1099,26 @@ and `sous___receive`, and the hook's file was not written), and the exported ATI
 `sous resume` stopped the orphaned turn (Droid ended the `sleep`), resumed it as a fork with the recovery note, and
 the work merged and the check passed.
 
+v10 (leads on a CLI harness) was verified on 2026-11-14 with real runs with no lead credential in the environment
+(`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` unset, no Pi login), the lead falling back to Claude Code on
+`haiku` and its workers on `haiku`: a goal to add `sub` to `math.js` with a test file and a `node --test` check ran three
+lead turns (spawn of one work child and the check; a turn with no calls on the work's outcome; `complete` on the
+check's), about 6.6k to 7.8k input tokens each, mostly cached, and completed for $0.0054 reported; a folder-mode run read
+`notes.txt` through the lead's added directories, spawned a writer and a check, and completed for $0.0048. A third run
+whose input file was not committed had its lead escalate that the file was missing, as the brief says workers see `HEAD`
+only. In the folder-mode run Claude resolved `workspace/notes.txt` against the workspace, not through the lead's link,
+and found the file with Glob; reads through the links themselves are not certified. The certification's own runs cover a
+supervisor killed during a lead turn; interrupts, a refused call, and a crash between two calls are covered by
+fake-harness tests only.
+
 ## Open questions
+
+- Pi and Droid leads: a Pi option that offers only read tools, or the fact that `droid exec` at its default autonomy
+  changes nothing, would give them a lead mode; neither is known. Codex's lead mode is written from documented flags and
+  has never run.
+- A lead on a harness re-reads its whole session each turn, so a long lead conversation costs more per turn than an
+  in-process lead's (about 5k input tokens at the start of a Claude turn, mostly cached); whether to start a fresh
+  session with a summary after some turns is open.
 
 - Whether workers run with full permissions in their worktree (current assumption) or a narrower set.
 - Whether a run may make the splitter's proposal binding (spawned for the lead) rather than advisory.

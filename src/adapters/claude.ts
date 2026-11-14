@@ -1,12 +1,32 @@
 // Claude Code: `claude -p --output-format stream-json`. The structured result is the `result` event's
-// `structured_output`, produced through `--json-schema`.
+// `structured_output`, produced through `--json-schema`. A lead turn (`TurnSpec.lead`) replaces Claude's system prompt
+// with the lead's role, offers only the read tools, confined to its working directories (`--restricted`), and asks for
+// a LeadResult.
 
 import { randomUUID } from 'node:crypto'
-import { TURN_RESULT_SCHEMA } from '../types.ts'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../types.ts'
 import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
-import { jsonLines, num, sousServer, spawnTurn, str, textOf, toTurnResult } from './common.ts'
+import { jsonLines, num, sousServer, spawnTurn, str, textOf, toLeadResult, toTurnResult } from './common.ts'
+
+/** A lead turn: Claude's own system prompt replaced by the lead's role; Read, Glob and Grep only, which `--restricted`
+ * confines to the working directory and `readable` (it also ignores the project's settings files, so no project hook
+ * runs); no MCP server and none of the person's settings; tools it was not offered are refused, not asked about. */
+function leadRun(spec: TurnSpec & { lead: NonNullable<TurnSpec['lead']> }, session: string[], sessionId: string) {
+  const args = [
+    '-p', '--output-format', 'stream-json', '--verbose',
+    ...session,
+    '--json-schema', JSON.stringify(LEAD_RESULT_SCHEMA),
+    '--system-prompt', spec.lead.system,
+    '--tools', 'Read,Glob,Grep', '--restricted', '--strict-mcp-config', '--setting-sources', 'project',
+    '--permission-mode', 'dontAsk',
+    ...(spec.lead.readable?.length ? ['--add-dir', ...spec.lead.readable] : []),
+    ...(spec.model ? ['--model', spec.model] : []),
+  ]
+  return { ...spawnTurn('claude', args, spec), sessionId: Promise.resolve(sessionId) }
+}
 
 function run(spec: TurnSpec, session: string[], sessionId: string) {
+  if (spec.lead) return leadRun({ ...spec, lead: spec.lead }, session, sessionId)
   const server = sousServer(spec)
   const args = [
     '-p', '--output-format', 'stream-json', '--verbose',
@@ -27,6 +47,7 @@ type Message = Extract<TraceItem, { kind: 'message' }>
 
 export const claude: WorkerAdapter = {
   name: 'claude',
+  lead: true,
 
   start(spec) {
     const sessionId = spec.sessionId ?? randomUUID()
@@ -77,6 +98,8 @@ export const claude: WorkerAdapter = {
         turn.ended = true
         turn.usage = usageOf(event)
         turn.result = toTurnResult(event.structured_output)
+        const lead = toLeadResult(event.structured_output)
+        if (lead) turn.lead = lead
         if (event.is_error) turn.items.push({ kind: 'message', role: 'system', text: String(event.result ?? event.subtype) })
       }
     }

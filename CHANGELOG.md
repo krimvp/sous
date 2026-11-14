@@ -5,6 +5,20 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- **A logged-in Claude Code is all a run needs.** With no lead credential (`OLLAMA_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY` or a Pi login), `sous run "goal"` now runs its lead on Claude Code, on `haiku`, through Claude's own
+  login, instead of refusing the run; the `agents:` line says `lead (haiku on claude: no lead provider had a
+  credential)`, `sous doctor` says where leads run and why and exits 0, and `run.created.leadRuns` keeps the choice on
+  resume. Nothing changes when you have a lead credential: leads run in process as before. An agents file or graph can
+  put a lead, or a lead child, on Claude Code explicitly: `{ "agents": { "lead": { "runs": "claude" } } }`. Such a lead's
+  turn is a Claude Code turn that only reads (Read, Glob and Grep, confined to the run's results by `--restricted`, no
+  MCP server, no project hooks) and ends with its calls, which sous applies after the turn through the same checks as
+  every lead call (call IDs `t<turn>.<index>`, so a recovered run applies each once); a refused call stops the rest of
+  its turn and gives the lead a turn with the results. The mechanism is the harness adapter's (`TurnSpec.lead`,
+  `ParsedTurn.lead`, `LeadResult`), not Claude's: a harness leads once its certification passes the new lead tests
+  (`LEAD_HARNESSES`). Codex has a lead mode that is not yet certified; Pi and Droid have none. A lead named on a harness
+  that may not lead is refused before the run starts, with how to certify it.
+
 - **Changed: Claude Code workers now run on `haiku` by default.** A work node whose agent, node and lead name no model
   used to run on Claude Code's own default (for a person on a top model, the most expensive one); it now runs on
   `haiku`, the model Claude Code is certified on (two workers on one small task: $1.39 before, $0.02 on `haiku`). Codex,

@@ -87,7 +87,8 @@ test('sous run checks the agents on PATH: a node without an agent falls back to 
   assert.match(run.output(), /^agents: codex \(harness default\)$/m)
   const state = fold(readEvents(runDirOf(workspace)!))
   assert.deepEqual([state.nodes.get('any')!.status, state.nodes.get('any')!.turns[0].agent], ['completed', 'codex'])
-  assert.match(run.output(), /turn.started +any turn 1 start on codex pid/)
+  // The line names the harness when it differs from the agent's name; the fake adapter calls itself claude.
+  assert.match(run.output(), /turn.started +any turn 1 start on codex \(claude\) pid/)
 })
 
 /** The model each turn of node `node` was started with (null: none, the harness's own default), from its session file. */
@@ -584,7 +585,7 @@ test('a run from before the lead model was recorded resumes on the fixed default
   assert.equal(fold(readEvents(runDir)).nodes.get('lead')!.reason, 'agent lead is not available (no credential for ollama-cloud)')
 })
 
-test('sous run refuses a graph lead node or a goal when the lead has no credential, before the run exists', async () => {
+test('sous run refuses a graph lead node or a goal when the lead has no credential and no lead-certified harness, before the run exists', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')
   const brief = `Plan.\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'planned' }] }])}`
@@ -592,12 +593,16 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   const refused = async (arg: string) => {
     const error = mock.method(console, 'error', () => {})
     const log = mock.method(console, 'log', () => {})
+    // No lead-certified harness on PATH either, or the lead would run there.
+    const path = process.env.PATH
+    process.env.PATH = fakeBin(['codex', 'pi', 'droid'])
     try {
       const code = await main(['run', arg, '--workspace', workspace], {
         getAdapter: () => { throw new Error('no workers in this run') }, createLeadRunner: fakeLeadRunner, leadCredential: async () => undefined,
       })
       return { code, error: error.mock.calls.map((c) => c.arguments.join(' ')).join('\n') }
     } finally {
+      process.env.PATH = path
       error.mock.restore()
       log.mock.restore()
     }
@@ -605,7 +610,7 @@ test('sous run refuses a graph lead node or a goal when the lead has no credenti
   for (const arg of [graph, brief]) {
     const { code, error } = await refused(arg)
     assert.equal(code, 1)
-    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or name a lead model \(--agents, or the node's model\)$/)
+    assert.match(error, /^sous: node (planner|lead): agent lead is not available \(no lead provider has a credential\): set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or install claude and log in, or name a lead model \(--agents, or the node's model\)$/)
     assert.equal(runDirOf(workspace), undefined, 'no run was created')
   }
 })

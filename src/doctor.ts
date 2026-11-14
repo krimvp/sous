@@ -1,11 +1,12 @@
 // sous doctor: what a run here would find, so that a person sees before `sous run` why it could not start. Each harness
-// on PATH with its version, the lead's credentials and the model a run would use, the workspace's git state, and whether
-// a run could start: a lead and at least one worker, in a repository with a commit or outside git.
+// on PATH with its version, the lead's credentials and where a run's leads would run (in process on a lead model, or on
+// a lead-certified harness), the workspace's git state, and whether a run could start: a lead and at least one worker,
+// in a repository with a commit or outside git.
 import { spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { agentModel, checkAgents, defaultLeadModel } from './agents.ts'
 import { repoState } from './git.ts'
-import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, HARNESSES, LEAD_PROVIDERS } from './types.ts'
+import { ANY_LEAD_CREDENTIAL_FIX, BUILTIN_AGENTS, HARNESSES, LEAD_HARNESSES, LEAD_PROVIDERS } from './types.ts'
 
 /** How long `<cli> --version` may take; a harness that answers later counts as on PATH with an unknown version. */
 const VERSION_TIMEOUT_MS = 5000
@@ -26,7 +27,13 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   const problem = loginProblem?.()
   if (problem) console.log(`Pi login: ${problem}`)
   const model = defaultLeadModel(unavailable)
-  console.log(`lead model: ${model ?? 'none'}`)
+  // Where leads that name no model run: in process on the first lead provider with a credential, else on the first
+  // lead-certified harness on PATH (whose login is not checked).
+  const { leadRuns } = unavailable
+  const lead = model ? `in process on ${model}`
+    : leadRuns ? `on ${leadRuns} (${unavailable.leadModel ?? 'harness default'}), the first lead-certified harness on PATH, as no lead provider has a credential`
+    : undefined
+  console.log(`lead: ${lead ?? `none (no lead provider has a credential, and no lead-certified harness, ${LEAD_HARNESSES.join(', ')}, is on PATH)`}`)
   console.log(`worker models: ${workers.map(onModel).join(', ') || 'none'}`)
 
   const repo = repoState(workspace)
@@ -36,7 +43,7 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
   console.log(`workspace: ${workspace}, ${repo ? `${where}${repo.commit ? '' : ', without a commit'}, ${changes}` : 'not a git repository (folder mode)'}`)
 
   const problems = [
-    ...(model ? [] : [`no lead provider has a credential: ${ANY_LEAD_CREDENTIAL_FIX}`]),
+    ...(lead ? [] : [`no lead can run: ${ANY_LEAD_CREDENTIAL_FIX}`]),
     ...(workers.length ? [] : [`no worker CLI on PATH: install ${HARNESSES.join(', ')}`]),
     ...(repo && !repo.commit ? ['the repository has no commit: make one'] : []),
   ]
@@ -44,7 +51,7 @@ export async function doctor(workspace: string, leadCredential: (provider: strin
     console.log(`not ready: ${problems.join('; ')}`)
     return 1
   }
-  console.log(`ready: lead on ${model}, workers on ${workers.join(', ')}`)
+  console.log(`ready: lead on ${model ?? `${leadRuns} (${unavailable.leadModel ?? 'harness default'})`}, workers on ${workers.join(', ')}`)
   return 0
 }
 

@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { Usage } from '../../src/types.ts'
+import type { LeadResult, Usage } from '../../src/types.ts'
 
 export interface FakeStep {
   /** A shell command polled in the working directory before the step does anything; the step goes on once it exits 0. */
@@ -19,6 +19,8 @@ export interface FakeStep {
   /** Sleep before printing the result. */
   sleepMs?: number
   result?: { status: 'done' | 'blocked' | 'needs_input'; summary: string; question?: string }
+  /** A lead turn's result, printed instead of (or with) `result`. */
+  lead?: LeadResult
   /** Usage reported with the result, as the adapter would parse it. */
   usage?: Usage
   /** Keep running after printing the result. */
@@ -61,7 +63,7 @@ if (step.spawnSleeper) {
   while (!existsSync(pidFile)) await sleep(10)
 }
 if (step.sleepMs) await sleep(step.sleepMs)
-if (step.result) emit({ type: 'result', result: step.result, usage: step.usage })
+if (step.result || step.lead) emit({ type: 'result', result: step.result, lead: step.lead, usage: step.usage })
 if (step.lingerMs) await sleep(step.lingerMs)
 if (step.stderr) process.stderr.write(step.stderr)
 process.exit(step.exit ?? 0)

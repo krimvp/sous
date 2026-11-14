@@ -21,7 +21,7 @@ function doctor(cwd: string, bin: string, keys: Record<string, string> = {}, hom
   return { code: res.status, out: res.stdout, err: res.stderr, ms: Date.now() - started }
 }
 
-test('sous doctor reports each harness with its version, the lead credentials and model, the git state, and what is missing', () => {
+test('sous doctor reports each harness with its version, the lead credentials and where leads run, the git state, and what is missing', () => {
   // claude answers --version, codex is missing, pi hangs on it (in a grandchild that holds the output open, as a
   // wrapper that forks without exec would), droid fails it.
   const bin = fakeBin([], ['git', 'sleep'])
@@ -32,8 +32,9 @@ test('sous doctor reports each harness with its version, the lead credentials an
   writeFileSync(join(workspace, 'README.md'), 'changed\n')
   writeFileSync(join(workspace, 'notes.md'), 'new\n')
 
+  // Without a lead credential, leads run on the first lead-certified harness on PATH.
   const none = doctor(workspace, bin)
-  assert.equal(none.code, 1, none.out + none.err)
+  assert.equal(none.code, 0, none.out + none.err)
   assert.ok(none.ms < 20_000, `doctor took ${none.ms} ms: the hung --version and what it started are not waited for`)
   assert.equal(none.out, [
     'claude: 2.1.296 (Claude Code); login not checked',
@@ -41,17 +42,22 @@ test('sous doctor reports each harness with its version, the lead credentials an
     'pi: on PATH; --version gave nothing in 5 s; login not checked',
     'droid: on PATH; --version exited 2: no such option; login not checked',
     'lead credentials: none',
-    'lead model: none',
+    'lead: on claude (haiku), the first lead-certified harness on PATH, as no lead provider has a credential',
     'worker models: claude (haiku), pi (harness default), droid (harness default)',
     `workspace: ${workspace}, git repository at its top level, 2 uncommitted changes (workers see HEAD only)`,
-    'not ready: no lead provider has a credential: set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then /login',
+    'ready: lead on claude (haiku), workers on claude, pi, droid',
     '',
   ].join('\n'))
+
+  // Without claude, no lead can run.
+  const noLead = doctor(workspace, fakeBin(['pi']))
+  assert.equal(noLead.code, 1, noLead.out + noLead.err)
+  assert.match(noLead.out, /^lead: none \(no lead provider has a credential, and no lead-certified harness, claude, is on PATH\)\n[\s\S]*\nnot ready: no lead can run: set OLLAMA_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY, or run pi, then \/login, or install claude and log in\n$/m)
 
   const keyed = doctor(workspace, bin, { ANTHROPIC_API_KEY: 'test-not-a-key', OPENAI_API_KEY: 'test-not-a-key' })
   assert.equal(keyed.code, 0, keyed.out + keyed.err)
   assert.doesNotMatch(keyed.out, /not-a-key/, 'no credential value is printed')
-  assert.match(keyed.out, /^lead credentials: anthropic \(ANTHROPIC_API_KEY\), openai \(OPENAI_API_KEY\)\nlead model: anthropic\/claude-haiku-5-5\n/m)
+  assert.match(keyed.out, /^lead credentials: anthropic \(ANTHROPIC_API_KEY\), openai \(OPENAI_API_KEY\)\nlead: in process on anthropic\/claude-haiku-5-5\n/m)
   assert.match(keyed.out, /\nready: lead on anthropic\/claude-haiku-5-5, workers on claude, pi, droid\n$/)
 
   // A Pi login file that is not JSON is reported, and does not hide the key in the environment.
@@ -60,7 +66,7 @@ test('sous doctor reports each harness with its version, the lead credentials an
   writeFileSync(join(home, '.pi', 'agent', 'auth.json'), '{not json')
   const broken = doctor(workspace, bin, { ANTHROPIC_API_KEY: 'test-not-a-key' }, home)
   assert.equal(broken.code, 0, broken.out + broken.err)
-  assert.match(broken.out, new RegExp(`^lead credentials: anthropic \\(ANTHROPIC_API_KEY\\)\nPi login: ${home}/.pi/agent/auth.json is not valid JSON; the Pi login is ignored \\(run pi, then /login\\)\nlead model: anthropic/claude-haiku-5-5$`, 'm'))
+  assert.match(broken.out, new RegExp(`^lead credentials: anthropic \\(ANTHROPIC_API_KEY\\)\nPi login: ${home}/.pi/agent/auth.json is not valid JSON; the Pi login is ignored \\(run pi, then /login\\)\nlead: in process on anthropic/claude-haiku-5-5$`, 'm'))
 })
 
 test('sous doctor says when the workspace is below the top level, outside git, or without a worker, and refuses arguments', () => {
