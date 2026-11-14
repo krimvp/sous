@@ -1,6 +1,6 @@
 // What a person sees when they ask for help, mistype a command, start in a dirty or nested checkout, or list runs.
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +11,7 @@ import { fakeLeadPlan } from './helpers/fake-lead.ts'
 import { fakeBin, sous, runDirOf } from './helpers/sous-proc.ts'
 import { fakePlan } from './helpers/fake-adapter.ts'
 
-const tmp = () => mkdtempSync(join(tmpdir(), 'sous-usage-'))
+const tmp = () => mkdtempSync(join(realpathSync(tmpdir()), 'sous-usage-'))
 const complete = (goal: string) => `${goal}\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'done' }] }])}`
 
 /** Runs sous with `args` and returns its exit code and its output. */

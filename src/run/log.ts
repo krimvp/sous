@@ -1,4 +1,5 @@
 // The append-only event log of one run (<runDir>/events.jsonl) and the single-writer lock.
+import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
@@ -99,19 +100,25 @@ function parseLog(complete: string): Event[] {
 
 interface Lock {
   pid: number
-  /** Process start time in clock ticks since boot (field 22 of /proc/<pid>/stat); absent off Linux. */
+  /** Process start time, as procStartTime gives it. */
   startTime?: string
 }
 
-/** A process's start time in clock ticks since boot (field 22 of /proc/<pid>/stat); undefined when it is gone. */
+/** A process's start time, so a reused pid is not mistaken for it; undefined when it is gone. On Linux it is clock ticks
+ * since boot (field 22 of /proc/<pid>/stat); without /proc (macOS) it is `ps -o lstart` in UTC, which counts in seconds. */
 export function procStartTime(pid: number): string | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-    // Fields after the command name, which is in parentheses and may contain spaces; starttime is field 22.
-    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
-  } catch {
-    return undefined
+  if (existsSync('/proc/self/stat')) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+      // Fields after the command name, which is in parentheses and may contain spaces; starttime is field 22.
+      return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+    } catch {
+      return undefined
+    }
   }
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } })
+  const start = ps.status === 0 ? ps.stdout.trim() : ''
+  return start === '' ? undefined : start
 }
 
 function alive(lock: Lock): boolean {

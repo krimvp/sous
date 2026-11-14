@@ -2,7 +2,7 @@
 // harness commands on PATH and a home directory with no Pi login. Keys in the environment are not real.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
@@ -13,7 +13,7 @@ const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 
 /** Runs `sous doctor` in `cwd` with harness stand-ins `bin` on PATH (and the real git), no Pi login, no provider key
  * but those in `keys`. */
-function doctor(cwd: string, bin: string, keys: Record<string, string> = {}, home = mkdtempSync(join(tmpdir(), 'sous-home-')), args: string[] = []) {
+function doctor(cwd: string, bin: string, keys: Record<string, string> = {}, home = mkdtempSync(join(realpathSync(tmpdir()), 'sous-home-')), args: string[] = []) {
   const env: NodeJS.ProcessEnv = { ...process.env, PATH: bin, HOME: home, ...keys }
   for (const name of ['OLLAMA_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'OPENAI_API_KEY']) if (!(name in keys)) delete env[name]
   const started = Date.now()
@@ -54,7 +54,7 @@ test('sous doctor reports each harness with its version, the lead credentials an
   assert.match(keyed.out, /\nready: lead on anthropic\/claude-haiku-5-5, workers on claude, pi, droid\n$/)
 
   // A Pi login file that is not JSON is reported, and does not hide the key in the environment.
-  const home = mkdtempSync(join(tmpdir(), 'sous-home-'))
+  const home = mkdtempSync(join(realpathSync(tmpdir()), 'sous-home-'))
   mkdirSync(join(home, '.pi', 'agent'), { recursive: true })
   writeFileSync(join(home, '.pi', 'agent', 'auth.json'), '{not json')
   const broken = doctor(workspace, bin, { ANTHROPIC_API_KEY: 'test-not-a-key' }, home)
@@ -83,7 +83,7 @@ test('sous doctor says when the workspace is below the top level, outside git, o
   assert.doesNotMatch(below.out, /git repository root/)
   assert.match(below.out, /^codex: on PATH; --version exited 1 with nothing; login not checked$/m)
 
-  const folder = doctor(mkdtempSync(join(tmpdir(), 'sous-doctor-')), bin, keys)
+  const folder = doctor(mkdtempSync(join(realpathSync(tmpdir()), 'sous-doctor-')), bin, keys)
   assert.equal(folder.code, 0, folder.out + folder.err)
   assert.match(folder.out, /^workspace: .*, not a git repository \(folder mode\)\nready: lead on ollama-cloud\/deepseek-v4.1-flash, workers on codex\n$/m)
 

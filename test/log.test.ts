@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { openLog, readEvents } from '../src/run/index.ts'
+import { openLog, procStartTime, readEvents } from '../src/run/index.ts'
 
 const tempRun = () => mkdtempSync(join(tmpdir(), 'sous-log-'))
 
@@ -30,8 +30,8 @@ test('refuses a lock held by a live supervisor; only a takeover (sous resume) re
   const lockPath = join(runDir, 'lock')
   const live = spawn('sleep', ['30'])
   t.after(() => live.kill())
-  const stat = readFileSync(`/proc/${live.pid}/stat`, 'utf8')
-  const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+  const startTime = procStartTime(live.pid!)
+  assert.ok(startTime, 'the live process has a start time')
 
   writeFileSync(lockPath, JSON.stringify({ pid: live.pid, startTime }))
   assert.throws(() => openLog(runDir), /locked by a live supervisor/)
@@ -44,6 +44,23 @@ test('refuses a lock held by a live supervisor; only a takeover (sous resume) re
   assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).pid, process.pid)
   log.close()
   assert.equal(existsSync(lockPath), false)
+})
+
+test('a live process keeps its start time when the time zone changes, so its lock still holds', (t) => {
+  const live = spawn('sleep', ['30'])
+  const tz = process.env.TZ
+  t.after(() => {
+    live.kill()
+    if (tz === undefined) delete process.env.TZ
+    else process.env.TZ = tz
+  })
+  process.env.TZ = 'America/New_York'
+  const runDir = tempRun()
+  const startTime = procStartTime(live.pid!)
+  assert.ok(startTime, 'the live process has a start time')
+  writeFileSync(join(runDir, 'lock'), JSON.stringify({ pid: live.pid, startTime }))
+  process.env.TZ = 'Europe/Madrid'
+  assert.throws(() => openLog(runDir, undefined, { takeOver: true }), /locked by a live supervisor/)
 })
 
 test('only one of many concurrent supervisors gets the lock', async () => {

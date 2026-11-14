@@ -41,7 +41,7 @@ decision to an append-only event log. Status, traces and recovery all come from 
 
 ## Requirements
 
-- **Node.js 22.19 or later**, on Linux or macOS. The tests run on Linux.
+- **Node.js 22.19 or later**, on Linux or macOS. The tests run on both.
 - **At least one worker CLI**, installed and logged in: [Claude Code](https://claude.com/claude-code),
   [Codex](https://github.com/openai/codex), [Pi](https://github.com/earendil-works/pi) or
   [Factory Droid](https://docs.factory.ai/cli/getting-started/overview). See [docs/harnesses.md](docs/harnesses.md).

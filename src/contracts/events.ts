@@ -18,7 +18,7 @@ export type EventBody =
    * (see Agents in the design); a resumed run keeps it. Absent when no lead provider had one, or in older logs. */
   | { type: 'run.created'; goal: string; workspace: string; graph?: GraphFile; definitions?: Definitions; maxDepth?: number; approveSplits?: boolean; mode?: RunMode; leadModel?: string }
   | { type: 'node.added'; node: NodeSpec; by: string }
-  /** `startTime`: the leader's start time (field 22 of /proc/<pid>/stat), so a reused pid is not mistaken for it.
+  /** `startTime`: the leader's start time (procStartTime in run/log.ts), so a reused pid is not mistaken for it.
    * `recovery`: the turn continues (or restarts) one that a supervisor stop cut short. */
   | { type: 'turn.started'; node: string; turn: number; mode: 'start' | 'resume'; harness?: HarnessName; agent?: string; pid: number; startTime?: string; outFile: string; errFile: string; prompt?: string; recovery?: boolean }
   | { type: 'turn.session'; node: string; turn: number; sessionId: string }

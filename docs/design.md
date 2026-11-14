@@ -579,7 +579,8 @@ error does the same before the supervisor exits with it. Either way `sous run` a
 `sous resume` hint whenever the run is not over.
 
 1. **Intent before effect.** `turn.started {node, turn, pid, startTime}` is appended immediately after
-   spawning (`startTime` is field 22 of `/proc/<pid>/stat`); `turn.session` once a session ID is known;
+   spawning (`startTime` is field 22 of `/proc/<pid>/stat` on Linux, `ps -o lstart` in UTC, to the second, without `/proc`, as
+   on macOS); `turn.session` once a session ID is known;
    `turn.ended {result}` after.
 2. **Output goes to files**, so a turn that finishes while the supervisor is down leaves its result on disk.
 3. **The lock.** `sous resume` removes a lock whose holder is gone (pid plus start time) and refuses a live

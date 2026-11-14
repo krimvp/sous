@@ -141,7 +141,9 @@ test('a recorded pid now used by another process is treated as dead: that proces
   const runDir = await killDuringTurn(workspace, graph, sessions, 'w')
   const turn = readEvents(runDir).find(started('w', 1))!
   process.kill(-pidOf(turn), 'SIGKILL')
-  // Another process (its own group leader) now has the recorded pid's place; its start time differs.
+  // Another process (its own group leader) now has the recorded pid's place; its start time differs. Without /proc
+  // (macOS) start times count in seconds, so the decoy starts in a later second than the turn.
+  await sleep(1000)
   const decoy = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' })
   t.after(() => decoy.kill('SIGKILL'))
   const file = join(runDir, 'events.jsonl')

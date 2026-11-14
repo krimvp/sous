@@ -2,7 +2,7 @@
 // the supervisor needs, and its adapter drives a stand-in CLI as the supervisor needs. See test/conformance/harnesses.ts.
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, test } from 'node:test'
@@ -16,7 +16,7 @@ import type { HarnessName, ParsedTurn, TurnSpec } from '../src/contracts/index.t
 import { CONFORMANCE, NOTE, RECORDINGS, recording, recordingUrl } from './conformance/harnesses.ts'
 import { gitWorkspace } from './helpers/git-repo.ts'
 
-const tempDir = () => mkdtempSync(join(tmpdir(), 'sous-conformance-'))
+const tempDir = () => mkdtempSync(join(realpathSync(tmpdir()), 'sous-conformance-'))
 const MCP_SERVER = fileURLToPath(new URL('../src/mcp.ts', import.meta.url))
 
 // Stand-ins for every harness CLI, first on PATH. Each records how it was started, then replays a recording
