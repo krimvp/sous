@@ -83,8 +83,13 @@ To run from a clone instead, use `node src/cli.ts` in place of `sous`. Node runs
    sous run "Add greeting.txt containing hello, with a check that verifies it"
    ```
 
-5. When the run is complete, examine the branch it names, for example `sous/<run-id>`. Merging that branch is your
-   decision.
+5. When the run is complete, examine the result it names on its last line: `result: branch sous/<run-id>` in git mode,
+   or `result: folder .../.sous/runs/<run-id>/output` in folder mode. Merging that branch is your decision.
+
+If a question or an approval request appears, answer it from a second terminal with the command the run prints. If
+the run stops (Ctrl-C, a crash, a closed terminal), it prints `stopped; continue with: sous resume <run-id>`. If it
+fails, `sous status` shows each node with its reason, and `.sous/runs/<run-id>/nodes/<node>/turn-<k>.err` holds a
+failed worker's stderr. `sous run` exits 0 only when the run completed.
 
 ## Commands
 
@@ -99,9 +104,10 @@ To run from a clone instead, use `node src/cli.ts` in place of `sous`. Node runs
 | `sous cancel <node>` | Stops a node and its subtree, or rejects a gate. |
 | `sous resume [run-id]` | Continues a run after Ctrl-C or a crash. |
 | `sous ui [--port <n>]` | Serves a local web page that shows the runs, live or finished. It listens on `127.0.0.1` only, needs the token in the address it prints, and only reads the runs. |
-| `sous export atif` | Writes `.sous/runs/<run-id>/trace.atif.json`. |
-| `sous export otlp` | Sends the trace to Langfuse. Needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. |
+| `sous export atif [run-id]` | Writes `.sous/runs/<run-id>/trace.atif.json`. |
+| `sous export otlp [run-id]` | Sends the trace to Langfuse. Needs `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. |
 | `sous doctor` | Shows if a run could start here, and what is missing. |
+| `sous send <to> '<text>'`, `sous receive [seconds]` | For workers inside a run: tell a sibling or the lead something, or read the messages waiting (see [While a run works](#while-a-run-works)). |
 | `sous --help`, `sous --version` | Shows the usage, or the installed version. `sous <command> --help` shows one command. |
 
 Send `answer`, `approve` and `cancel` from a second terminal while the run is active. When more than one run is
@@ -111,8 +117,9 @@ Useful options for `sous run`:
 
 - `--max-depth <n>`: how deep leads can nest, from 1 to 8. The default is 3.
 - `--agents <file>`: agent definitions and model limits for a goal run. See [Agents](#agents).
-- `--approve-splits`: each split that a splitter proposes waits for your approval. It needs an agent named
-  `splitter`. See [Splitter](#splitter).
+- `--approve-splits`: each split that a splitter proposes waits for your approval. It needs a possible splitter: an
+  agent named `splitter`, a lead with `roles.splitter` in a graph file, or any agent you define that does not run
+  `lead` (a lead may give it the splitter role). See [Splitter](#splitter).
 
 Every command also accepts `--workspace <dir>`: the directory to work in. The default is the current directory, or
 the repository root when you are inside a git repository.
@@ -259,8 +266,8 @@ A lead can complete even when a check failed. Then `sous run` and `sous status` 
   output for 10 minutes is reported once as `turn.stalled`. `sous ui` shows the tree, a timeline, each lead's decisions
   and each worker's turns.
 - **You can stop and continue.** Press Ctrl-C to stop a run. `sous resume` continues it. A finished turn is recorded and
-  not repeated. An interrupted worker continues its session with a note to examine the workspace again. A node that is
-  interrupted more than 3 times fails.
+  not repeated. An interrupted worker continues its session with a note to examine the workspace again. A node whose turn is
+  cut short by a stop more than 3 times fails.
 
 ## Security
 
@@ -274,13 +281,18 @@ worker can forge an approval, an answer or a cancel. Until workers are sandboxed
 
 ## Documentation
 
+[docs/README.md](docs/README.md) lists every document and who it is for:
+
 - [docs/design.md](docs/design.md): concepts, architecture, recovery, merging and the roadmap.
 - [docs/harnesses.md](docs/harnesses.md): the worker CLIs, what sous keeps out of them, and how to add one.
+- [docs/architecture.md](docs/architecture.md): the code map, for contributors.
 - [.agents/skills/sous](.agents/skills/sous/SKILL.md): a skill that teaches a coding agent to start, watch, steer and
   export runs. Claude Code finds it through `.claude/skills`.
-- [CHANGELOG.md](CHANGELOG.md): the changes in each release.
-- [krimvp.github.io/sous](https://krimvp.github.io/sous/): the landing page.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to build, test and send changes.
+- [AGENTS.md](AGENTS.md): the rules for coding agents that work on sous.
+- [CHANGELOG.md](CHANGELOG.md): the changes in each release.
+- [krimvp.github.io/sous](https://krimvp.github.io/sous/): the landing page. Its source is in `site/` and
+  [docs/site/](docs/site/README.md).
 
 ## License
 

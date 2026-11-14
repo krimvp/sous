@@ -14,7 +14,7 @@ sous export atif|otlp [run-id] [--workspace <dir>]
 sous --help | --version   (also `sous <command> --help`; the usage goes to stdout, exit 0)
 sous ui [--port <n>] [--workspace <dir>]   (serves a local page of the runs, live or finished, until stopped)
 sous doctor [--workspace <dir>]  (each harness on PATH with its version, not its login; lead credentials and model; git state; exit 0 when a run could start)
-sous send <to> 'text'     (inside a worker: to a sibling or its lead; workers learn this from their brief)
+sous send <to> 'text'     (inside a worker: to a sibling or its lead, at most 5 per worker over the run; workers learn this from their brief)
 sous receive [seconds]    (inside a worker: its waiting messages, waiting up to 60 seconds for one)
 ```
 
@@ -28,10 +28,14 @@ prints `sous: <what is wrong>` and the usage on stderr and exits 2; a refusal af
 goal, `--agents` with a graph file, a missing run) is one `sous: ...` line and exits 1. An argument to `run` that
 names an existing file is a graph file; anything else is a goal, except a single word that ends in `.json` or holds a
 path separator, which is refused as a mistyped file name. `--agents` is for goal runs only.
-`--approve-splits` needs a `splitter` agent: each proposed split waits for `sous approve <lead>` or
-`sous answer <lead> "<changes>"`.
+`--approve-splits` needs a possible splitter (an agent named `splitter`, a graph lead with `roles.splitter`, or any
+defined agent that does not run `lead`, which a lead may give the role): each proposed split waits for
+`sous approve <lead>` or `sous answer <lead> "<changes>"`.
 
 ## Definitions (graph file or `--agents` file)
+
+A graph file is `{ "goal", "nodes", "agent"?, "agents"?, "models"? }`; an `--agents` file has only the last three.
+Unknown keys are rejected.
 
 | Key | Meaning |
 |---|---|
@@ -55,9 +59,9 @@ and `provider/model` for `pi` and `lead` (`ollama-cloud/deepseek-v4.1-flash`, `a
 |---|---|---|
 | `id` | all | unique; starts with a letter, digit, `_` or `-`, then letters, digits, `.`, `_`, `-`; `root`, `person`, `integrator`, `splitter` and `splitter.*` are reserved |
 | `kind` | all | `work` (agent in its own worktree or folder), `check` (shell command, exit 0 passes, runs on the merged result, or in folder mode in its own folder with `results/` linked), `lead` (splits work), `gate` (waits for `sous approve`) |
-| `brief` | work, lead, gate | the task, or what the person approves |
+| `brief` | work, lead, gate | the task, or what the person approves (required) |
 | `acceptance` | work, lead | criteria shown to the agent |
-| `command` | check, work | a check's command, or a work node's acceptance check |
+| `command` | check, work | a check's command (required), or a work node's acceptance check |
 | `needs` | all | node IDs that must complete first (work nodes: once merged or collected); any nodes in the file, without cycles. A lead's children may only need earlier siblings |
 | `agent`, `model` | work, lead | which agent; a model for this node only |
 | `roles` | lead | `{ "splitter": "<agent>" }`: the splitter for this lead and its subtree (inherited; overrides the agent named `splitter`); a CLI agent |
@@ -77,14 +81,14 @@ its first). New agents exist for the rest of the run. A lead child may set `role
 ```
 .sous/runs/<run-id>/
   events.jsonl          the run's only state (one JSON event per line)
-  nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn
+  nodes/<node>/turn-<k>.jsonl, .err    raw output of each worker turn (Codex also turn-<k>.schema.json, Droid turn-<k>.settings.json)
   leads/<node>/         each lead's durable conversation
   integration/          git mode: worktree of branch sous/<run-id> (the result)
   worktrees/<node>/     git mode: each worker's worktree, branch sous/<run-id>.<node> (and the splitter's, reset per request)
   output/               folder mode: the result, the workers' files collected
   work/<node>/          folder mode: each worker's, check's or splitter's own folder, with links workspace/ and results/
   splits/<lead>.json    the splitter's proposal for each lead
-  commands/             answer/approve/cancel requests waiting for the supervisor
+  commands/             answer/approve/cancel and workers' send/receive requests waiting for the supervisor
   trace.atif.json       after `sous export atif`
 ```
 
