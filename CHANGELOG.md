@@ -3,7 +3,7 @@
 Releases of `@krimvp/sous`. Each release is a PR titled "Release x.y.z" and a `vx.y.z` git tag on its merge commit.
 Add changes under Unreleased as they merge; the release PR renames that heading.
 
-## Unreleased
+## 0.2.0 (2026-11-14)
 
 - macOS: `sous resume` stops a turn that outlived a killed supervisor, and a run's lock tells a reused pid from its
   holder. Both need a process's start time, which sous read only from Linux's `/proc`; without it, sous now asks `ps`,
