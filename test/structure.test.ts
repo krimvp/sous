@@ -38,8 +38,10 @@ const moduleOf = (path: string) => {
   return rest.length ? first : first === 'self.ts' ? 'self' : first
 }
 
-/** The relative specifiers a file imports or re-exports, statically or dynamically. */
-const imports = (text: string) => [...text.matchAll(/(?:\bfrom\s+|\bimport\s*\(\s*)'(\.[^']*)'/g)].map((m) => m[1])
+/** The relative specifiers a file imports or re-exports: `from '…'`, `import('…')` and the side-effect `import '…'`, in
+ * either quote style. */
+const imports = (text: string) =>
+  [...text.matchAll(/(?:\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)(['"])(\.[^'"]*)\1/g)].map((m) => m[2])
 
 test('every directory under src/ is a module with an index.ts and a row in the table', () => {
   for (const name of readdirSync(SRC).filter((n) => statSync(join(SRC, n)).isDirectory())) {

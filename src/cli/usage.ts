@@ -2,7 +2,7 @@
 // understood gets.
 import { MAX_WAIT_SECONDS } from '../commands/index.ts'
 
-export const USAGE = `usage:
+const USAGE = `usage:
   sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
   sous resume [run-id] [--workspace <dir>]
   sous status [run-id] [--workspace <dir>]

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // sous's MCP server for one worker: a stdio server (newline-delimited JSON-RPC 2.0) with the tools `send` and `receive`,
-// the same as `sous send` and `sous receive`. Its harness starts it for the worker's turn with SOUS_RUN_DIR and SOUS_NODE set; it
-// writes command files and never the log, so the supervisor stays the only writer.
+// the same as `sous send` and `sous receive`. Its harness starts it for the worker's turn with SOUS_RUN_DIR, SOUS_NODE and
+// SOUS_TURN set, and it refuses to start without them. It writes command files and never the log, so the supervisor stays
+// the only writer.
 import { createInterface } from 'node:readline'
 import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets, workerReceive, workerSend } from './commands/index.ts'
 import { fold, readEvents } from './run/index.ts'

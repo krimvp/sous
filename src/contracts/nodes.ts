@@ -22,8 +22,8 @@ export interface NodeSpec {
   model?: string
   /** Leads: the agents that fill roles for this lead and its subtree (see Roles). */
   roles?: Roles
-  /** A standing node is an independent agent of the run (the integrator): it takes requests through its
-   * inbox, goes idle between them, and never completes on its own. Internal; not allowed in graph files. */
+  /** A standing node is an independent agent of the run (the integrator, and each splitter): it takes requests through
+   * its inbox, goes idle between them, and never completes on its own. Internal; not allowed in graph files. */
   standing?: boolean
 }
 

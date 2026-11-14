@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// sous: run a graph file or a goal, resume a stopped run, show a run's status, answer, approve and cancel nodes of a
-// running run.
+// sous, the program: it gives the CLI (src/cli/) the real worker adapters and lead runner and runs the command line.
+// What it takes is the usage text in src/cli/usage.ts.
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { main } from './cli/index.ts'
