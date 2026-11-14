@@ -1,10 +1,11 @@
 // The last mile of a run: `sous diff` shows what it changed and `sous clean` removes what it no longer needs, in real
 // git repositories (and a plain folder) through the real CLI.
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { openLog } from '../src/log.ts'
 import { fakePlan } from './fixtures/fake-adapter.ts'
 import { git, gitWorkspace } from './fixtures/git-repo.ts'
 import type { FakeStep } from './fixtures/fake-worker.ts'
@@ -147,6 +148,27 @@ test('sous clean refuses a running and a stopped run, and --all skips them; a br
   assert.equal(cleaned.code, 0, cleaned.output)
   assert.deepEqual(branches(workspace), ['main', `sous/${id}`, `sous/${id}.other`])
   assert.equal(worktrees(workspace), 1)
+})
+
+test('sous clean leaves a worktree outside the run alone when the logged path is a link to it inside the run', async () => {
+  const workspace = gitWorkspace('sous-clean-')
+  const graph = join(workspace, 'graph.json')
+  writeFileSync(graph, JSON.stringify({ goal: 'one file', nodes: [work('a', [{ write: { 'a.txt': 'a\n' }, result: done('wrote a') }])] }))
+  assert.equal((await ran(['run', graph], workspace)).code, 0)
+  const runDir = runDirOf(workspace)!
+  const id = runDir.split('/').at(-1)!
+  // Another worktree of the repository, on a branch named like the run's, reached through a link in the run directory.
+  const outside = join(mkdtempSync(join(tmpdir(), 'sous-outside-')), 'tree')
+  git(workspace, 'worktree', 'add', '-q', '-b', `sous/${id}.evil`, outside)
+  symlinkSync(outside, join(runDir, 'evil'))
+  const log = openLog(runDir)
+  log.append({ type: 'worktree.created', node: 'evil', path: join(runDir, 'evil'), branch: `sous/${id}.evil`, base: 'HEAD' })
+  log.close()
+  const cleaned = await ran(['clean'], workspace)
+  assert.equal(cleaned.code, 0, cleaned.output)
+  assert.doesNotMatch(cleaned.output, /evil/)
+  assert.ok(existsSync(outside))
+  assert.ok(branches(workspace).includes(`sous/${id}.evil`))
 })
 
 test('folder mode: sous diff lists the output files; sous clean removes the work folders, not output or what the links point to', async () => {
