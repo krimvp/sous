@@ -2,11 +2,10 @@
 
 import { spawn } from 'node:child_process'
 import { closeSync, mkdirSync, openSync, readFileSync } from 'node:fs'
-import { dirname, extname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { withoutIdentity } from '../send.ts'
-import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../types.ts'
-import type { LeadCall, LeadResult, ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../types.ts'
+import { dirname } from 'node:path'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA, withoutIdentity } from '../contracts/index.ts'
+import type { LeadCall, LeadResult, ParsedTurn, RunningTurn, TurnResult, TurnSpec } from '../contracts/index.ts'
+import { MCP_PROGRAM } from '../self.ts'
 
 export type Exit = Awaited<RunningTurn['exit']>
 
@@ -46,7 +45,7 @@ export function spawnTurn(cmd: string, args: string[], spec: TurnSpec): { pid: n
 export function sousServer(spec: TurnSpec): { command: string; args: string[]; env: Record<string, string> } | undefined {
   if (!spec.env) return undefined
   // mcp.ts in the sources, mcp.js in the published package.
-  return { command: process.execPath, args: [fileURLToPath(new URL(`../mcp${extname(import.meta.url)}`, import.meta.url))], env: spec.env }
+  return { command: process.execPath, args: [MCP_PROGRAM], env: spec.env }
 }
 
 // Harness output is data from another program: every field is optional and may have any type.

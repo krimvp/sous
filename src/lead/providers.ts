@@ -14,7 +14,7 @@ import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex'
 import type { ModelRef } from '@earendil-works/pi-durable'
-import { leadCredentialFix } from '../types.ts'
+import { leadCredentialFix } from '../contracts/index.ts'
 
 const AUTH_FILE = join(homedir(), '.pi/agent/auth.json')
 /** pi-ai refreshes an OAuth token with less validity left than this (its DEFAULT_OAUTH_MINIMUM_VALIDITY_MS, not

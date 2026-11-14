@@ -6,7 +6,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
+import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../contracts/index.ts'
 import { jsonLines, num, RESULT_INSTRUCTION, resultFromText, sessionFromOutput, sousServer, spawnTurn, str } from './common.ts'
 import type { Json } from './common.ts'
 

@@ -1,8 +1,9 @@
 // ATIF-v1.8 export (Harbor RFC 0001): one document per run; each node is an embedded subagent trajectory.
 // ATIF rejects unknown keys, so everything sous-specific goes in `extra`.
 
-import type { Usage } from '../types.ts'
-import { loadRun, SOUS_VERSION, usagesOf, viewRun } from './run.ts'
+import type { Usage } from '../contracts/index.ts'
+import { SOUS_VERSION } from '../self.ts'
+import { loadRun, usagesOf, viewRun } from './run.ts'
 import type { LoadedRun, NodeView, ParseTurn, TurnView } from './run.ts'
 
 const ATIF_VERSION = 'ATIF-v1.8'

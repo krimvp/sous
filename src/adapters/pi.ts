@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
+import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../contracts/index.ts'
 import { jsonLines, num, RESULT_INSTRUCTION, resultFromText, spawnTurn, str, textOf } from './common.ts'
 
 function run(spec: TurnSpec, sessionId: string) {

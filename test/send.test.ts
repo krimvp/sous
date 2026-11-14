@@ -8,15 +8,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { test } from 'node:test'
-import { openLog, readEvents, writeCommand } from '../src/log.ts'
-import { fold } from '../src/state.ts'
-import { runSupervisor } from '../src/supervisor.ts'
-import type { ChildSpec, Event, EventBody, NodeSpec } from '../src/types.ts'
-import { fakeAdapter, fakePlan } from './fixtures/fake-adapter.ts'
-import { fakeLeadPlan, fakeLeadRunner } from './fixtures/fake-lead.ts'
-import type { FakeLeadStep } from './fixtures/fake-lead.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
+import { fold, openLog, readEvents, writeCommand } from '../src/run/index.ts'
+import { runSupervisor } from '../src/supervisor/index.ts'
+import type { ChildSpec, Event, EventBody, NodeSpec } from '../src/contracts/index.ts'
+import { fakeAdapter, fakePlan } from './helpers/fake-adapter.ts'
+import { fakeLeadPlan, fakeLeadRunner } from './helpers/fake-lead.ts'
+import type { FakeLeadStep } from './helpers/fake-lead.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
 
 const CLI = new URL('../src/cli.ts', import.meta.url).pathname
 const MCP = new URL('../src/mcp.ts', import.meta.url).pathname
@@ -272,6 +271,8 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
   try {
     const init = await call(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } })
     assert.deepEqual(init.result.capabilities, { tools: {} })
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+    assert.deepEqual(init.result.serverInfo, { name: 'sous', version }, 'it reports the version of the package')
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n') // no reply
     const { tools } = (await call(2, 'tools/list')).result
     assert.deepEqual(tools.map((t: { name: string }) => t.name), ['send', 'receive'])

@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { git, gitWorkspace } from './fixtures/git-repo.ts'
-import { fakeLeadPlan } from './fixtures/fake-lead.ts'
-import { fakeBin, sous, runDirOf } from './fixtures/sous-proc.ts'
-import { fakePlan } from './fixtures/fake-adapter.ts'
+import { git, gitWorkspace } from './helpers/git-repo.ts'
+import { fakeLeadPlan } from './helpers/fake-lead.ts'
+import { fakeBin, sous, runDirOf } from './helpers/sous-proc.ts'
+import { fakePlan } from './helpers/fake-adapter.ts'
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'sous-usage-'))
 const complete = (goal: string) => `${goal}\n${fakeLeadPlan([{ calls: [{ tool: 'complete', summary: 'done' }] }])}`

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { openLog, procStartTime, writeCommand } from '../src/log.ts'
-import { WAIT_EXIT_CODES } from '../src/types.ts'
-import type { EventBody, RunStatus, RunWait } from '../src/types.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { sous, runDirOf, waitFor } from './fixtures/sous-proc.ts'
+import { openLog, procStartTime, writeCommand } from '../src/run/index.ts'
+import { WAIT_EXIT_CODES } from '../src/contracts/index.ts'
+import type { EventBody, RunStatus, RunWait } from '../src/contracts/index.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { sous, runDirOf, waitFor } from './helpers/sous-proc.ts'
 
 async function ran(args: string[], workspace: string) {
   const r = sous(args, workspace, join(workspace, 'sessions'))

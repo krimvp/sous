@@ -4,9 +4,9 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { startUi } from '../src/ui.ts'
-import type { Event, EventBody, ParsedTurn } from '../src/types.ts'
-import { sous } from './fixtures/sous-proc.ts'
+import { startUi } from '../src/ui/index.ts'
+import type { Event, EventBody, ParsedTurn } from '../src/contracts/index.ts'
+import { sous } from './helpers/sous-proc.ts'
 
 // The lead fixture (see trace-atif.test.ts): `lead` spawns `impl` (work, completes after one Claude turn) and `docs`
 // (lead, spawns `readme`); the person interrupts the lead, which cancels docs and completes the run.
@@ -132,6 +132,35 @@ test("sous ui shows a running run's running turn with when its output last grew"
   assert.equal(await live(), undefined, 'a stopped run has no running turn')
   writeFileSync(join(dir, 'lock'), JSON.stringify({ pid: process.pid }) + '\n')
   assert.deepEqual(await live(), { number: 1, startedAt: '2026-10-13T09:00:01.000Z', outputAt: statSync(out).mtime.toISOString() })
+})
+
+test('sous ui shows a node from one reading of a log that grows while it answers', async (t) => {
+  const ws = mkdtempSync(join(tmpdir(), 'sous-ui-'))
+  const dir = join(ws, '.sous', 'runs', RUN)
+  mkdirSync(dir, { recursive: true })
+  const out = join(dir, 'turn-1.jsonl')
+  writeFileSync(out, '{}\n')
+  const log = join(dir, 'events.jsonl')
+  writeFileSync(log, [
+    { seq: 1, at: '2026-10-13T09:00:00.000Z', type: 'run.created', goal: 'g', workspace: ws },
+    { seq: 2, at: '2026-10-13T09:00:00.000Z', type: 'node.added', node: { id: 'w', kind: 'work', brief: 'b' }, by: 'graph' },
+    { seq: 3, at: '2026-10-13T09:00:01.000Z', type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness: 'claude', pid: 1, outFile: out, errFile: `${out}.err` },
+  ].map((e) => JSON.stringify(e) + '\n').join(''))
+  // The supervisor fails the node while the UI reads the node's turn file.
+  let grown = false
+  const server = await startUi(ws, (): ParsedTurn => {
+    if (!grown) appendFileSync(log, JSON.stringify({ seq: 4, at: '2026-10-13T09:00:02.000Z', type: 'node.failed', node: 'w', reason: 'stopped' }) + '\n')
+    grown = true
+    return { items: [], ended: false }
+  })
+  t.after(() => server.close())
+  const url = new URL(server.url)
+  const node = async () => {
+    const w = await (await fetch(`${url.origin}/api/node?${new URLSearchParams({ run: RUN, node: 'w', token: url.searchParams.get('token')! })}`)).json()
+    return [w.status, w.outcome ?? null, w.events.length]
+  }
+  assert.deepEqual(await node(), ['running', null, 1], 'the status comes from the same events as the rest')
+  assert.deepEqual(await node(), ['failed', 'stopped', 2])
 })
 
 test('sous ui caps the long texts of a node it sends', async (t) => {

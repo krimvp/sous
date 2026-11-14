@@ -5,11 +5,11 @@ import { existsSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { openLog } from '../src/log.ts'
-import { fakePlan } from './fixtures/fake-adapter.ts'
-import { git, gitWorkspace } from './fixtures/git-repo.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
-import { runDirOf, sous, waitFor } from './fixtures/sous-proc.ts'
+import { openLog } from '../src/run/index.ts'
+import { fakePlan } from './helpers/fake-adapter.ts'
+import { git, gitWorkspace } from './helpers/git-repo.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
+import { runDirOf, sous, waitFor } from './helpers/sous-proc.ts'
 
 const done = (summary: string) => ({ status: 'done' as const, summary })
 const work = (id: string, steps: FakeStep[]) => ({ id, kind: 'work', agent: 'claude', brief: `Do ${id}.\n${fakePlan(steps)}` })

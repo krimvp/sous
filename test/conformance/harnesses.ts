@@ -1,4 +1,4 @@
-// What every harness must declare to take part in the conformance suite. A harness added to HARNESSES (src/types.ts)
+// What every harness must declare to take part in the conformance suite. A harness added to HARNESSES (src/contracts/workers.ts)
 // fails type checking until it has an entry here, and the suite until its recordings exist and pass.
 //
 // test/conformance.test.ts runs free, on every `npm run check`: recordings and a stand-in CLI.
@@ -6,7 +6,7 @@
 // a passing certification recorded in its PR.
 
 import { readFileSync } from 'node:fs'
-import type { HarnessName } from '../../src/types.ts'
+import type { HarnessName } from '../../src/contracts/index.ts'
 
 export interface Conformance {
   /** The `type` of the event that ends a turn in the harness's output. */

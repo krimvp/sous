@@ -3,10 +3,8 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
-import { RUNTIMES } from '../agents.ts'
-import { LEAD_ROLE } from '../brief.ts'
-import { ROLES } from '../types.ts'
-import type { LeadCall, LeadHost, LeadRead } from '../types.ts'
+import { CHILD_KINDS, LEAD_RULES, LEAD_SPLIT_RULE, MAX_ENTRIES, MAX_READ, ROLES, RUNTIMES } from '../contracts/index.ts'
+import type { LeadCall, LeadHost, LeadRead } from '../contracts/index.ts'
 
 const strict = { additionalProperties: false }
 const NewAgent = Type.Object({
@@ -17,7 +15,7 @@ const NewAgent = Type.Object({
 }, strict)
 const Child = Type.Object({
   id: Type.String({ description: 'Unique id for the child in the whole run, e.g. "api-tests"' }),
-  kind: StringEnum(['work', 'check', 'lead', 'gate'] as const, {
+  kind: StringEnum(CHILD_KINDS, {
     description: 'work: an agent does it; check: a shell command; lead: splits further; gate: the person must approve before dependants start',
   }),
   brief: Type.Optional(Type.String({ description: 'What to do, self-contained (work, lead), or what the person approves (gate)' })),
@@ -57,8 +55,8 @@ const readSchemas = {
   }, strict),
 } satisfies Record<LeadRead['tool'], TSchema>
 const readDescriptions: Record<LeadRead['tool'], string> = {
-  list_files: `List the files of the workspace and of the results so far, recursively, at most 200 entries (.git, .sous and node_modules are left out). ${PATH}`,
-  read_file: `Read up to 32 KB of a text file of the workspace or of the results so far; the answer says which offset reads on. ${PATH}`,
+  list_files: `List the files of the workspace and of the results so far, recursively, at most ${MAX_ENTRIES} entries (.git, .sous and node_modules are left out). ${PATH}`,
+  read_file: `Read up to ${MAX_READ / 1024} KB of a text file of the workspace or of the results so far; the answer says which offset reads on. ${PATH}`,
 }
 
 const descriptions: Record<LeadCall['tool'], string> = {
@@ -71,6 +69,15 @@ const descriptions: Record<LeadCall['tool'], string> = {
   escalate: 'Ask your parent (or the person) a question you cannot answer yourself.',
 }
 
+/** The role of a lead run by the lead runner, which acts through the tools above. A lead on a CLI harness gets
+ * HARNESS_LEAD_ROLE (src/prompts/lead.ts) instead; both share LEAD_SPLIT_RULE and LEAD_RULES. */
+const role = [
+  'You are a lead in sous. You cannot do work yourself: you have no shell, web or way to write files, only the tools below.',
+  '- You may look at files with list_files and read_file before you decide how to split; keep it brief, your children do the work.',
+  LEAD_SPLIT_RULE,
+  '- After acting, end your turn by answering briefly. Each child\'s outcome, question or message wakes you as a new message.',
+  ...LEAD_RULES,
+].join('\n')
 
 /** The orchestration extension of lead `node`. Every call goes to the host, which is idempotent per call ID, so a call
  * replayed after a crash returns exactly the original result: a different replay text made a model stop early. Reads
@@ -101,6 +108,6 @@ export function leadExtension(node: string, host: LeadHost): Extension {
   return defineExtension({
     name: 'sous-lead',
     tools: [...names.map(tool), ...readers.map(reader)],
-    sections: [section('role', () => LEAD_ROLE, { tag: false })],
+    sections: [section('role', () => role, { tag: false })],
   })
 }

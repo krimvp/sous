@@ -4,8 +4,8 @@
 // a LeadResult.
 
 import { randomUUID } from 'node:crypto'
-import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../types.ts'
-import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../contracts/index.ts'
+import type { ParsedTurn, TraceItem, TurnSpec, Usage, WorkerAdapter } from '../contracts/index.ts'
 import { jsonLines, num, sousServer, spawnTurn, str, textOf, toLeadResult, toTurnResult } from './common.ts'
 
 /** A lead turn: Claude's own system prompt replaced by the lead's role; Read, Glob and Grep only, which `--restricted`

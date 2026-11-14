@@ -6,15 +6,14 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { readEvents } from '../src/log.ts'
-import { fold } from '../src/state.ts'
-import type { Event, LeadCall } from '../src/types.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { fakePlan } from './fixtures/fake-adapter.ts'
-import type { FakeStep } from './fixtures/fake-worker.ts'
-import { runDirOf, sous, waitFor } from './fixtures/sous-proc.ts'
+import { fold, readEvents } from '../src/run/index.ts'
+import type { Event, LeadCall } from '../src/contracts/index.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { fakePlan } from './helpers/fake-adapter.ts'
+import type { FakeStep } from './helpers/fake-worker.ts'
+import { runDirOf, sous, waitFor } from './helpers/sous-proc.ts'
 
-const CRASH = new URL('./fixtures/crash-supervisor.ts', import.meta.url).pathname
+const CRASH = new URL('./helpers/crash-supervisor.ts', import.meta.url).pathname
 
 const lead = (answer: string, ...calls: LeadCall[]): FakeStep => ({ lead: { answer, calls } })
 const work = (id: string) => ({ id, kind: 'work' as const, brief: `Write ${id}.txt.\n${fakePlan([{ write: { [`${id}.txt`]: id }, result: { status: 'done', summary: `wrote ${id}` } }])}` })

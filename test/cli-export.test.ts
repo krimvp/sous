@@ -7,9 +7,9 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
-import { fakePlan } from './fixtures/fake-adapter.ts'
-import { gitWorkspace } from './fixtures/git-repo.ts'
-import { runDirOf, sous } from './fixtures/sous-proc.ts'
+import { fakePlan } from './helpers/fake-adapter.ts'
+import { gitWorkspace } from './helpers/git-repo.ts'
+import { runDirOf, sous } from './helpers/sous-proc.ts'
 
 /** A workspace with one finished run (a worker that writes a file), and the sessions directory sous used. */
 async function finishedRun() {

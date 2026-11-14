@@ -2,8 +2,9 @@
 // node holds a chain per delivery with its tool calls and its answer; a spawned node hangs under its spawn call.
 
 import { createHash } from 'node:crypto'
-import type { Usage } from '../types.ts'
-import { loadRun, SOUS_VERSION, viewRun } from './run.ts'
+import type { Usage } from '../contracts/index.ts'
+import { SOUS_VERSION } from '../self.ts'
+import { loadRun, viewRun } from './run.ts'
 import type { LoadedRun, ParseTurn, TurnView } from './run.ts'
 
 type AttrValue = { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean }

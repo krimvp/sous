@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { checkAgents, integratorAgent } from '../src/agents.ts'
-import { fakeBin } from './fixtures/sous-proc.ts'
+import { checkAgents, integratorAgent } from '../src/definitions/index.ts'
+import { fakeBin } from './helpers/sous-proc.ts'
 
 test('the integrator is the graph\'s integrator agent, else the first available of codex, claude, pi, droid', () => {
   const missing = (...commands: string[]) => ({ commands, leadProviders: [] })

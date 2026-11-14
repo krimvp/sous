@@ -95,7 +95,7 @@ const { appendFileSync } = require('node:fs')
 const argv = process.argv.slice(2)
 if (argv[0] === 'mcp') {
   appendFileSync(${JSON.stringify(join(bin, 'listed'))}, 'listed\\n')
-  console.log(JSON.stringify([{ name: 'comitia' }, { name: 'my server' }, { name: 'docs' }, { name: 'a.b' }]))
+  console.log(JSON.stringify([{ name: 'chat' }, { name: 'my server' }, { name: 'docs' }, { name: 'a.b' }]))
   process.exit(0)
 }
 appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path').basename(process.argv[1]), argv, node: process.env.SOUS_NODE ?? null }) + '\\n')
@@ -107,7 +107,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     mkdirSync(join(file, '..'), { recursive: true })
     writeFileSync(file, text)
   }
-  write(join(home, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { comitia: { type: 'http', url: 'http://127.0.0.1:1', headers: { Authorization: 'secret' } } } }))
+  write(join(home, '.factory', 'mcp.json'), JSON.stringify({ mcpServers: { chat: { type: 'http', url: 'http://127.0.0.1:1', headers: { Authorization: 'secret' } } } }))
   write(join(home, '.factory', 'skills', 'tdd', 'SKILL.md'), '---\nname: test-first\n---\n')
   write(join(home, '.agents', 'skills', 'grilling', 'SKILL.md'), '# no frontmatter\n')
   write(join(home, 'plugin', 'skills', 'review', 'SKILL.md'), '---\nname: "review"\n---\n')
@@ -168,7 +168,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
       ['features.hooks=false', 'skills.include_instructions=false', 'features.apps=false', 'features.plugins=false'])
     assert.ok(cx.argv.includes('--ignore-rules'))
     assert.deepEqual(overrides.filter((o: string) => o.startsWith('mcp_servers')), [
-      'mcp_servers.comitia.enabled=false', 'mcp_servers.docs.enabled=false',
+      'mcp_servers.chat.enabled=false', 'mcp_servers.docs.enabled=false',
       'mcp_servers.dotted={command="false",args=[],enabled=false}', 'mcp_servers.web={url="http://127.0.0.1:9/",enabled=false}',
       'mcp_servers.canary={command="false",args=[],enabled=false}', 'mcp_servers.literal={url="http://127.0.0.1:9/",enabled=false}',
       'mcp_servers.inline={url="http://127.0.0.1:9/",enabled=false}',
@@ -183,7 +183,7 @@ appendFileSync(${JSON.stringify(rec)}, JSON.stringify({ cmd: require('node:path'
     // Every other server is replaced by a disabled stub, so none of its configuration (a token here) reaches the file.
     const stub = { type: 'stdio', command: 'false', args: [], disabled: true }
     assert.deepEqual(JSON.parse(readFileSync(after(d.argv, '--settings'), 'utf8')), {
-      mcp: { mcpServers: { comitia: stub, docs: stub, sous: { type: 'stdio', ...server, timeout: 90_000 } } },
+      mcp: { mcpServers: { chat: stub, docs: stub, sous: { type: 'stdio', ...server, timeout: 90_000 } } },
       hooks: { hooksDisabled: true },
       disabledSkills: ['test-first', 'grilling', 'review'],
     })

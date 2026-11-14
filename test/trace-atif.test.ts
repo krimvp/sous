@@ -4,11 +4,12 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessName, ParsedTurn } from '../src/types.ts'
+import type { HarnessName, ParsedTurn } from '../src/contracts/index.ts'
 import { exportAtif, toAtif } from '../src/trace/atif.ts'
-import { loadRun, SOUS_VERSION } from '../src/trace/run.ts'
-import { checkAtif } from './atif-checker.ts'
 import { getAdapter } from '../src/adapters/index.ts'
+import { SOUS_VERSION } from '../src/self.ts'
+import { loadRun } from '../src/trace/index.ts'
+import { checkAtif } from './helpers/atif-checker.ts'
 
 // The fixture run: `impl` (Claude) starts, fails its acceptance check, is resumed and completes; `verify` is a
 // check node; `docs` (Codex) is interrupted and fails; the log ends in a line cut off mid-append. Parsing raw
@@ -41,7 +42,7 @@ test('loadRun skips the truncated final event line and parses each turn with its
 test('loadRun rejects a corrupt line that is not the last one', () => {
   const dir = mkdtempSync(join(tmpdir(), 'sous-trace-'))
   writeFileSync(join(dir, 'events.jsonl'), '{"seq":1,"at":"2026-10-11T10:00:00Z","type":"run.cr\n{"seq":2}\n')
-  assert.throws(() => loadRun(dir, parseTurn), /events\.jsonl:1/)
+  assert.throws(() => loadRun(dir, parseTurn), /events\.jsonl line 1\b/)
 })
 
 test('the ATIF document passes the strict checker', () => {
@@ -228,8 +229,8 @@ test('a cancellation by the person comes from node.cancelled, and the lead\'s la
   cpSync(LEAD_RUN_DIR, dir, { recursive: true })
   const file = join(dir, 'events.jsonl')
   const lines = readFileSync(file, 'utf8').trim().split('\n')
-  lines.splice(20, 0, JSON.stringify({ seq: 99, at: '2026-10-11T11:00:17.000Z', type: 'node.cancelled', node: 'docs', by: 'person' }))
-  writeFileSync(file, lines.join('\n') + '\n')
+  lines.splice(20, 0, JSON.stringify({ at: '2026-10-11T11:00:17.000Z', type: 'node.cancelled', node: 'docs', by: 'person' }))
+  writeFileSync(file, lines.map((l, i) => JSON.stringify({ ...JSON.parse(l), seq: i + 1 })).join('\n') + '\n')
   const out = toAtif(loadRun(dir, parseTurn)) as Obj
   assert.deepEqual(checkAtif(out), [])
   const docs = trajectories(out).find((t) => t.trajectory_id.endsWith('/docs'))!

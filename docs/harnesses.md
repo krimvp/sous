@@ -1,9 +1,9 @@
 # Harnesses
 
-A harness is the coding-agent CLI a worker runs on. sous starts it for each turn in the worker's own git worktree,
-reads its output, and resumes its session when messages arrive. Four harnesses are built in; each is an agent of the
-same name (`claude`, `codex`, `pi`, `droid`). An agent counts as available when its CLI is on your `PATH`; the CLI must
-also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
+A harness is the coding-agent CLI that a worker runs on. For each turn, sous starts the CLI in the worker's own git
+worktree (or folder), reads its output, and resumes its session when messages arrive. Four harnesses are built in.
+Each is an agent of the same name (`claude`, `codex`, `pi`, `droid`). An agent is available when its CLI is on your
+`PATH`. The CLI must also be logged in, or the nodes it gets fail. `sous doctor` lists each one with its version.
 
 | Harness | CLI | Login | Messages between workers | Certified | Leads |
 |---|---|---|---|---|---|
@@ -36,7 +36,7 @@ there, `{ "agents": { "lead": { "runs": "claude" } } }`. Each lead turn is a tur
 of your settings) and ends with the calls it makes, which sous checks and applies after the turn, as it does for any
 lead. A harness leads only once its adapter has a lead mode and its certification passed the lead tests. Codex has a
 lead mode (Codex's read-only sandbox, `--output-schema`) that has not been certified yet: `SOUS_HARNESS=codex npm run
-certify` runs its lead tests, and on success Codex can join `LEAD_HARNESSES` in `src/types.ts` with its `certified.json`.
+certify` runs its lead tests, and on success Codex can join `LEAD_HARNESSES` in `src/contracts/workers.ts` with its `certified.json`.
 Pi and Droid have no lead mode, as sous knows no option that keeps them from writing (for Pi, offering only read tools;
 for Droid, that `droid exec` at its default autonomy changes nothing). A lead named on a harness that cannot lead is
 refused before the run starts.
@@ -63,10 +63,10 @@ Run it yourself (it costs model usage): `SOUS_HARNESS=droid npm run certify`. Ce
 temporary workspace to your `~/.codex/config.toml`, as every Codex run in a new workspace does.
 
 Every certification run writes `test/fixtures/conformance/<harness>/certified.json`: the output of `<cli> --version`,
-the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. The next
-`npm run certify` for a harness creates its file (none is committed yet, so until then the Certified column above
-is the only record). `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
-certified ones, so you can see when a harness has moved on and needs certifying again.
+the model, the date, and the tests that passed and failed. Commit it with the adapter change it certifies. Claude Code
+has this file. For Codex, Pi and Droid, the Certified column above is the only record until their next
+certification. `scripts/harness-versions.sh` prints the CLI versions installed on your machine next to the
+certified ones. Use it to see when a CLI has a new version that needs a new certification.
 
 ## What sous keeps out of workers
 
@@ -83,7 +83,7 @@ The project's own instruction files still apply, as each harness reads them:
 - **Pi:** no MCP, skills, prompt templates or context files, apart from the worktree's own `AGENTS.md` and `CLAUDE.md`,
   which sous passes to it.
 - **Droid:** your MCP servers and the project's are disabled, hooks are off, and your skills (yours and your plugins')
-  are off. It reads the worktree's `AGENTS.md`. Your custom droids, and MCP servers or droids your plugins bring, still
+  and Droid's built-in skills are off. It reads the worktree's `AGENTS.md`. Your custom droids, and MCP servers or droids your plugins bring, still
   load. A resumed turn continues a fork of the session, so it works without a Factory login.
 
 Workers run with full permissions in their worktree and still have a shell, your files and your network: this keeps
@@ -111,12 +111,13 @@ running turn has run and when its output last grew, and a turn without output fo
 
 ## Adding a harness
 
-1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`; add its name to `HARNESSES`, and
-   to the worker and integrator preference lists, in `src/types.ts`.
+1. Write its adapter in `src/adapters/` and register it in `src/adapters/index.ts`. Add its name to `HARNESSES` in
+   `src/contracts/workers.ts`, and to `WORKER_AGENT_PREFERENCE` and `INTEGRATOR_AGENT_PREFERENCE` in
+   `src/contracts/agents.ts`. [The code map](architecture.md#adapters) says what an adapter shares with the others.
 2. Give it an entry in `test/conformance/harnesses.ts`; the type checker requires one. To let it lead, give its adapter a
    lead mode (`lead: true`, honouring `TurnSpec.lead`: read only, the role, the lead result), set `lead: true` in its
-   entry once its lead recording exists, and add it to `LEAD_HARNESSES` with the `certified.json` that lists the lead
-   tests as passed.
+   entry once its lead recording exists, and add it to `LEAD_HARNESSES` (`src/contracts/workers.ts`) with the
+   `certified.json` that lists the lead tests as passed.
 3. Record its conformance fixtures and pass certification: `SOUS_HARNESS=<name> SOUS_RECORD=1 npm run certify`, then
    `npm run check`.
 4. Add its row to the isolation table and its facts to [the design](design.md), and the certification output to its PR.

@@ -6,9 +6,9 @@ import type { AddressInfo } from 'node:net'
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessName, ParsedTurn } from '../src/types.ts'
+import type { HarnessName, ParsedTurn } from '../src/contracts/index.ts'
 import { exportOtlp, postOtlp, toOtlp } from '../src/trace/otlp.ts'
-import { loadRun } from '../src/trace/run.ts'
+import { loadRun } from '../src/trace/index.ts'
 
 // See trace-atif.test.ts for what the fixture runs contain.
 const RUN_DIR = join(import.meta.dirname, 'fixtures', 'trace-run')

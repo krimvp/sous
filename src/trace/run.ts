@@ -2,9 +2,9 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import { agentSpec } from '../agents.ts'
-import { childNode, fold, turnCost } from '../state.ts'
-import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../types.ts'
+import type { Definitions, Event, HarnessName, NodeSpec, ParsedTurn, Usage } from '../contracts/index.ts'
+import { agentSpec } from '../definitions/index.ts'
+import { childNode, fold, readEvents, turnCost } from '../run/index.ts'
 
 export type ParseTurn = (harness: HarnessName, raw: string) => ParsedTurn
 export type EventOf<T extends Event['type']> = Extract<Event, { type: T }>
@@ -16,26 +16,8 @@ export interface LoadedRun {
   turns: Record<string, ParsedTurn>
 }
 
-export const SOUS_VERSION: string = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version
-
 function turnKey(node: string, turn: number): string {
   return `${node}#${turn}`
-}
-
-/** Reads events.jsonl. A final line cut short by a crash mid-append is ignored; any other bad line throws. */
-export function readEvents(file: string): Event[] {
-  const lines = readFileSync(file, 'utf8').split('\n')
-  const events: Event[] = []
-  lines.forEach((line, i) => {
-    if (!line.trim()) return
-    try {
-      events.push(JSON.parse(line))
-    } catch (err) {
-      if (i === lines.length - 1) return
-      throw new Error(`${file}:${i + 1}: ${(err as Error).message}`)
-    }
-  })
-  return events
 }
 
 /** Nodes a lead's `spawn` call added: children of the calling lead, as the run state has them. */
@@ -54,9 +36,11 @@ function harnessOf(e: EventOf<'turn.started'>, spec: NodeSpec | undefined, defs:
 }
 
 /** `parses` picks the nodes whose turn files are read and parsed; the others get empty turns (their usage still comes
- * from the log). The UI parses only the node a person opens. */
-export function loadRun(runDir: string, parseTurn: ParseTurn, parses: (node: string) => boolean = () => true): LoadedRun {
-  const events = readEvents(resolve(runDir, 'events.jsonl'))
+ * from the log). The UI parses only the node a person opens. `events`: the run's events when the caller has read them
+ * already, so what it derives from them and the loaded run agree. A directory without an event log is no run. */
+export function loadRun(runDir: string, parseTurn: ParseTurn, parses: (node: string) => boolean = () => true, events?: Event[]): LoadedRun {
+  if (!existsSync(resolve(runDir, 'events.jsonl'))) throw new Error(`no event log in ${resolve(runDir)}`)
+  events ??= readEvents(runDir)
   const defs = fold(events).agents
   const specs = new Map<string, NodeSpec>()
   const turns: Record<string, ParsedTurn> = {}

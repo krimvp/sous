@@ -31,10 +31,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   line, `sous doctor` (`worker models:`) and a lead's brief show the model each agent's work runs on. A run keeps the
   models it was created with when resumed (`run.created.workerModels`); runs created before this resume on the
   harness's default as before. `turn.started.model` records the model passed.
-- The README is a quickstart: install, `sous doctor`, one `sous run --max-cost`, then `sous diff`, `git merge` and
-  `sous clean`, what a run does, the steering commands, and what to know before trusting it. The reference it held
-  (every command, git and folder mode, budgets, agents and models, where leads run, graph files, the splitter) moved
-  to `docs/usage.md`.
+- Docs: the README is rewritten for new users as a quickstart: install, `sous doctor`, one `sous run --max-cost`, then `sous diff`, `git merge`
+  and `sous clean`, how a run works (with its diagram), the steering commands, and what to know before trusting it.
+  The reference it held (every command, git and folder mode, budgets, agents and models, where leads run, graph files,
+  the splitter) moved to `docs/usage.md`, listed in the documentation index.
 - `sous run --max-cost <usd>` sets a cost budget: once the cost the run's turns reported reaches it, no new turn
   starts, the running turns are stopped as Ctrl-C stops them (they resume), `budget.reached` is recorded and `sous run`
   ends with the run stopped, the spend and `sous resume <id> --max-cost <usd>`. `sous resume` refuses such a run without
@@ -71,6 +71,10 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   them. What waits while the lead is answering goes out as one delivery when it is done (an interrupt still steers it at
   once). The run that motivated it, two workers that send and a check, takes four lead turns instead of seven.
   `lead.delivered.carries` names the further items a delivery carries.
+- Docs: `CONTRIBUTING.md` holds the build, test and pull request steps. Notes that referred to private projects or
+  branches are removed.
+- Docs: the README's "How it works" diagram is a drawn SVG with light and dark versions, made by
+  `scripts/diagrams.mjs`.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked
@@ -113,6 +117,22 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 - `sous cancel` of the integrator or a splitter is refused with the node to cancel instead, so conflict resolution
   keeps working; a node cancelled while its merge runs is no longer merged, also when the run stopped before the
   merge was undone (#96).
+- sous's MCP server, which Claude, Codex and Droid workers start for a turn, reports sous's version when a harness
+  starts it, instead of `0.0.0`.
+- `sous ui` takes a run's state and its view from one reading of the log, so on a live run a node no longer shows,
+  for a moment, a status newer than its events.
+- `sous export` and `sous ui` read the event log with the supervisor's own reader. A log with a gap in `seq`, or a
+  corrupt line before the last, is refused with the log's message (`events.jsonl line <n> ...`).
+- The sources are organised into modules under `src/`, each with one interface, its `index.ts`;
+  `test/structure.test.ts` checks which module may import which, and `docs/architecture.md` is the map of the code.
+  `node src/cli.ts` and the package's `sous` command are unchanged.
+- Docs: corrected where the code disagreed. The README says what `--approve-splits` needs, the `result:` line that
+  ends a run, what to do when a run stops or fails, and the run id that `sous export` takes, and lists `sous send` and
+  `sous receive`; the skill's reference gives the keys of graph and agents files, the required node fields, the limit
+  of 5 messages per worker and the turn files of Codex and Droid; the design's storage layout names the command files
+  of workers. `docs/README.md` lists every document and who it is for.
+- The landing page links the documentation (README, design, harnesses, architecture, changelog, npm) and says that
+  git is optional: without it, the result is a folder.
 
 ## 0.1.1 (2026-10-12)
 

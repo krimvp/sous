@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createLeadRunner } from '../src/lead/index.ts'
-import { DEFAULT_LEAD_MODEL } from '../src/types.ts'
-import type { LeadCall, LeadHost } from '../src/types.ts'
+import { DEFAULT_LEAD_MODEL } from '../src/contracts/index.ts'
+import type { LeadCall, LeadHost } from '../src/contracts/index.ts'
 
 const live = process.env.SOUS_LIVE === '1'
 

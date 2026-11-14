@@ -6,8 +6,8 @@
 import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../types.ts'
-import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../types.ts'
+import { LEAD_RESULT_SCHEMA, TURN_RESULT_SCHEMA } from '../contracts/index.ts'
+import type { ParsedTurn, TurnSpec, Usage, WorkerAdapter } from '../contracts/index.ts'
 import { jsonLines, leadFromText, num, resultFromText, sessionFromOutput, sousServer, spawnTurn, str, strictSchema } from './common.ts'
 import type { Json } from './common.ts'
 

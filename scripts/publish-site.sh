@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish site/ to GitHub Pages (https://krimvp.github.io/sous/) by committing it to the gh-pages branch.
-# Pages builds from that branch; GitHub Actions is not used (the account's Actions billing is blocked).
+# Pages builds from that branch, so no GitHub Actions workflow is needed.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tmp=$(mktemp -d)

@@ -1,12 +1,21 @@
 # sous design
 
-sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work:
-lead agents plan and split, worker agents (Claude Code, Codex, Pi, Factory Droid or a custom agent) do it, and plain
-code keeps everything moving. It is local only, keeps runtime dependencies to the lead runner, and keeps its
-whole state in files you can read.
+sous runs a task, or a set of tasks, to completion on one machine. A tree of agents does the work: lead agents plan
+and split, worker agents (Claude Code, Codex, Pi, Factory Droid or a custom agent) do the work, and plain code keeps
+everything moving. sous is local only. Only the lead runner has runtime dependencies. The whole state is in files
+that you can read.
 
-The name comes from the kitchen brigade: you call the order, the sous chef splits it across stations (leads),
-cooks do it (workers), and plates are checked at the pass (merges and checks).
+The name comes from the kitchen brigade: the sous chef splits an order across the stations (leads), cooks do the
+work (workers), and each plate is inspected before it leaves (merges and checks).
+
+This document is the reference for contributors. It uses "the person" for the human who runs sous.
+
+**Contents:** [Principles](#principles) · [Out of scope](#out-of-scope-for-now) · [Concepts](#concepts) · [Architecture](#architecture) ·
+[Messaging across levels](#messaging-across-levels) · [Leads](#leads) · [Roles](#roles) · [Splitting](#splitting) ·
+[Agents](#agents) · [Merging](#merging) · [Recovery](#recovery) · [Harness conformance](#harness-conformance) ·
+[Harness facts](#harness-facts-spike-2026-10-11) · [Traces](#traces-atif-and-langfuse) · [The UI](#the-ui) ·
+[Storage layout](#storage-layout) · [Implementation](#implementation) · [Roadmap](#roadmap) ·
+[Open questions](#open-questions)
 
 ## Principles
 
@@ -31,10 +40,8 @@ no remote pushes or PRs, no merging into the person's branch and no automatic cl
 person), no message service. These can come later behind the seams below. The UI (`sous ui`) only
 reads runs for now; steering a run from it is #60.
 
-Related projects: **Taskweave** is the heavy, durable, evidence-oriented
-product; sous shares no code with it. **Orchy** runs declared, fixed flows;
-sous focuses on trees that leads grow at runtime. A fixed graph file is supported only so the
-engine can be tested without a lead.
+sous focuses on trees that leads grow at runtime. Fixed graph files also run: they test the engine without a lead,
+and they fix the steps around leads when the person wants that.
 
 ## Concepts
 
@@ -87,6 +94,9 @@ sous CLI ──▶ supervisor ──▶ adapters (claude | codex | pi | droid | 
                └──▶ trace exporters (ATIF file, OTLP/HTTP to Langfuse)
 ```
 
+Where each part lives in `src/`, and which module may import which, is in the code map,
+[architecture.md](architecture.md).
+
 ### Supervisor
 
 One process per run, holding `.sous/runs/<id>/lock` (pid and start time), created exclusively. A lock left
@@ -136,7 +146,7 @@ turn's age and how long ago its output last grew (the output file's modification
 
 **Cost budget.** `sous run --max-cost <usd>` (`run.created.maxCost`; `sous resume --max-cost` replaces it from then on,
 recorded in `run.resumed.maxCost`) bounds the cost the run's turns reported. The fold totals it (`RunState.spent`): a
-worker turn's cost from `turn.ended.usage` and a lead turn's from `lead.turn.usage`, by `turnCost` in `src/state.ts`,
+worker turn's cost from `turn.ended.usage` and a lead turn's from `lead.turn.usage`, by `turnCost` in `src/run/state.ts`,
 the same rule `viewRun` uses for the traces and `sous status` (a turn of a harness that reports its session's running
 total, Claude Code, costs what that total grew by). The supervisor checks the total after every worker turn ends (before
 the node's next turn could start), after every lead turn, and on every pass of its loop; once it reaches the budget it
@@ -170,7 +180,7 @@ reopened lead continues where it stopped.
   original result on replay**: in the spike, a different replay result made the model stop early. A read
   changes nothing, so a replayed read simply reads again.
 - **Model:** the node's `model`, else its agent's, as `provider/model`, else the default: the first provider in
-  `LEAD_PROVIDERS` (`src/types.ts`) with a credential, on that provider's default model, decided with availability
+  `LEAD_PROVIDERS` (`src/contracts/agents.ts`) with a credential, on that provider's default model, decided with availability
   when the run starts and printed on the `agents:` line; with no provider credential, leads that name no model run on
   a harness instead (Leads on a CLI harness). The providers, in that order, are Ollama Cloud
   (`ollama-cloud/deepseek-v4.1-flash`: cheap; passed the spike, as did `ollama-cloud/glm-5.3`), Anthropic
@@ -183,7 +193,7 @@ reopened lead continues where it stopped.
   within pi-ai's refresh margin, is left out, and a key in the environment is used instead; a login file that is not
   JSON is ignored and `sous doctor` says so. A lead that cannot run says what gets a credential for its provider. An
   Anthropic or OpenAI key in the environment also reaches Claude Code and Codex workers, which inherit it (the README
-  says so). Ollama Cloud needs a small provider definition, because pi-ai has none built in; the others are pi-ai's.
+  and docs/usage.md say so). Ollama Cloud needs a small provider definition, because pi-ai has none built in; the others are pi-ai's.
 
 ### Leads on a CLI harness
 
@@ -192,7 +202,7 @@ harness, on its login. Nothing here is specific to one harness: the adapter cont
 harness leads once it is certified for it.
 
 - **Which leads.** An agent `{"runs": "<harness>"}` used by a lead node or a lead child, when the harness is in
-  `LEAD_HARNESSES` (`src/types.ts`); and the built-in `lead` agent (or any agent on `lead` that names no model) when no
+  `LEAD_HARNESSES` (`src/contracts/workers.ts`); and the built-in `lead` agent (or any agent on `lead` that names no model) when no
   lead provider has a credential: it falls back to the first of `LEAD_HARNESSES` on `PATH`, on that harness's
   `DEFAULT_WORKER_MODELS` entry (Claude Code: `haiku`), else on the harness's default, said so. The choice is
   `run.created.leadRuns` (with `leadModel` the harness's model) and is kept on resume, as `leadModel` is. A lead naming
@@ -201,8 +211,8 @@ harness leads once it is certified for it.
   offers lead-certified harness agents for lead children only when the run defines them, so a run's choices stay the
   person's.
 - **A turn** is an ordinary harness turn (`runTurn`: its process group, output file, session, stall watch and recovery)
-  with `TurnSpec.lead {system, readable?}`: the lead's role (`HARNESS_LEAD_ROLE` in `src/brief.ts`, sharing its rules with
-  the in-process role) as the system prompt where the harness can replace it, else before the first prompt; read only,
+  with `TurnSpec.lead {system, readable?}`: the lead's role (`HARNESS_LEAD_ROLE` in `src/prompts/lead.ts`, sharing its rules,
+  `LEAD_RULES` in `src/contracts/leads.ts`, with the in-process role) as the system prompt where the harness can replace it, else before the first prompt; read only,
   no MCP server, no `SOUS_*` identity; and a structured `LeadResult {answer, calls}` at the end
   (`LEAD_RESULT_SCHEMA`; `ParsedTurn.lead`, recorded in `turn.ended.lead`). Harnesses with a structured-output flag use
   it (Codex in OpenAI's strict form, `strictSchema` in `src/adapters/common.ts`); one without would give it as a JSON
@@ -286,8 +296,8 @@ Agents address nodes, not processes, and the supervisor is the only router.
   or interrupt it.
 - **Escalation goes up a level.** The person is the root's parent: `sous answer <node> "…"`.
 
-Comitia is not used: the supervisor is the only writer and already wakes everyone, which are the two
-things a message service would provide. An `onEvent` hook is the seam for mirroring events to Comitia
+No message service is used: the supervisor is the only writer and already wakes everyone, which are the two
+things a message service would provide. An `onEvent` hook is the seam for mirroring events to such a service
 later, when an agent the supervisor did not launch needs to take part.
 
 ### Worker messages
@@ -305,7 +315,7 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
   check, so a standing node, which gets none, or a check does not take on the identity of an outer run's worker when
   sous runs inside one.
   This is attribution, not authentication: workers run as the person.
-- **Policy** (`src/send.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
+- **Policy** (`src/commands/worker.ts`): only a work node of the tree sends (not a standing node); to its lead or a sibling (same
   parent), not to itself, a check, a gate, a finished node, or a node waiting to merge (its work is done: tell the
   lead instead); non-empty text; at most 5 messages per worker over the run. Messages are `queue`, never `interrupt`:
   only a lead stops a worker.
@@ -352,8 +362,9 @@ moved, a change of plan) tells them with `send`, without stopping, and reads wha
 
 ## Leads
 
-The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost`, `LeadRunner`, for leads on a harness `LeadResult`,
-`LeadTurnSpec` and `LEAD_HARNESSES`, and the `lead.*` and `node.cancelled` events in `src/types.ts`.
+The contracts are `ChildSpec`, `LeadCall`, `LeadRead`, `LeadHost` and `LeadRunner` in `src/contracts/leads.ts`, for
+leads on a harness `LeadResult` (`src/contracts/leads.ts`), `LeadTurnSpec` and `LEAD_HARNESSES`
+(`src/contracts/workers.ts`), and the `lead.*` and `node.cancelled` events in `src/contracts/events.ts`.
 
 **Starting.** `sous run <graph.json | "goal">`: an argument naming an existing file is a graph file (its
 top-level nodes may be of any kind, `lead` included); anything else is a goal, which becomes one top-level
@@ -464,7 +475,7 @@ calls `LeadRunner.cancel` for every lead in it; the supervisor delivers nothing 
 ## Roles
 
 A **role** is a job an agent does for every lead of a subtree, rather than a node of its own. `ROLES` in
-`src/types.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
+`src/contracts/nodes.ts` lists them; `splitter` is the first. The pattern is meant for later ones (a reviewer, say).
 
 - **Assigning.** A lead node in a graph file may set `roles: { "<role>": "<agent>" }`, naming any agent of the graph
   or a built-in. A lead may set `roles` on a lead child it spawns, naming only agents the person defined (in the
@@ -482,8 +493,8 @@ A **role** is a job an agent does for every lead of a subtree, rather than a nod
 ## Splitting
 
 A lead both plans (splits its task into children) and coordinates (reacts to their outcomes). A run may give the
-planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex` or
-`pi`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
+planning to a **splitter**: the agent in the `splitter` role (see Roles), on a CLI harness (`claude`, `codex`, `pi` or
+`droid`; an agent named `splitter` on `lead` is rejected at load). Its `instructions` are the splitting strategy ("one
 part per module", "tests first") and its model may differ from the leads': a strong splitter with cheap leads.
 Without a splitter, leads split on their own, as before.
 
@@ -529,7 +540,7 @@ Without a splitter, leads split on their own, as before.
 
 An **agent** is what does work; a harness is only how an agent runs. An agent has a name, a runtime (`claude`,
 `codex`, `pi`, `droid` as CLIs, or `lead` in process), an optional model, and optional standing instructions added to
-every brief it receives (`AgentSpec` in `src/types.ts`).
+every brief it receives (`AgentSpec` in `src/contracts/agents.ts`).
 
 - **Built-in agents** `claude`, `codex`, `pi`, `droid` and `lead` exist without being defined (`lead` runs in process,
   or on a lead-certified harness when no lead provider has a credential). A graph file may define
@@ -558,7 +569,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
   turn records the agent it ran on (`turn.started.agent`). A lead's brief lists the available agents its
   children may name, those leads defined so far included (the splitter is not one), with each one's runtime when it differs from its name.
 - **Worker models.** A work node of the tree whose node, agent and lead name no model runs on its harness's entry in
-  `DEFAULT_WORKER_MODELS` (`src/types.ts`), else on the harness's own default (sous passes no model). The table holds a
+  `DEFAULT_WORKER_MODELS` (`src/contracts/agents.ts`), else on the harness's own default (sous passes no model). The table holds a
   harness only where the repository shows the name is valid for it: `claude: haiku`, the model Claude Code is certified
   on. Codex's, Pi's and Droid's defaults depend on the person's login and settings (Pi and Droid are often on custom
   providers such as Ollama Cloud), and no model name in the repository is valid for every such setup, so they keep
@@ -594,7 +605,7 @@ every brief it receives (`AgentSpec` in `src/types.ts`).
 - **Flow agents and independent agents.** Most nodes are flow agents: created for a node, done with it. A
   **standing** node is an independent agent of the run: it takes requests through its inbox, goes idle
   between them, and never completes on its own. The integrator and the splitter are the first ones; later, agents outside the
-  run (for example over Comitia) can take this role.
+  run (for example over a message service) can take this role.
 
 ## Merging
 
@@ -638,7 +649,7 @@ first work or check node starts. The workspace is the repository's top level eve
    the integration worktree; after a failing check the merge commit stays and the integrator fixes on top.
    Nothing else merges while the integrator works: the queue waits. The integrator is a standing node with id
    `integrator`, run by the graph's `integrator` agent if defined, else the first available of `codex`,
-   `claude`, `pi`. It is created on the first conflict, with a short role brief, and resumed in the same
+   `claude`, `pi`, `droid`. It is created on the first conflict, with a short role brief, and resumed in the same
    session for later requests. Each request is a message in its inbox naming the node, its branch, the
    conflicted files or the failing check's output, and the briefs of the node and of the nodes already merged.
    It works in the integration worktree, resolves, commits the merge (or its fix), and reports. A `done` is
@@ -779,7 +790,7 @@ command could have outlived it.
 
 ## Harness conformance
 
-Every harness in `HARNESSES` (`src/types.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
+Every harness in `HARNESSES` (`src/contracts/workers.ts`) passes one suite, so a new one works the way the supervisor relies on. Its
 entry in `test/conformance/harnesses.ts` (`Record<HarnessName, …>`: end marker, whether workers get sous's MCP server,
 the certification model, whether it has a lead recording) is required by the type checker.
 
@@ -825,10 +836,9 @@ MCP server, and Claude's `receive` with a misnamed argument returned at once.
 
 ## Harness facts (spike, 2026-10-11)
 
-Two spikes fed the decisions in this document: the pi-durable lead runner (`spikes/pi-durable/`) and a script that
-stops each harness CLI mid-command and resumes it (`spikes/resume-after-kill.sh`). Both have been removed from the
-tree, since the facts they established are written down here and `npm run certify` supersedes the second; they remain
-on the branch `archive/site-notes-and-spikes` (at 0.1.1).
+Two spikes fed the decisions in this document: the pi-durable lead runner and a script that
+stops each harness CLI mid-command and resumes it. Both have been removed from the
+tree, since the facts they established are written down here and `npm run certify` supersedes the second.
 
 The resume-after-kill script stopped each CLI while it runs a foreground command, with SIGTERM and with
 SIGKILL, then resumes the session and asks for a codeword given before the stop. All six combinations
@@ -848,7 +858,7 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
 - **Claude's cost is a session total.** A `result` event's `usage` is the turn's own, but its `total_cost_usd` (and
   `modelUsage`) is the running total of the session, earlier turns included: a resumed turn that used 39k tokens
   reported $0.73, its first turn's $0.70 plus $0.03 of its own. The adapter records it as `sessionCostUsd`, and
-  `turnCost` (`src/state.ts`, used by `viewRun` and by the fold's budget total) gives each turn the amount the session's
+  `turnCost` (`src/run/state.ts`, used by `viewRun` and by the fold's budget total) gives each turn the amount the session's
   total grew by, so a resumed session is not paid for twice.
 - Claude `-p` runs the user's global hooks and plugins unless told otherwise; decide per adapter whether
   to isolate with `--setting-sources` and `--strict-mcp-config`.
@@ -904,7 +914,7 @@ from them, so traces can move between tools later.
   `system` step.
 - sous-specific data goes only in `extra` fields, because ATIF rejects unknown keys. Tokens map to
   `metrics` (`prompt_tokens` includes cached tokens; Anthropic cache-creation tokens go in `metrics.extra`).
-- Tests check every document with a strict checker of the subset sous emits (`test/atif-checker.ts`),
+- Tests check every document with a strict checker of the subset sous emits (`test/helpers/atif-checker.ts`),
   and with Harbor's validator (`python -m harbor.utils.trajectory_validator`) when Harbor is installed
   (`HARBOR_PYTHON`).
 
@@ -928,8 +938,8 @@ run or an older one.
 
 ## Status and wait
 
-`sous status [run-id]` prints a run as a tree; `sous status --json` prints the same `RunStatus` (`src/types.ts`) as one
-JSON document, and the text is rendered from it (`src/status.ts`), so the two cannot drift. It is built from `fold`,
+`sous status [run-id]` prints a run as a tree; `sous status --json` prints the same `RunStatus` (`src/contracts/status.ts`) as one
+JSON document, built by `src/status/` and rendered as text from it (`src/cli/status.ts`), so the two cannot drift. It is built from `fold`,
 the run's lock (a run that is not over without a live supervisor is `stopped`, as `sous runs` and `sous ui` call it),
 each running turn's output file (its age and its last output's age) and the person's command files not yet applied.
 It holds the run's id, state, goal, mode, summary or reason, result (branch or output folder), usage (tokens, the cost
@@ -957,7 +967,7 @@ An ask the agent leaves unanswered makes every `wait` return at once: it needs a
 
 ## The UI
 
-`sous ui [--port <n>]` (`src/ui.ts`, `src/ui.html`) serves one static page and a small JSON API with Node's `http`
+`sous ui [--port <n>]` (`src/ui/server.ts`, `src/ui/page.html`) serves one static page and a small JSON API with Node's `http`
 server, on `127.0.0.1` only. It prints its address with a random token; every request needs the token, and a Host
 header naming this machine, so other sites in the browser (or a rebound DNS name) cannot read runs. It reads, and
 never writes: the supervisor stays the only writer, and the person's commands still go through `sous answer`, `approve`
@@ -986,10 +996,13 @@ and `cancel`.
   run.json             goal, workspace, graph or agents file, created at
   events.jsonl         the event log (append-only; fsync per event)
   lock                 supervisor pid and start time
-  commands/            command files from sous answer, approve and cancel, until processed
+  commands/            command files from sous answer, approve and cancel, and from workers' send and receive
+                       (the commands or sous's MCP tools), until processed
   nodes/<node-id>/
     turn-<k>.jsonl     raw harness stdout for turn k
     turn-<k>.err       raw stderr
+    turn-<k>.schema.json    Codex: the result schema passed with --output-schema
+    turn-<k>.settings.json  Droid: the runtime settings passed with --settings (MCP servers, hooks, skills)
   leads/<node-id>/     a lead's pi-durable conversation (JSONL storage)
   integration/         git mode: git worktree of branch sous/<run-id>, where merges and check nodes run
   worktrees/<node-id>/ git mode: git worktree of branch sous/<run-id>.<node-id> for a work node (and the splitter)
@@ -1007,9 +1020,10 @@ Node 22.19 or later runs the TypeScript sources directly (type stripping). Only 
 runtime dependencies: `@earendil-works/pi-durable`, `pi-ai` and `chord`, pinned to exact versions because
 the API is experimental. The supervisor, adapters and exporters use Node built-ins only.
 Development dependency: `typescript` for type checking, and for the npm package (`@krimvp/sous`): Node does not
-strip types from files under `node_modules`, so `npm pack`/`npm publish` first compile `src/` to `dist/`
-(`tsconfig.build.json`, `.ts` imports rewritten to `.js`; `ui.html` copied). Paths a run hands to another process
-(sous's MCP server, the `sous send` command) take the extension of the running file. Tests use `node:test`;
+strip types from files under `node_modules`, so `npm pack`/`npm publish` first build `dist/` (`scripts/build.mjs`):
+`src/` compiled with `tsconfig.build.json` into the same layout, `.ts` imports rewritten to `.js`, and
+`src/ui/page.html` copied to `dist/ui/page.html`. The paths a run hands to another process (sous's MCP server, the
+`sous send` command) come from `src/self.ts` and take the extension of the running file. Tests use `node:test`;
 `test/package.test.ts` runs the compiled package from a `node_modules` directory.
 
 ## Roadmap
@@ -1088,7 +1102,7 @@ told its sibling `app` on Codex the function it chose, then a correction (Common
 Claude's init listed `sous` as its only MCP server. `app` reported to its lead twice with `sous send`; the lead got
 both and copies of `fmt`'s messages, the run completed and `node app.js` printed the expected name. Single turns
 showed Codex calling the MCP `send` tool and Pi (with `--no-mcp`) running the brief's `sous send` command. Two
-findings: `app` first read the person's global Comitia skill, since harnesses still load the person's own
+findings: `app` first read one of the person's global skills, since harnesses still load the person's own
 instructions and skills; and it read `events.jsonl` to learn its messages before its turn ended, since a worker
 receives messages only between turns.
 
@@ -1103,7 +1117,7 @@ The Droid adapter was verified on 2026-10-12 with Factory Droid 0.210.0 on an Ol
 the live test started a session and resumed it twice by forking, remembering the codeword. A graph run had two Droid
 siblings, `a` telling `b` a file name with the MCP `send` tool while `b` waited for it with `receive`; both merged and
 the check passed. The workspace's own MCP server and `SessionStart` hook stayed out (Droid offered only `sous___send`
-and `sous___receive`, and the hook's file was not written), and the exported ATIF passed `test/atif-checker.ts`
+and `sous___receive`, and the hook's file was not written), and the exported ATIF passed `test/helpers/atif-checker.ts`
 (Harbor was not installed). In a third run `sous run` was killed with SIGKILL while its Droid worker ran `sleep 45`;
 `sous resume` stopped the orphaned turn (Droid ended the `sleep`), resumed it as a fork with the recovery note, and
 the work merged and the check passed.
@@ -1140,6 +1154,6 @@ fake-harness tests only.
   worktrees outside the workspace.
 - Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
   `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
-  smallest step is a bridge process that mirrors chosen events to Comitia and turns Comitia messages into command
-  files, keeping the supervisor the only writer. Next would be a runtime whose turns are Comitia requests with a
-  deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.
+  smallest step is a bridge process that mirrors chosen events to a message service and turns its messages into
+  command files, keeping the supervisor the only writer. Next would be a runtime whose turns are requests over that
+  service with a deadline; an advisory role such as the splitter, which has a fallback, is the safe first user.

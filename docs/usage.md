@@ -26,8 +26,7 @@ npm install -g @krimvp/sous
 
 Node 22.19 or later, on Linux and macOS (the tests run on Linux). The npm package is the TypeScript sources compiled to
 JavaScript; a checkout runs the sources directly, so from a checkout `node src/cli.ts` works the same as `sous` (after
-`npm install`, for the lead runner's Pi packages). State is plain files in `.sous/runs/<id>/` of the workspace. Runs
-from before the rename, under `.murm/`, are not read.
+`npm install`, for the lead runner's Pi packages). State is plain files in `.sous/runs/<id>/` of the workspace.
 
 ## Commands
 
@@ -38,7 +37,7 @@ from before the rename, under `.murm/`, are not read.
 | `  --max-cost <usd>` | Stops the run once its turns reported that much cost ([Cost budget](#cost-budget)) |
 | `  --agents <file>` | Agents, the default agent and `models` for a goal run ([Agents and models](#agents-and-models)) |
 | `  --max-depth <n>` | How deep leads may nest, 1 to 8 (default 3) |
-| `  --approve-splits` | Each split the [splitter](#the-splitter) proposes waits for your approval |
+| `  --approve-splits` | Each split the [splitter](#the-splitter) proposes waits for your approval; it needs a possible splitter: an agent named `splitter`, a lead with `roles.splitter` in a graph file, or any agent you define that does not run `lead` (a lead may give it the splitter role) |
 | `sous doctor` | Could a run start here: harnesses on `PATH` with their versions (not whether they are logged in), lead credentials, where leads would run, worker models, git state; exits 0 when a run could start, else says what is missing |
 | `sous status [--json]` | The latest run (or the one named) as a tree, what waits for you, tokens and reported cost, the result and the next steps |
 | `sous wait [--timeout <s>] [--json]` | Blocks until the run needs you or is over; the exit code says which ([below](#watching-and-steering)) |
@@ -61,13 +60,13 @@ several running you add its id). They work from another terminal while the run r
 
 ## Git mode
 
-In a git repository (it needs at least one commit), sous works at the repository root, also when started in a
+In a git repository (it needs at least one commit; without one the run fails), sous works at the repository root, also when started in a
 subdirectory, and says so.
 
 - **Workers see your last commit (`HEAD`) only.** Commit the files they need first; sous warns at the start when your
   checkout has uncommitted changes.
 - **Each work node runs in its own git worktree**, in parallel with the others (at most 4 workers and checks at a time
-  in a run; the rest wait). When a node is done, its branch is merged into the run's branch `sous/<run-id>`, one merge
+  in a run, in either mode; the rest wait). When a node is done, its branch is merged into the run's branch `sous/<run-id>`, one merge
   at a time.
 - **A conflict, or a check that fails after a merge, goes to the integrator**: an agent of the run (Codex, else Claude
   Code, else Pi, else Droid; or an agent you define named `integrator`) that resolves it in the integration worktree.
@@ -81,7 +80,7 @@ The details: [design: Merging](design.md#merging).
 
 Outside a git repository, sous uses folder mode on its own: good for research and summaries of many documents.
 
-- Each worker and check runs in a folder of its own, `.sous/runs/<run-id>/work/<node>/`, where `workspace/` (your
+- Each worker and check runs in a folder of its own (at most 4 at a time, as in git mode), `.sous/runs/<run-id>/work/<node>/`, where `workspace/` (your
   files) and `results/` (the results so far) are links, the same names the lead reads by. So a check of a result reads,
   for example, `test -s results/report.md`.
 - Workers write their files at the top of their folder. These are collected into `.sous/runs/<run-id>/output/` one at
@@ -162,8 +161,8 @@ An agent is a name for how work gets done: it `runs` on `claude`, `codex`, `pi`,
 and `lead` need no definition; a node's `model` overrides its agent's. A goal run takes `agent` (the default), `agents`
 and `models` from a file, `sous run --agents agents.json "…"`; a graph file carries the same keys.
 
-- **Which harness.** Workers default to the first agent whose CLI is on your `PATH`: Claude Code, else Codex, else Pi,
-  else Droid. A goal can ask for another, e.g. "use agent pi for every work child".
+- **Which harness.** A work node that names no agent uses the run's `agent`, when the graph or agents file sets one;
+  else the first agent whose CLI is on your `PATH`: Claude Code, else Codex, else Pi, else Droid. A goal can ask for another, e.g. "use agent pi for every work child".
 - **Worker models.** A work node whose agent, node and lead name no model runs on a small model of its harness where
   sous knows one: Claude Code workers run on `haiku` (two Claude Code workers on a small task cost $1.39 on Claude's
   default model and $0.02 on `haiku`). Codex, Pi and Droid have no such default: their default model depends on your
@@ -189,12 +188,20 @@ The details: [design: Agents](design.md#agents).
   a credential)`. Each lead turn is read only (Claude's Read, Glob and Grep tools, confined to the run's results) and
   ends with the calls it makes, which sous checks and applies. Only Claude Code is certified to lead so far; Codex has a
   lead mode that is not yet certified, Pi and Droid have none ([harnesses: Leads on a harness](harnesses.md#leads-on-a-harness)).
-- **In process, with a lead credential**, as before: on Ollama Cloud (`ollama-cloud/deepseek-v4.1-flash`, with
-  `OLLAMA_API_KEY`), Anthropic (`anthropic/claude-haiku-5-5`, with `ANTHROPIC_API_KEY`), OpenAI (`openai/gpt-6-luna`,
-  with `OPENAI_API_KEY`) or your ChatGPT subscription (`openai-codex/gpt-5.5`), the first with a credential in that
-  order. Anthropic, OpenAI and ChatGPT also work through your [Pi](https://github.com/earendil-works/pi) login
-  (`/login` inside `pi`; sous reads `~/.pi/agent/auth.json` and never refreshes it: run `pi` once when it has
-  expired). The Anthropic and OpenAI leads have not been run live yet.
+- **In process, with a lead credential**, as before, on the first of these providers with a credential:
+
+  | Provider | Default model | Credential |
+  |---|---|---|
+  | Ollama Cloud | `ollama-cloud/deepseek-v4.1-flash` | `OLLAMA_API_KEY` |
+  | Anthropic | `anthropic/claude-haiku-5-5` | `ANTHROPIC_API_KEY`, or a Pi login |
+  | OpenAI | `openai/gpt-6-luna` | `OPENAI_API_KEY`, or a Pi login |
+  | ChatGPT subscription | `openai-codex/gpt-5.5` | a Pi login |
+
+  For a [Pi](https://github.com/earendil-works/pi) login, install Pi
+  (`npm install -g --ignore-scripts @earendil-works/pi-coding-agent`), start it and type `/login`; sous reads
+  `~/.pi/agent/auth.json` and never refreshes it: run `pi` once when it has expired. The Anthropic and OpenAI leads
+  have not been run live yet. When no provider has a credential and no lead-certified harness is on `PATH`, sous
+  refuses the run and says what to do.
 - **Caution:** an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment is also what Claude Code and Codex workers
   use (they inherit it), so it moves them from your subscription to API billing.
 - **To choose**, an agents file can put the lead on a model, `{ "agents": { "lead": { "runs": "lead", "model":
@@ -250,7 +257,9 @@ lead may do the same for a child lead, naming an agent you defined); its sub-lea
   Their lead sees every message, and the run's log keeps them.
 - **Your setup.** Workers load no other MCP server and as little of your own setup as each harness allows: no user
   skills, plugins or hooks, and for Claude Code none of your user settings (so your default model, `env`, permission
-  rules and hooks do not apply to workers). The project's instructions still apply. What each harness still loads:
+  rules and hooks do not apply to workers). The project's instructions still apply. Some of your setup still loads:
+  for example, Codex reads your global `~/.codex/AGENTS.md`, and Claude Code reads the `CLAUDE.md` files above the
+  worktree. What each harness still loads:
   [harnesses: What sous keeps out of workers](harnesses.md#what-sous-keeps-out-of-workers).
 - **Permissions.** Workers run with full permissions in their worktree or folder, as you, with a shell, your files and
   your network. So a worker, or anything it runs, can also write the run's command files, where `sous answer`,
