@@ -246,6 +246,38 @@ for (const harness of HARNESSES) {
       assert.deepEqual(ended?.type === 'turn.ended' && ended.result, adapter.parse(readFileSync(replay, 'utf8')).result)
       assert.ok(events.some((e) => e.type === 'turn.session' && e.node === 'w'))
     })
+
+    test('a turn cut before its harness had a conversation starts again in a new session on resume; one cut after output resumes it', async () => {
+      const raw = recording(harness, 'stopped')
+      const lines = raw.split('\n')
+      // The stopped recording up to the line that names its session: what a turn stopped in its first moments leaves.
+      const named = lines.findIndex((_, i) => adapter.parse(lines.slice(0, i + 1).join('\n')).sessionId)
+      const sessionId = adapter.parse(raw).sessionId!
+      for (const [cut, resumes] of [[`${lines.slice(0, named + 1).join('\n')}\n`, false], [raw, true]] as const) {
+        const workspace = gitWorkspace('sous-conformance-')
+        const runDir = join(workspace, 'run')
+        const dir = join(runDir, 'nodes', 'w')
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'turn-1.jsonl'), cut)
+        const log = openLog(runDir)
+        log.append({ type: 'run.created', goal: 'conformance', workspace })
+        log.append({ type: 'node.added', node: { id: 'w', kind: 'work', brief: 'Read the note.', agent: harness }, by: 'graph' })
+        // A turn the stopped supervisor left open; no process runs it any more.
+        log.append({ type: 'turn.started', node: 'w', turn: 1, mode: 'start', harness, pid: 1, outFile: join(dir, 'turn-1.jsonl'), errFile: join(dir, 'turn-1.err') })
+        log.append({ type: 'turn.session', node: 'w', turn: 1, sessionId })
+        log.close()
+        process.env.FAKE_RECORD = join(workspace, 'started.json')
+        process.env.FAKE_REPLAY = fileURLToPath(recordingUrl(harness, 'read-file'))
+        const outcome = await runSupervisor({ workspace, runDir, resume: true, getAdapter: (h: HarnessName) => getAdapter(h), graceMs: 500 })
+        const w = fold(readEvents(runDir)).nodes.get('w')!
+        const where = resumes ? 'cut after output' : 'cut before output'
+        assert.equal(outcome, 'completed', where)
+        assert.deepEqual(w.turns.map((t) => [t.mode, t.recovery ?? false]), [['start', false], [resumes ? 'resume' : 'start', true]], where)
+        const started = JSON.parse(readFileSync(join(workspace, 'started.json'), 'utf8')) as Started
+        assert.equal(started.argv.includes(sessionId), resumes, `${where}: the old session is ${resumes ? '' : 'not '}named`)
+        if (!resumes) assert.notEqual(w.turns[1]!.sessionId, sessionId, 'a new session')
+      }
+    })
   })
 }
 

@@ -20,6 +20,15 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
   `ParsedTurn.lead`, `LeadResult`), not Claude's: a harness leads once its certification passes the new lead tests
   (`LEAD_HARNESSES`). Codex has a lead mode that is not yet certified; Pi and Droid have none. A lead named on a harness
   that may not lead is refused before the run starts, with how to certify it.
+- **Fixed: `sous resume` no longer resumes a session the harness never saved.** A turn stopped in its first moments (a
+  `sous run` killed as a lead's or worker's turn started, an urgent message just after a start) names a session that
+  Claude Code and Pi were given up front but had not saved yet; sous resumed it, Claude answered "No conversation
+  found", and the node failed (the lead certification's killed-lead test failed this way twice; it had passed by
+  timing). Sous now resumes only an established session, one whose turn recorded a result or printed output other than
+  an error, and otherwise starts the node again in a new session: a worker from its brief with every message it was
+  given, the integrator and a splitter from their role with the pending request, a lead with its brief and every
+  delivery not yet answered. A session established earlier is still resumed after a later turn was cut before it began,
+  and the messages that turn took come again with the recovery note. Recovery still counts toward the three recoveries.
 
 - **Changed: Claude Code workers now run on `haiku` by default.** A work node whose agent, node and lead name no model
   used to run on Claude Code's own default (for a person on a top model, the most expensive one); it now runs on

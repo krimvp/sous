@@ -21,6 +21,8 @@ export interface TurnState {
   outFile: string
   errFile: string
   sessionId?: string
+  /** Workers: the messages this turn's prompt carried (the inbox it took when it started). */
+  took?: InboxMessage[]
   interrupted?: { reason: string; signal: NodeJS.Signals }
   ended: boolean
   exitCode?: number | null
@@ -316,11 +318,12 @@ export function fold(events: readonly Event[]): RunState {
         break
       case 'turn.started': {
         const node = state.nodes.get(e.node)
+        // A worker's turn takes its inbox; a lead's inbox is taken by its deliveries.
+        const took = node && node.spec.kind !== 'lead' && node.inbox.length ? node.inbox : undefined
         node?.turns.push({
           number: e.turn, mode: e.mode, harness: e.harness, agent: e.agent, pid: e.pid, startTime: e.startTime, recovery: e.recovery,
-          outFile: e.outFile, errFile: e.errFile, ended: false,
+          outFile: e.outFile, errFile: e.errFile, ended: false, ...(took ? { took } : {}),
         })
-        // A worker's turn takes its inbox; a lead's inbox is taken by its deliveries.
         if (node && node.spec.kind !== 'lead') Object.assign(node, { inbox: [], read: undefined })
         break
       }

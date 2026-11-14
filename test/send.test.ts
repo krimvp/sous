@@ -247,7 +247,7 @@ test('a receive from a turn that is over takes nothing, and messages read in a t
     { calls: [{ tool: 'spawn', children: [
       task('a', [{ sh: `sleep 1 && ${send('b', 'Use greet(name).')}`, result: done('a done') }]),
       // b reads the message, then its turn ends without a result: it resumes with the message again.
-      task('b', [{ sh: `${receive(20)} > got.txt` }, { result: done('b saw it twice') }]),
+      task('b', [{ say: 'receiving', sh: `${receive(20)} > got.txt` }, { result: done('b saw it twice') }]),
     ] }] },
     ...Array.from({ length: 8 }, (): FakeLeadStep => ({ calls: [{ tool: 'complete', summary: 'all done' }] })),
   ], (e, runDir) => {

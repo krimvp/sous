@@ -290,7 +290,7 @@ test('a second SIGINT while stopping kills a group that ignores SIGTERM at once'
 
 test('an error inside the supervisor stops its workers and prints the resume hint; sous resume then finishes the run', async () => {
   const { workspace, graph, sessions } = setup([
-    { sleepMs: 60_000, result: { status: 'done', summary: 'late' } },
+    { say: 'working', sleepMs: 60_000, result: { status: 'done', summary: 'late' } },
     { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'wrote hello after resume' } },
   ])
   const run = sous(['run', graph], workspace, sessions)

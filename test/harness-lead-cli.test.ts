@@ -2,7 +2,8 @@
 // credential, the refusal of a harness not certified to lead, and recovery of lead turns after a SIGKILLed supervisor.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -77,7 +78,7 @@ test('a lead named on a harness not certified to lead is refused before the run 
 test('a lead turn cut short by a SIGKILLed supervisor applied nothing; sous resume runs it again with a note, and spawns once', async () => {
   const { workspace, sessions } = setup()
   process.env.FAKE_LEAD_CREDENTIALS = ''
-  const run = sous(['run', graph(workspace, [{ sleepMs: 60_000, ...lead('Never seen.', split('never')) }, lead('Split.', split('a')), ...AFTER])], workspace, sessions)
+  const run = sous(['run', graph(workspace, [{ say: 'Reading.', sleepMs: 60_000, ...lead('Never seen.', split('never')) }, lead('Split.', split('a')), ...AFTER])], workspace, sessions)
   delete process.env.FAKE_LEAD_CREDENTIALS
   await leadTurnRuns(workspace, sessions, 1)
   run.child.kill('SIGKILL')
@@ -95,6 +96,54 @@ test('a lead turn cut short by a SIGKILLed supervisor applied nothing; sous resu
   assert.deepEqual(leadCalls(events), [['t2.0', 'spawn', true], ['t4.0', 'complete', true]])
   assert.equal(fold(events).nodes.has('never'), false)
   assert.match(leadPrompts(sessions, runDir)[1], /^Your turn 1 ended before its result: none of its calls were applied\. Continue from here\.\n\nYou are lead lead,/)
+})
+
+/** Runs `steps` as the lead on the fake harness until a step's `stopEarly` marker appears, then SIGKILLs the supervisor
+ * and resumes the run to its end. Returns the events and the lead's turns. */
+async function stoppedEarly(steps: FakeStep[], marker: string) {
+  const { workspace, sessions } = setup()
+  process.env.FAKE_LEAD_CREDENTIALS = ''
+  const run = sous(['run', graph(workspace, steps)], workspace, sessions)
+  delete process.env.FAKE_LEAD_CREDENTIALS
+  for (let i = 0; i < 400 && !existsSync(marker); i++) await sleep(25)
+  assert.ok(existsSync(marker), 'the lead turn never started')
+  run.child.kill('SIGKILL')
+  await run.exit
+  const resumed = sous(['resume'], workspace, sessions)
+  assert.equal(await resumed.exitWithin(), 0, resumed.output())
+  const events = readEvents(runDirOf(workspace)!)
+  const prompts = (sessionId: string): string[] => JSON.parse(readFileSync(join(sessions, `${sessionId}.json`), 'utf8')).prompts
+  return { events, turns: fold(events).nodes.get('lead')!.turns, prompts, sessions }
+}
+const earlyMarker = () => join(mkdtempSync(join(tmpdir(), 'sous-early-')), 'stopped')
+
+test('a lead turn killed before its harness saved the session: sous resume starts it again from its brief, and spawns once', async () => {
+  const marker = earlyMarker()
+  const { events, turns, prompts, sessions } = await stoppedEarly([{ stopEarly: marker, ...lead('Split.', split('a')) }, ...AFTER], marker)
+  assert.equal(fold(events).status, 'completed')
+  assert.deepEqual(turns.slice(0, 2).map((t) => [t.mode, t.interrupted?.reason, t.recovery, t.lead?.answer]), [
+    ['start', 'still running when the run was resumed', undefined, undefined],
+    ['start', undefined, true, 'Split.'],
+  ])
+  assert.ok(turns[1]!.sessionId && turns[1]!.sessionId !== turns[0]!.sessionId, 'a new session')
+  assert.equal(existsSync(join(sessions, `${turns[0]!.sessionId}.json`)), false, 'the cut session was never saved')
+  assert.deepEqual(leadCalls(events), [['t2.0', 'spawn', true], ['t4.0', 'complete', true]])
+  // The brief, with no note about a turn the session never had.
+  assert.match(prompts(turns[1]!.sessionId!)[0]!, /^You are lead lead,/)
+})
+
+test('a lead turn cut before it began after an earlier turn applied: sous resume continues that session with a note', async () => {
+  const marker = earlyMarker()
+  const { events, turns, prompts } = await stoppedEarly([
+    lead('Split.', split('a')), { stopEarly: marker, ...lead('Waiting.') }, lead('Done.', { tool: 'complete', summary: 'split and checked' }),
+  ], marker)
+  assert.equal(fold(events).status, 'completed')
+  assert.deepEqual(turns.slice(0, 3).map((t) => [t.mode, t.recovery, t.lead?.answer]), [
+    ['start', undefined, 'Split.'], ['resume', undefined, undefined], ['resume', true, 'Waiting.'],
+  ])
+  assert.equal(new Set(turns.map((t) => t.sessionId)).size, 1, 'one session')
+  assert.deepEqual(leadCalls(events).filter(([, tool]) => tool === 'spawn'), [['t1.0', 'spawn', true]])
+  assert.match(prompts(turns[0]!.sessionId!)[1]!, /^Your turn 2 ended before its result: none of its calls were applied\.[\s\S]*Child a completed/)
 })
 
 test('a lead turn that finished while the supervisor was down is settled from its output, its calls applied once', async () => {

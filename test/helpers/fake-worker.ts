@@ -1,6 +1,7 @@
 // A scripted stand-in for a harness CLI. Reads the prompt on stdin and plays one step of the plan
 // found on a `FAKE_PLAN: {...}` line of the first prompt; the session file remembers the plan and
 // every prompt received (and the model of each turn, null for none), so a resumed session continues where it left off.
+// Like Claude, resuming a session that was never saved fails: "No conversation found", exit 1, no output.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
@@ -27,6 +28,10 @@ export interface FakeStep {
   lingerMs?: number
   /** An assistant message to print before anything else is done. */
   say?: string
+  /** A marker file: the first turn to play this step creates it, names its session and then hangs before it saves the
+   * session or prints anything (a harness stopped in its first moments, with no conversation to resume). A turn that finds
+   * the marker plays the step as usual. */
+  stopEarly?: string
   /** Text to write to stderr, and the code to exit with, after everything else. */
   stderr?: string
   exit?: number
@@ -34,15 +39,25 @@ export interface FakeStep {
 
 const sessionFile = process.argv[2]
 const prompt = readFileSync(0, 'utf8')
+if (process.argv[4] === 'resume' && !existsSync(sessionFile)) {
+  console.error(`No conversation found with session ID: ${basename(sessionFile, '.json')}`)
+  process.exit(1)
+}
 const session: { plan: FakeStep[]; prompts: string[]; models: (string | null)[] } = existsSync(sessionFile)
   ? JSON.parse(readFileSync(sessionFile, 'utf8'))
   : { plan: JSON.parse(/^FAKE_PLAN: (.*)$/m.exec(prompt)?.[1] ?? '[]'), prompts: [], models: [] }
 const step = session.plan[session.prompts.length] ?? {}
+const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
+if (step.stopEarly && !existsSync(step.stopEarly)) {
+  emit({ type: 'session', id: basename(sessionFile, '.json') })
+  writeFileSync(step.stopEarly, '')
+  await sleep(60_000)
+  process.exit(1)
+}
 session.prompts.push(prompt)
 session.models.push(process.argv[3] || null)
 writeFileSync(sessionFile, JSON.stringify(session))
 
-const emit = (line: object) => process.stdout.write(JSON.stringify(line) + '\n')
 emit({ type: 'session', id: basename(sessionFile, '.json') })
 if (step.say) emit({ type: 'message', text: step.say })
 const waitUntil = Date.now() + 30_000

@@ -140,7 +140,7 @@ test('after a cut turn, the results shown are labelled with the turn that applie
 
 test("an urgent message stops a harness lead's turn, whose calls are never applied; it resumes with the message", async () => {
   const sub = { id: 'sub', kind: 'lead' as const, agent: 'boss', brief: `Lead sub.\n${fakePlan([
-    { sleepMs: 20_000, lead: { answer: 'too late', calls: [{ tool: 'spawn', children: [work('late')] }] } },
+    { say: 'working', sleepMs: 20_000, lead: { answer: 'too late', calls: [{ tool: 'spawn', children: [work('late')] }] } },
     lead('Stopped.', { tool: 'complete', summary: 'stopped as told' }),
   ])}` }
   // The parent runs on the lead runner: it spawns the sub-lead on the harness and a quick worker, then interrupts the
