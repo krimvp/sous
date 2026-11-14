@@ -5,6 +5,7 @@
 import { createInterface } from 'node:readline'
 import { MAX_SENDS, MAX_WAIT_SECONDS, sendTargets, workerReceive, workerSend } from './commands/index.ts'
 import { fold, readEvents } from './run/index.ts'
+import { SOUS_VERSION } from './self.ts'
 
 const { SOUS_RUN_DIR: runDir, SOUS_NODE: node, SOUS_TURN: turn } = process.env
 if (!runDir || !node || !turn) {
@@ -58,7 +59,7 @@ async function handle(req: Request): Promise<unknown> {
       return {
         protocolVersion: VERSIONS.includes(req.params?.protocolVersion) ? req.params!.protocolVersion : VERSIONS[0],
         capabilities: { tools: {} },
-        serverInfo: { name: 'sous', version: '0.0.0' },
+        serverInfo: { name: 'sous', version: SOUS_VERSION },
       }
     case 'ping':
       return {}

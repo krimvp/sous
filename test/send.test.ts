@@ -218,6 +218,8 @@ test("sous's MCP server offers send to a worker's lead and siblings, and writes 
   try {
     const init = await call(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } })
     assert.deepEqual(init.result.capabilities, { tools: {} })
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+    assert.deepEqual(init.result.serverInfo, { name: 'sous', version }, 'it reports the version of the package')
     server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n') // no reply
     const { tools } = (await call(2, 'tools/list')).result
     assert.deepEqual(tools.map((t: { name: string }) => t.name), ['send', 'receive'])

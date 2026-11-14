@@ -25,7 +25,7 @@ const ALLOWED: Record<string, string[]> = {
   supervisor: ['contracts', 'definitions', 'run', 'workspace', 'commands', 'prompts'],
   cli: ['contracts', 'self', 'definitions', 'run', 'workspace', 'commands', 'supervisor', 'trace', 'ui'],
   'cli.ts': ['cli', 'adapters', 'lead'],
-  'mcp.ts': ['contracts', 'run', 'commands'],
+  'mcp.ts': ['contracts', 'run', 'commands', 'self'],
 }
 const ENTRIES = ['cli.ts', 'mcp.ts']
 
