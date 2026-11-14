@@ -13,20 +13,21 @@ import { loadDefinitions, loadGraph } from './graph.ts'
 import { doctor } from './doctor.ts'
 import { listRuns, lockHolder, openLog, readEvents, writeCommand } from './log.ts'
 import { MAX_WAIT_SECONDS, workerReceive, workerSend } from './send.ts'
-import { awaitsSplitApproval, completedText, eventMessage, fold, isFinal } from './state.ts'
-import type { NodeState, RunState } from './state.ts'
+import { eventMessage, fold } from './state.ts'
+import { duration, firstLine, lastLine, liveStatus, oneLine, resultOf, resultText, runRef, runStatus, statusText, waitingLines, waitRun, waitText } from './status.ts'
 import { commandRefusal, runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
 import { startUi } from './ui.ts'
-import { DEFAULT_LEAD_MODEL, PERSON, SPLITTER } from './types.ts'
+import { DEFAULT_LEAD_MODEL, PERSON, SPLITTER, WAIT_EXIT_CODES } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
 
 const USAGE = `usage:
   sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
   sous resume [run-id] [--workspace <dir>]
-  sous status [run-id] [--workspace <dir>]
+  sous status [run-id] [--json] [--workspace <dir>]
+  sous wait [run-id] [--timeout <seconds>] [--json] [--workspace <dir>]  (until the run needs you or is over; exit 0 completed, 3 failed, 4 waits for you, 5 stopped, 6 timeout)
   sous runs [--workspace <dir>]  (the workspace's runs, newest first)
   sous answer <node> "text" [run-id] [--workspace <dir>]
   sous approve <node> [run-id] [--workspace <dir>]
@@ -88,7 +89,7 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
       workspace: { type: 'string' }, 'max-depth': { type: 'string' }, agents: { type: 'string' }, 'approve-splits': { type: 'boolean' },
-      port: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
+      port: { type: 'string' }, json: { type: 'boolean' }, timeout: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' },
     } })
   } catch (err) {
     // Node's message goes on to explain `--`; keep the first sentence.
@@ -104,6 +105,8 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
     console.log(usageOf(command === 'help' ? args[0] : command))
     return 0
   }
+  if (parsed.values.json && command !== 'status' && command !== 'wait') return usageError('--json is for status and wait')
+  if (parsed.values.timeout !== undefined && command !== 'wait') return usageError('--timeout is for wait')
   // An explicit --workspace is used as given; the default, the current directory, becomes the repository's top level.
   const { workspace, from } = parsed.values.workspace === undefined ? repoWorkspace(process.cwd()) : { workspace: resolve(parsed.values.workspace), from: undefined }
   try {
@@ -123,7 +126,13 @@ export async function main(argv: string[], deps: CliDeps): Promise<number> {
         return await resumeRun(workspace, deps, args[0])
       case 'status':
         if (args.length > 1) return usageError('status takes at most one argument: a run id')
-        return status(workspace, args[0])
+        return status(workspace, args[0], parsed.values.json)
+      case 'wait': {
+        if (args.length > 1) return usageError('wait takes at most one argument: a run id')
+        const raw = parsed.values.timeout
+        if (raw !== undefined && !/^\d+(\.\d+)?$/.test(raw)) return usageError('--timeout must be a number of seconds')
+        return await wait(workspace, args[0], raw === undefined ? undefined : Number(raw), parsed.values.json)
+      }
       case 'runs':
         if (args.length) return usageError('runs takes no arguments')
         return runs(workspace)
@@ -234,7 +243,7 @@ async function resumeRun(workspace: string, deps: CliDeps, runId?: string): Prom
   console.log(`resuming run ${id} (${runDir})`)
   // A run from before the choice was recorded started on the fixed default.
   const unavailable = await agents({ ...state.agents, nodes: state.graph?.nodes }, deps, state.leadModel ?? DEFAULT_LEAD_MODEL)
-  printPending(state, runRef(workspace, id))
+  for (const line of waitingLines(runStatus(workspace, id, runDir).waiting, runRef(workspace, id))) console.log(line)
   const printEvent = printer(events, () => runRef(workspace, id))
   let outcome: SupervisorOutcome | undefined
   try {
@@ -256,14 +265,9 @@ function printEnd(id: string, runDir: string): void {
     if (lockHolder(runDir) !== undefined) return
     const state = fold(readEvents(runDir))
     const result = resultOf(state, runDir)
-    if (result) console.log(`result: ${result}`)
+    if (result) console.log(`result: ${resultText(result)}`)
     if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
   } catch {}
-}
-
-function resultOf(state: RunState, runDir: string): string | undefined {
-  if (state.mode === 'folder') return existsSync(join(runDir, 'output')) ? `folder ${join(runDir, 'output')}` : undefined
-  return state.integration && `branch ${state.integration.branch}`
 }
 
 /** Check which agents can run, once per run start, and print it, with the model each lead agent runs on (`leadModel`:
@@ -314,10 +318,6 @@ const approvalText = (gate: string, body: string, r: string) =>
 
 const splitApprovalText = (lead: string, body: string, r: string) =>
   `${body}\nApprove with: sous approve ${lead}${r}, or give ${lead} changes with: sous answer ${lead} "<changes>"${r}`
-
-/** How `sous answer`, `approve` and `cancel` name run `id` in the commands sous prints: by its id when the workspace has
- * more than one run, else not at all. */
-const runRef = (workspace: string, id: string) => (listRuns(workspace).ids.length > 1 ? ` ${id}` : '')
 
 function printEvent(e: Event): void {
   const time = e.at.slice(11, 19)
@@ -381,42 +381,19 @@ async function exportRun(format: 'atif' | 'otlp', workspace: string, deps: CliDe
   return 0
 }
 
-function status(workspace: string, runId?: string): number {
+function status(workspace: string, runId?: string, json?: boolean): number {
   const { id, runDir } = findRun(workspace, runId)
-  const events = readEvents(runDir)
-  const state = fold(events)
-  const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
-  console.log(`run ${id} ${live}: ${firstLine(state.goal)}`)
-  if (state.reason) console.log(`  ${oneLine(state.reason)}`)
-  const result = resultOf(state, runDir)
-  if (result) console.log(`  result: ${result}`)
-  const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
-  // A running turn's age and the age of its last output (its output file's last change), so a hung turn shows.
-  const now = Date.now()
-  const startedAt = new Map(events.flatMap((e) => (e.type === 'turn.started' ? [[`${e.node} ${e.turn}`, Date.parse(e.at)]] : [])))
-  const running = (n: NodeState) => {
-    const t = n.turns.at(-1)
-    if (live !== 'running' || !t || t.ended) return ''
-    let output = 'no output yet'
-    try {
-      const out = statSync(resolve(runDir, t.outFile))
-      if (out.size) output = `last output ${duration(now - out.mtimeMs)} ago`
-    } catch {}
-    return ` (turn ${t.number} running for ${duration(now - startedAt.get(`${n.spec.id} ${t.number}`)!)}, ${output})`
-  }
-  const print = (n: NodeState, depth: number) => {
-    const turns = n.turns.length ? ` turns ${n.turns.length}` : ''
-    const agent = n.turns.findLast((t) => t.agent)?.agent ?? n.spec.agent
-    console.log(`${'  '.repeat(depth)}${n.spec.id} ${n.status}${agent ? ` on ${agent}` : ''}${turns}${running(n)}${lastSummary(n)}`)
-    for (const c of children(n.spec.id)) print(c, depth + 1)
-  }
-  for (const n of children(undefined)) print(n, 1)
-  printPending(state, runRef(workspace, id))
-  const refused = events.flatMap((e) => (e.type === 'command.refused' ? [e] : [])).slice(-3)
-  if (refused.length) console.log('commands not applied (latest last):')
-  for (const e of refused) console.log(`  ${e.at.slice(11, 19)} ${oneLine(e.reason)}`)
-  if (live === 'stopped') console.log(`continue it with: sous resume ${id}`)
+  const s = runStatus(workspace, id, runDir)
+  console.log(json ? JSON.stringify(s, null, 2) : statusText(s, runRef(workspace, id)))
   return 0
+}
+
+/** Block until the run needs the person or is over (or the timeout); the exit code says which (WAIT_EXIT_CODES). */
+async function wait(workspace: string, runId?: string, timeoutSeconds?: number, json?: boolean): Promise<number> {
+  const { id, runDir } = findRun(workspace, runId)
+  const w = await waitRun(workspace, id, runDir, timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000)
+  console.log(json ? JSON.stringify(w, null, 2) : waitText(w, runRef(workspace, id), timeoutSeconds))
+  return WAIT_EXIT_CODES[w.wait]
 }
 
 /** The workspace's runs, newest first. */
@@ -433,29 +410,13 @@ function runs(workspace: string): number {
         continue
       }
       const state = fold(events)
-      const live = state.status === 'running' && lockHolder(runDir) === undefined ? 'stopped' : state.status
+      const live = liveStatus(runDir, state)
       console.log(`${id}  ${live.padEnd(9)}  ${events[0].at.slice(0, 19)}Z  ${firstLine(state.goal)}`)
     } catch (err) {
       console.log(`${id}  unreadable  ${oneLine((err as Error).message)}`)
     }
   }
   return 0
-}
-
-/** Questions, gate approvals and proposed splits waiting for the person; `r` names the run in the commands (`runRef`). */
-function printPending(state: RunState, r: string): void {
-  const open = state.questions.filter((q) => !isFinal(state.nodes.get(q.from)))
-  const isGate = (q: { from: string }) => state.nodes.get(q.from)?.spec.kind === 'gate'
-  const isSplit = (q: { from: string }) => awaitsSplitApproval(state.nodes.get(q.from)!)
-  const questions = open.filter((q) => !isGate(q) && !isSplit(q))
-  const gates = open.filter(isGate)
-  const splits = open.filter(isSplit)
-  if (questions.length) console.log(`questions for you (sous answer <node> "<answer>"${r}):`)
-  for (const q of questions) console.log(`  ${q.from}: ${oneLine(q.body)}`)
-  if (gates.length) console.log(`approvals for you (sous approve <node>${r}, or sous cancel <node>${r} to reject):`)
-  for (const q of gates) console.log(`  ${q.from}: ${oneLine(q.body)}`)
-  if (splits.length) console.log(`splits for you to approve (sous approve <lead>${r}, or sous answer <lead> "<changes>"${r}):`)
-  for (const q of splits) console.log(`  ${q.from}: ${oneLine(q.body)}`)
 }
 
 /** Hand a person's answer, approval or cancel to a running run's supervisor through a command file: run `runId`, or
@@ -479,36 +440,6 @@ function runningRun(workspace: string, command: string): { id: string; runDir: s
   if (!newest) throw new Error(`no runs in ${runsDir}`)
   const status = fold(readEvents(join(runsDir, newest))).status
   throw new Error(`no run is running in ${runsDir}; the newest, ${newest}, is ${status === 'running' ? `stopped (continue it with sous resume ${newest})` : status}`)
-}
-
-function lastSummary(n: NodeState): string {
-  const text = n.reason ?? (n.failedChecks?.length ? completedText(n) : undefined) ?? n.turns.findLast((t) => t.result)?.result?.summary ?? n.summary ??
-    (n.checks.length ? lastLine(n.checks[n.checks.length - 1].output) : undefined)
-  return text ? `: ${oneLine(text)}` : ''
-}
-
-/** A duration as 45s, 3m 05s or 2h 05m. */
-function duration(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
-}
-
-function lastLine(output: string): string {
-  return output.trimEnd().split('\n').at(-1) ?? ''
-}
-
-/** The first line of a multi-line text, marked as cut when more follows. */
-function firstLine(text: string): string {
-  const [first, ...rest] = text.trim().split('\n')
-  return oneLine(rest.length ? `${first}...` : first)
-}
-
-function oneLine(text: string): string {
-  const line = text.replace(/\s+/g, ' ').trim()
-  return line.length > 160 ? line.slice(0, 157) + '...' : line
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
