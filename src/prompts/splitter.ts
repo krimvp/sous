@@ -1,6 +1,6 @@
 // The splitter's prompts: its role, its first prompt, and each request for a split.
+import { RUNTIMES } from '../contracts/index.ts'
 import type { NodeSpec, RunMode } from '../contracts/index.ts'
-import { RUNTIMES } from '../definitions/index.ts'
 import type { childAgents } from '../definitions/index.ts'
 import type { InboxMessage } from '../run/index.ts'
 import { agentNames, folderPaths, kinds, list, messages, RESULT, standing } from './shared.ts'

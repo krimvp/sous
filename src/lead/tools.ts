@@ -3,9 +3,8 @@ import { StringEnum, Type } from '@earendil-works/pi-ai'
 import type { TSchema } from '@earendil-works/pi-ai'
 import { defineExtension, defineTool, section } from '@earendil-works/pi-durable'
 import type { Extension } from '@earendil-works/pi-durable'
-import { MAX_CHILDREN, MAX_ENTRIES, MAX_READ, ROLES } from '../contracts/index.ts'
+import { CHILD_KINDS, MAX_CHILDREN, MAX_ENTRIES, MAX_READ, ROLES, RUNTIMES } from '../contracts/index.ts'
 import type { LeadCall, LeadHost, LeadRead } from '../contracts/index.ts'
-import { RUNTIMES } from '../definitions/index.ts'
 
 const strict = { additionalProperties: false }
 const NewAgent = Type.Object({
@@ -16,7 +15,7 @@ const NewAgent = Type.Object({
 }, strict)
 const Child = Type.Object({
   id: Type.String({ description: 'Unique id for the child in the whole run, e.g. "api-tests"' }),
-  kind: StringEnum(['work', 'check', 'lead', 'gate'] as const, {
+  kind: StringEnum(CHILD_KINDS, {
     description: 'work: an agent does it; check: a shell command; lead: splits further; gate: the person must approve before dependants start',
   }),
   brief: Type.Optional(Type.String({ description: 'What to do, self-contained (work, lead), or what the person approves (gate)' })),

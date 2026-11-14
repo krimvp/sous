@@ -1,7 +1,7 @@
 // The texts delivered to leads: the brief, children's outcomes and messages, retries and reminders, and the person's
 // approval request for a proposed split.
+import { RUNTIMES } from '../contracts/index.ts'
 import type { ChildSpec, ModelLimits, NodeSpec, RunMode } from '../contracts/index.ts'
-import { RUNTIMES } from '../definitions/index.ts'
 import type { childAgents } from '../definitions/index.ts'
 import { completedText } from '../run/index.ts'
 import type { InboxMessage, NodeState, SplitState } from '../run/index.ts'

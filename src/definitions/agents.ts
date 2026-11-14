@@ -28,8 +28,6 @@ export interface Unavailable {
 type AgentDefs = Pick<Definitions, 'agents'> | undefined
 type Defs = Definitions | undefined
 
-/** Every runtime an agent can run on. */
-export const RUNTIMES: readonly AgentRuntime[] = [...HARNESSES, 'lead']
 const own = (record: object | undefined, key: string) => record !== undefined && Object.hasOwn(record, key)
 const providerOf = (model: string) => model.split('/')[0]
 

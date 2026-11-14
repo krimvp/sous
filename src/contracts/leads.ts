@@ -12,10 +12,14 @@ export const MAX_ENTRIES = 200
 /** The most bytes of a file one `read_file` answer holds; an offset reads on. */
 export const MAX_READ = 32 * 1024
 
+/** The kinds of child a lead may spawn. */
+export const CHILD_KINDS = ['work', 'check', 'lead', 'gate'] as const
+export type ChildKind = (typeof CHILD_KINDS)[number]
+
 /** A child a lead asks for. Its id is unique in the run; its parent is the calling lead. */
 export interface ChildSpec {
   id: string
-  kind: 'work' | 'check' | 'lead' | 'gate'
+  kind: ChildKind
   /** What to do (work, lead), or what the person approves (gate). */
   brief?: string
   command?: string

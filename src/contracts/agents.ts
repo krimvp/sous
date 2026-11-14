@@ -1,10 +1,10 @@
 // Agents and their definitions: what does a node's work, and the lead providers sous knows.
 import { HARNESSES } from './workers.ts'
-import type { HarnessName } from './workers.ts'
 import type { NodeSpec } from './nodes.ts'
 
-/** How an agent runs: a CLI harness, or an in-process durable lead. */
-export type AgentRuntime = HarnessName | 'lead'
+/** Every runtime an agent can run on: a CLI harness, or an in-process durable lead. */
+export const RUNTIMES = [...HARNESSES, 'lead'] as const
+export type AgentRuntime = (typeof RUNTIMES)[number]
 
 /** An agent: the unit that does work. The harness is only how it runs. */
 export interface AgentSpec {
@@ -17,7 +17,7 @@ export interface AgentSpec {
 
 /** Agents that exist without being defined. */
 export const BUILTIN_AGENTS: Readonly<Record<string, AgentSpec>> = Object.fromEntries(
-  [...HARNESSES, 'lead' as const].map((runs) => [runs, { runs }]),
+  RUNTIMES.map((runs) => [runs, { runs }]),
 )
 
 /** When nothing names an agent, the first available one in these lists is used. A graph that defines an

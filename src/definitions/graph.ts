@@ -1,10 +1,9 @@
 // Load and validate a graph file or an agents file for `sous run`, and lead children.
 import { readFileSync } from 'node:fs'
-import { HARNESSES, INTEGRATOR, PERSON, ROLES, ROOT } from '../contracts/index.ts'
+import { CHILD_KINDS, HARNESSES, INTEGRATOR, PERSON, ROLES, ROOT, RUNTIMES } from '../contracts/index.ts'
 import type { AgentRuntime, AgentSpec, ChildSpec, Definitions, GraphFile, NodeSpec } from '../contracts/index.ts'
-import { agentNames, agentSpec, modelError, RUNTIMES } from './agents.ts'
+import { agentNames, agentSpec, modelError } from './agents.ts'
 
-const KINDS: string[] = ['work', 'check', 'lead', 'gate']
 const DEFINITION_KEYS = ['agent', 'agents', 'models']
 const GRAPH_KEYS = ['goal', 'nodes', ...DEFINITION_KEYS]
 const AGENT_KEYS = ['runs', 'model', 'instructions']
@@ -166,7 +165,7 @@ export function childError(c: ChildSpec, used: (id: string) => boolean, siblings
 /** Why a node of a graph file or a child of a lead (`unit`) is invalid whatever the run's ids and agents, if it is: its
  * kind, the types of its fields, and the fields its kind takes or needs. */
 function shapeError(c: Record<string, any>, unit: 'node' | 'child'): string | undefined {
-  if (!KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
+  if (!CHILD_KINDS.includes(c.kind)) return 'kind must be work, check, lead or gate'
   for (const key of ['brief', 'command', 'model'] as const) if (c[key] !== undefined && typeof c[key] !== 'string') return `${key} must be a string`
   if (c.needs !== undefined) {
     if (!Array.isArray(c.needs)) return 'needs must be an array of node ids'
