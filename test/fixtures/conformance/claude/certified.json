@@ -1,8 +1,8 @@
 {
   "cli": "claude",
-  "version": "2.1.296 (Claude Code)",
+  "version": "2.1.325 (Claude Code)",
   "model": "haiku",
-  "date": "2026-10-14",
+  "date": "2026-11-14",
   "passed": [
     "reads a file with one paired tool call and ends done",
     "ends needs_input with a question",
