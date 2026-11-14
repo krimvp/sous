@@ -5,6 +5,12 @@ Add changes under Unreleased as they merge; the release PR renames that heading.
 
 ## Unreleased
 
+- A resumed Claude Code turn is no longer charged again for the turns before it: Claude's `total_cost_usd` is the
+  session's running total, which sous summed per turn (a run that cost $1.39 showed $2.09). Each turn now costs what
+  the session's total grew by, in the UI, `sous export` and the CLI; runs recorded before this keep the old figures
+  where only the log is read (the UI's run list, `sous status`). `sous status`, and `sous run`/`sous resume` when
+  the run ends, print the run's tokens and the cost reported, the same totals the UI shows: `usage: 115,414 tokens in
+  (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)`.
 - Supervisor reliability under real conditions: a lead is not reminded or abandoned while a child lead's split awaits
   the person (#88); a check ends when its command exits and what it left running is stopped (#89); the integration
   worktree is reset before each merge and after each check there, and the integrator's verification counts untracked

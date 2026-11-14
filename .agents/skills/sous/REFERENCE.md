@@ -5,7 +5,7 @@
 ```
 sous run <graph.json | "goal"> [--agents <file>] [--max-depth <n>] [--approve-splits] [--workspace <dir>]
 sous resume [run-id] [--workspace <dir>]
-sous status [run-id] [--workspace <dir>]
+sous status [run-id] [--workspace <dir>]   (the tree, pending questions, and `usage: <in> tokens in (<cached> cached), <out> out; $<x> cost reported`)
 sous runs [--workspace <dir>]   (every run, newest first: id, running/stopped/completed/failed, start, first line of the goal)
 sous answer <node> "text" [run-id] [--workspace <dir>]
 sous approve <node> [run-id] [--workspace <dir>]

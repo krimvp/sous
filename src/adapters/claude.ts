@@ -89,7 +89,8 @@ function join(a: string | undefined, b: unknown): string {
   return a ? `${a}\n${text}` : text
 }
 
-/** Claude's `input_tokens` excludes cache reads and writes; the Usage convention includes them. */
+/** Claude's `input_tokens` excludes cache reads and writes; the Usage convention includes them. Its `usage` is the turn's
+ * own, while `total_cost_usd` (like `modelUsage`) is the session's running total, earlier turns included. */
 function usageOf(event: Record<string, any>): Usage | undefined {
   const usage = event.usage
   if (!usage) return undefined
@@ -100,6 +101,6 @@ function usageOf(event: Record<string, any>): Usage | undefined {
     outputTokens: num(usage.output_tokens),
     cachedTokens: read,
     cacheWriteTokens: write,
-    ...(typeof event.total_cost_usd === 'number' ? { costUsd: event.total_cost_usd } : {}),
+    ...(typeof event.total_cost_usd === 'number' ? { sessionCostUsd: event.total_cost_usd } : {}),
   }
 }

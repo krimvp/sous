@@ -8,6 +8,7 @@ import type { HarnessName, ParsedTurn } from '../src/types.ts'
 import { exportAtif, toAtif } from '../src/trace/atif.ts'
 import { loadRun, SOUS_VERSION } from '../src/trace/run.ts'
 import { checkAtif } from './atif-checker.ts'
+import { getAdapter } from '../src/adapters/index.ts'
 
 // The fixture run: `impl` (Claude) starts, fails its acceptance check, is resumed and completes; `verify` is a
 // check node; `docs` (Codex) is interrupted and fails; the log ends in a line cut off mid-append. Parsing raw
@@ -258,4 +259,17 @@ test('a spawned work child shows the agent its turns ran on, parsed by that agen
   assert.equal(impl.agent.name, 'claude')
   assert.equal(impl.final_metrics.total_prompt_tokens, 3000)
   assert.equal(find('docs').extra.node.model, 'ollama-cloud/glm-5.3')
+})
+
+// Claude Code's `total_cost_usd` (and `modelUsage`) is the session's running total, while its `usage` is the turn's own:
+// `tests` turn 2 resumes turn 1's session, and its result reports 0.7285564, turn 1's 0.701864 plus 0.0266924 of its
+// own. The recording is a real run, cut down to the lines that carry usage.
+test('a resumed Claude turn costs what its session total grew by, not the session total again', () => {
+  const run = JSON.parse(exportAtif(join(import.meta.dirname, 'fixtures', 'claude-resume-run'), (h, raw) => getAdapter(h).parse(raw))) as Obj
+  const tests = run.subagent_trajectories.find((t: Obj) => t.trajectory_id.endsWith('/tests'))
+  const costs = tests.steps.flatMap((s: Obj) => (s.metrics?.cost_usd === undefined ? [] : [s.metrics.cost_usd]))
+  assert.deepEqual(costs.map((c: number) => c.toFixed(7)), ['0.7018640', '0.0266924'])
+  assert.equal(run.final_metrics.total_cost_usd.toFixed(7), (0.6577748 + 0.7285564).toFixed(7))
+  // Tokens are the turns' own: no running total to undo.
+  assert.equal(run.final_metrics.total_completion_tokens, 870 + 1946 + 185)
 })

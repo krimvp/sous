@@ -46,6 +46,31 @@ test('sous run completes a work then check graph and sous status shows it', asyn
   assert.match(status.output(), new RegExp(`^run ${id} completed: write a greeting\n  result: branch sous/${id}\n  write completed on claude turns 1: wrote hello.txt\n  test completed`))
 })
 
+test("sous run and sous status print the run's tokens and the cost reported, counting a resumed session's cost once", async () => {
+  const workspace = gitWorkspace('sous-cli-')
+  const graph = join(workspace, 'graph.json')
+  // `write` fails its acceptance check and is resumed; like Claude Code, its second turn reports the session's running
+  // cost (0.701864 + 0.0266924). `notes` reports no cost, as Ollama does.
+  writeFileSync(graph, JSON.stringify({
+    goal: 'write a greeting', agent: 'claude',
+    nodes: [
+      { id: 'write', kind: 'work', command: 'grep -q hello hello.txt', brief: `Write hello.txt.\n${fakePlan([
+        { write: { 'hello.txt': 'nope\n' }, result: { status: 'done', summary: 'wrote it' }, usage: { inputTokens: 75146, outputTokens: 1946, cachedTokens: 36600, sessionCostUsd: 0.701864 } },
+        { write: { 'hello.txt': 'hello\n' }, result: { status: 'done', summary: 'fixed it' }, usage: { inputTokens: 39268, outputTokens: 185, cachedTokens: 38542, sessionCostUsd: 0.7285564 } },
+      ])}` },
+      { id: 'notes', kind: 'work', brief: `Write notes.txt.\n${fakePlan([{ write: { 'notes.txt': 'n\n' }, result: { status: 'done', summary: 'wrote notes' }, usage: { inputTokens: 1000, outputTokens: 10, cachedTokens: 0 } }])}` },
+    ],
+  }))
+  const sessions = join(workspace, 'sessions')
+  const run = sous(['run', graph], workspace, sessions)
+  assert.equal(await run.exit, 0, run.output())
+  const line = 'usage: 115,414 tokens in (75,142 cached), 2,141 out; $0.73 cost reported (1 turn reported no cost)'
+  assert.match(run.output(), new RegExp(`\nresult: branch [^\n]+\n${line.replace(/[$().]/g, '\\$&')}\n$`))
+  const status = sous(['status'], workspace, sessions)
+  assert.equal(await status.exit, 0)
+  assert.match(status.output(), new RegExp(`^run \\S+ completed: write a greeting\n  result: branch [^\n]+\n  ${line.replace(/[$().]/g, '\\$&')}\n  write completed`))
+})
+
 test('sous run checks the agents on PATH: a node without an agent falls back to the first available worker', async () => {
   const workspace = gitWorkspace('sous-cli-')
   const graph = join(workspace, 'graph.json')

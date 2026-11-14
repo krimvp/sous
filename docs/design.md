@@ -658,6 +658,10 @@ passed on Claude Code 2.1.296, Codex 0.160.0 and Pi 0.80.6. What the spike estab
   (Claude), `turn.completed` (Codex) and `agent_end` (Pi).
 - **Prompts go on stdin.** Claude's `--allowedTools <tools...>` is variadic and swallows a positional
   prompt. Codex reads stdin when it is not a TTY, so give it `</dev/null` or the prompt.
+- **Claude's cost is a session total.** A `result` event's `usage` is the turn's own, but its `total_cost_usd` (and
+  `modelUsage`) is the running total of the session, earlier turns included: a resumed turn that used 39k tokens
+  reported $0.73, its first turn's $0.70 plus $0.03 of its own. The adapter records it as `sessionCostUsd`, and
+  `viewRun` gives each turn the amount the session's total grew by, so a resumed session is not paid for twice.
 - Claude `-p` runs the user's global hooks and plugins unless told otherwise; decide per adapter whether
   to isolate with `--setting-sources` and `--strict-mcp-config`.
 - Codex's `--output-schema` uses OpenAI strict mode: every property must be required, so the adapter sends
@@ -743,7 +747,10 @@ never writes: the supervisor stays the only writer, and the person's commands st
 and `cancel`.
 
 - **Same model as status and export.** A run's tree and node statuses come from `fold`, the one behind `sous status`;
-  its timing, usage and per-node events from `viewRun`, the one behind `sous export`.
+  its timing, usage and per-node events from `viewRun`, the one behind `sous export`. The run's totals (`runTokens`)
+  are the ones `sous status` and the end of `sous run` print, as `usage: <in> tokens in (<cached> cached), <out> out`
+  and the cost reported: the sum of the turns that reported one, with how many turns reported none (Ollama reports no
+  prices), so a partial sum is not read as the price.
 - **Lazy.** The run list and a run's tree come from the log alone (`loadRun` told to parse no turn file); a node's turn
   files are read and parsed with its adapter only when the node is opened, and every string the page gets is cut at
   20,000 characters, marked with how many more there were.

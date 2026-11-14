@@ -19,6 +19,7 @@ import { commandRefusal, runSupervisor } from './supervisor.ts'
 import type { PersonCommand, SupervisorOptions, SupervisorOutcome } from './supervisor.ts'
 import { exportAtif } from './trace/atif.ts'
 import { exportOtlp } from './trace/otlp.ts'
+import { logView, runTokens } from './trace/run.ts'
 import { startUi } from './ui.ts'
 import { DEFAULT_LEAD_MODEL, PERSON, SPLITTER } from './types.ts'
 import type { Definitions, Event, GraphFile, HarnessName, NodeSpec, ParsedTurn } from './types.ts'
@@ -257,8 +258,21 @@ function printEnd(id: string, runDir: string): void {
     const state = fold(readEvents(runDir))
     const result = resultOf(state, runDir)
     if (result) console.log(`result: ${result}`)
+    const usage = state.status === 'running' ? undefined : usageLine(runDir)
+    if (usage) console.log(usage)
     if (state.status === 'running') console.log(`stopped; continue with: sous resume ${id}`)
   } catch {}
+}
+
+/** The run's tokens and the cost its harnesses reported, from the log alone, as the UI totals them; nothing when no turn
+ * recorded usage. A cost is only what was reported: the turns that reported none are counted, not priced. */
+function usageLine(runDir: string): string | undefined {
+  const t = runTokens(logView(runDir))
+  if (t.costUsd === undefined && !t.unpriced) return undefined
+  const n = (x: number) => x.toLocaleString('en-US')
+  const unpriced = t.unpriced ? ` (${t.unpriced} turn${t.unpriced === 1 ? '' : 's'} reported no cost)` : ''
+  const cost = t.costUsd === undefined ? 'no cost reported' : `$${t.costUsd.toFixed(t.costUsd < 0.01 ? 4 : 2)} cost reported${unpriced}`
+  return `usage: ${n(t.input)} tokens in (${n(t.cached)} cached), ${n(t.output)} out; ${cost}`
 }
 
 function resultOf(state: RunState, runDir: string): string | undefined {
@@ -390,6 +404,8 @@ function status(workspace: string, runId?: string): number {
   if (state.reason) console.log(`  ${oneLine(state.reason)}`)
   const result = resultOf(state, runDir)
   if (result) console.log(`  result: ${result}`)
+  const usage = usageLine(runDir)
+  if (usage) console.log(`  ${usage}`)
   const children = (parent?: string) => [...state.nodes.values()].filter((n) => n.spec.parent === parent)
   // A running turn's age and the age of its last output (its output file's last change), so a hung turn shows.
   const now = Date.now()
