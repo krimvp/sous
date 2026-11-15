@@ -264,5 +264,5 @@ lead may do the same for a child lead, naming an agent you defined); its sub-lea
 - **Permissions.** Workers run with full permissions in their worktree or folder, as you, with a shell, your files and
   your network. So a worker, or anything it runs, can also write the run's command files, where `sous answer`,
   `approve` and `cancel` put yours: an approval of a gate or a split, an answer or a cancel can be forged. Until
-  workers are sandboxed ([#43](https://github.com/krimvp/sous/issues/43)), a gate protects only as far as you trust the
+  workers are sandboxed, a gate protects only as far as you trust the
   agents you run.

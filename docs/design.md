@@ -38,7 +38,7 @@ This document is the reference for contributors. It uses "the person" for the hu
 No sandbox (workers run as the user's own CLIs, in a git worktree or their own folder), no multi-host execution,
 no remote pushes or PRs, no merging into the person's branch and no automatic cleanup (`sous clean` is run by the
 person), no message service. These can come later behind the seams below. The UI (`sous ui`) only
-reads runs for now; steering a run from it is #60.
+reads runs for now; steering a run from it comes later.
 
 sous focuses on trees that leads grow at runtime. Fixed graph files also run: they test the engine without a lead,
 and they fix the steps around leads when the person wants that.
@@ -462,7 +462,7 @@ by person"; `sous cancel <gate>` rejects it (it fails as cancelled, so nodes tha
 told). A gate takes no messages, and a lead waiting only on a gate (or on a child lead whose split awaits the person's
 approval) is not reminded. Nothing checks who wrote a command file: workers run as the person with full permissions
 and get `SOUS_RUN_DIR`, so a worker, or anything it runs, can write one too and approve a gate or a split, answer as
-the person or cancel a node. Until workers are sandboxed (#43), a gate protects only as far as the person trusts the
+the person or cancel a node. Until workers are sandboxed, a gate protects only as far as the person trusts the
 run's agents.
 
 **Completion.** A run whose top-level nodes include a lead completes when every top-level node completes; with
@@ -1068,7 +1068,7 @@ strip types from files under `node_modules`, so `npm pack`/`npm publish` first b
 | **v4** (done) | Agents leads define on runtimes the run lists `models` for; model limits; `--agents` for goal runs; `--max-depth` | a lead defines an agent in a real run, and its worker runs with that agent's model and instructions |
 | **v5** (done) | The splitter: an agent that proposes each lead's split; `--approve-splits`; roles per subtree | in a real run a splitter on a CLI harness reads the code, proposes a split, and the lead spawns it |
 | **v6** (done) | Worker messages: `send` to a sibling or the lead and `receive` within a turn, through sous's MCP server or `sous send`/`receive`; workers load no other MCP server and little of the person's own setup | in a real run two workers on different harnesses settle an interface with `send`, and the lead sees every message |
-| **v7** (in progress) | `sous ui`: a local viewer for live and finished runs (#59); then steering (#60), replay and comparison (#61) | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
+| **v7** (in progress) | `sous ui`: a local viewer for live and finished runs; then steering, replay and comparison | a person follows a real run live and reads a lead's decisions and a worker's trajectory from the page |
 | **v8** (done) | Folder mode (no git needed); leads read files before splitting; task-neutral briefs; outcomes name files | a folder-mode run in a directory without git collects its children's files into the output folder |
 | **v9** (done, not yet run live) | Cost budgets (`--max-cost`) on the reported cost; a small default model for workers (`DEFAULT_WORKER_MODELS`) | a run at its budget stops resumable, refuses `resume` without a higher budget, and continues with one without repeating a turn (fake-harness tests) |
 | **v10** (done) | Leads on a CLI harness, on its login: `TurnSpec.lead`, `LeadResult` applied after the turn; `LEAD_HARNESSES` from certification; the built-in lead falls back to a lead-certified harness without a lead credential (Claude Code certified; Codex implemented, not certified; Pi and Droid have no lead mode) | a real `sous run "goal"` with no lead credential in the environment completes with its lead on Claude Code, and the Claude certification passes the lead tests |
@@ -1183,7 +1183,7 @@ fake-harness tests only.
 - Codex workers still read the person's global `~/.codex/AGENTS.md`, and Claude workers the `CLAUDE.md` files above
   the worktree; leaving them out needs a Codex option or a separate `CODEX_HOME` that shares the login safely, and
   worktrees outside the workspace.
-- Agents already running outside a run (#40). Today such an agent can act as the person (`sous answer`, `approve`,
+- Agents already running outside a run. Today such an agent can act as the person (`sous answer`, `approve`,
   `cancel`, and reading `events.jsonl`), but cannot receive deliveries without polling or do a node or a role. The
   smallest step is a bridge process that mirrors chosen events to a message service and turns its messages into
   command files, keeping the supervisor the only writer. Next would be a runtime whose turns are requests over that

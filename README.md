@@ -108,8 +108,8 @@ models, the splitter, folder mode and exports: [docs/usage.md](docs/usage.md).
 > shell, your files and your network.
 
 - **A gate protects only as far as you trust the agents.** A worker, or anything it runs, can also write the run's
-  command files and so forge an approval, an answer or a cancel. Until workers are sandboxed
-  ([#43](https://github.com/krimvp/sous/issues/43)), a gate protects you only as much as you trust the agents you run.
+  command files and so forge an approval, an answer or a cancel. Until workers are sandboxed, a gate protects
+  you only as much as you trust the agents you run.
 - **Workers see `HEAD` only.** Uncommitted changes are not in their worktrees; sous warns when there are some.
 - **An API key moves workers to API billing.** Claude Code and Codex workers inherit the environment, so an
   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` there moves them from your subscription to API billing. Such a key also moves

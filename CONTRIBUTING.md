@@ -26,7 +26,7 @@ npm install
 | `SOUS_HARNESS=<name> npm run certify` | Certifies one worker CLI against the conformance suite. This costs money. |
 | `npm pack` | Builds `dist/` and the package that `npm publish` would upload. |
 | `node scripts/diagrams.mjs` | Draws the README diagram again, as `docs/assets/how-it-works-light.svg` and `-dark.svg`. |
-| `scripts/pr-check.sh` | Runs `npm run check` and `npm pack --dry-run` on `HEAD`. The pre-push hook runs it. |
+| `scripts/pr-check.sh` | Runs `npm run check` and `npm pack --dry-run` on `HEAD`. The pre-push hook runs it. CI runs the same two commands on each pull request, on Linux and macOS (`.github/workflows/check.yml`). |
 
 ## Rules for changes
 
